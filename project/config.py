@@ -14,7 +14,32 @@ SPARSE_VECTOR_NAME = "sparse"
 # --- Model Configuration ---
 DENSE_MODEL = "sentence-transformers/all-mpnet-base-v2"
 SPARSE_MODEL = "Qdrant/bm25"
-LLM_MODEL = "qwen3:4b-instruct-2507-q4_K_M"
+
+# --- LLM Provider Configuration ---
+# 选择 LLM 提供商: "openai", "anthropic", "google", "ollama"
+LLM_PROVIDER = "openai"
+
+# 根据提供商设置对应模型和 API Key 环境变量
+LLM_CONFIGS = {
+    "openai": {
+        "model": "gpt-4o-mini",  # 或 gpt-4o, gpt-3.5-turbo
+        "api_key_env": "OPENAI_API_KEY",
+        "base_url_env": "OPENAI_API_BASE_URL",  # 可选，用于代理
+    },
+    "anthropic": {
+        "model": "claude-3-5-sonnet-20241022",  # 或 claude-3-haiku-20240307
+        "api_key_env": "ANTHROPIC_API_KEY",
+    },
+    "google": {
+        "model": "gemini-2.0-flash",  # 或 gemini-1.5-pro
+        "api_key_env": "GOOGLE_API_KEY",
+    },
+    "ollama": {
+        "model": "qwen3:4b-instruct-2507-q4_K_M",
+        "base_url": "http://localhost:11434",
+    }
+}
+
 LLM_TEMPERATURE = 0
 
 # --- Agent Configuration ---
