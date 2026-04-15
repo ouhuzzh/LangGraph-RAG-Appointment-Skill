@@ -3,6 +3,7 @@ import config
 from db.vector_db_manager import VectorDbManager
 from db.parent_store_manager import ParentStoreManager
 from document_chunker import DocumentChuncker
+from memory.redis_memory import RedisSessionMemory
 from model_factory import get_chat_model
 from rag_agent.tools import ToolFactory
 from rag_agent.graph import create_agent_graph
@@ -15,6 +16,7 @@ class RAGSystem:
         self.vector_db = VectorDbManager()
         self.parent_store = ParentStoreManager()
         self.chunker = DocumentChuncker()
+        self.session_memory = RedisSessionMemory()
         self.observability = Observability()
         self.agent_graph = None
         self.thread_id = str(uuid.uuid4())
@@ -36,8 +38,10 @@ class RAGSystem:
         return cfg
 
     def reset_thread(self):
+        old_thread_id = self.thread_id
         try:
             self.agent_graph.checkpointer.delete_thread(self.thread_id)
         except Exception as e:
             print(f"Warning: Could not delete thread {self.thread_id}: {e}")
+        self.session_memory.clear_session(old_thread_id)
         self.thread_id = str(uuid.uuid4())

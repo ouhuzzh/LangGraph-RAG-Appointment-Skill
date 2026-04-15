@@ -44,7 +44,12 @@ Rules:
    - Each sub-query must remain semantically equivalent to its part of the original
    - Do not expand, enrich, or reinterpret the meaning
 
-5. Failure handling:
+5. Department recommendation queries:
+   - Questions such as "which department should I visit?", "what department should I register for?", or equivalent Chinese queries like "挂什么科/看什么科/挂哪个科" are clear enough for retrieval
+   - Treat these as clear even if they do not include age, severity, or extra demographic details
+   - Rewrite them into self-contained retrieval queries instead of asking for clarification unless the question is truly unintelligible
+
+6. Failure handling:
    - If the query intent is unclear or unintelligible, mark as "unclear"
 
 Input:

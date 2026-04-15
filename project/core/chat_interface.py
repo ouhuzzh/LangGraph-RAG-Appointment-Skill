@@ -109,6 +109,13 @@ class ChatInterface:
             response_messages.append(make_message(""))
         response_messages[-1]["content"] += chunk.content
 
+    @staticmethod
+    def _extract_final_assistant_text(response_messages):
+        for message in reversed(response_messages):
+            if message.get("role") == "assistant" and "metadata" not in message and message.get("content", "").strip():
+                return message["content"].strip()
+        return ""
+
     def chat(self, message, history):
         """Generator that streams Gradio chat message dicts."""
         if not self.rag_system.agent_graph:
@@ -117,13 +124,19 @@ class ChatInterface:
 
         config        = self.rag_system.get_config()
         current_state = self.rag_system.agent_graph.get_state(config)
+        thread_id     = self.rag_system.thread_id
+        user_message  = message.strip()
 
         try:
             if current_state.next:
-                self.rag_system.agent_graph.update_state(config, {"messages": [HumanMessage(content=message.strip())]})
+                self.rag_system.agent_graph.update_state(config, {"messages": [HumanMessage(content=user_message)]})
                 stream_input = None
             else:
-                stream_input = {"messages": [HumanMessage(content=message.strip())]}
+                graph_values = getattr(current_state, "values", {}) or {}
+                stored_messages = []
+                if not graph_values.get("messages"):
+                    stored_messages = self.rag_system.session_memory.get_recent_messages(thread_id)
+                stream_input = {"messages": [*stored_messages, HumanMessage(content=user_message)]}
 
             response_messages  = []
             active_tool_calls  = {}
@@ -145,6 +158,10 @@ class ChatInterface:
                     self._handle_llm_token(chunk, node, response_messages)
 
                 yield response_messages
+
+            final_assistant = self._extract_final_assistant_text(response_messages)
+            if final_assistant:
+                self.rag_system.session_memory.append_exchange(thread_id, user_message, final_assistant)
 
         except Exception as e:
             yield f"❌ Error: {str(e)}"

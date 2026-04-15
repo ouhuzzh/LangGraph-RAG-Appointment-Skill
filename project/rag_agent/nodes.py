@@ -7,6 +7,25 @@ from .prompts import *
 from utils import estimate_context_tokens
 from config import BASE_TOKEN_THRESHOLD, TOKEN_GROWTH_FACTOR
 
+
+def _looks_like_department_question(query: str) -> bool:
+    normalized = (query or "").strip().lower()
+    patterns = [
+        "挂什么科",
+        "挂哪个科",
+        "看什么科",
+        "看哪个科",
+        "挂哪科",
+        "看哪科",
+        "咨询什么科",
+        "consult which department",
+        "which department",
+        "what department should i visit",
+        "what department should i register for",
+    ]
+    return any(pattern in normalized for pattern in patterns)
+
+
 def summarize_history(state: State, llm):
     if len(state["messages"]) < 4:
         return {"conversation_summary": ""}
@@ -30,15 +49,25 @@ def summarize_history(state: State, llm):
 def rewrite_query(state: State, llm):
     last_message = state["messages"][-1]
     conversation_summary = state.get("conversation_summary", "")
+    user_query = str(last_message.content).strip()
 
-    context_section = (f"Conversation Context:\n{conversation_summary}\n" if conversation_summary.strip() else "") + f"User Query:\n{last_message.content}\n"
+    context_section = (f"Conversation Context:\n{conversation_summary}\n" if conversation_summary.strip() else "") + f"User Query:\n{user_query}\n"
 
     llm_with_structure = llm.with_config(temperature=0.1).with_structured_output(QueryAnalysis)
     response = llm_with_structure.invoke([SystemMessage(content=get_rewrite_query_prompt()), HumanMessage(content=context_section)])
 
     if response.questions and response.is_clear:
         delete_all = [RemoveMessage(id=m.id) for m in state["messages"] if not isinstance(m, SystemMessage)]
-        return {"questionIsClear": True, "messages": delete_all, "originalQuery": last_message.content, "rewrittenQuestions": response.questions}
+        return {"questionIsClear": True, "messages": delete_all, "originalQuery": user_query, "rewrittenQuestions": response.questions}
+
+    if _looks_like_department_question(user_query):
+        delete_all = [RemoveMessage(id=m.id) for m in state["messages"] if not isinstance(m, SystemMessage)]
+        return {
+            "questionIsClear": True,
+            "messages": delete_all,
+            "originalQuery": user_query,
+            "rewrittenQuestions": [user_query],
+        }
 
     clarification = response.clarification_needed if response.clarification_needed and len(response.clarification_needed.strip()) > 10 else "I need more information to understand your question."
     return {"questionIsClear": False, "messages": [AIMessage(content=clarification)]}

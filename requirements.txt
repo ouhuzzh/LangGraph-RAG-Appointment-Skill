@@ -99,6 +99,7 @@ qdrant-client==1.16.2
 regex==2025.11.3
 requests==2.32.5
 requests-toolbelt==1.0.0
+redis==5.2.1
 rich==14.2.0
 safehttpx==0.1.7
 safetensors==0.7.0
