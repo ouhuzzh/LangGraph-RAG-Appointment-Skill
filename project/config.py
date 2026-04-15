@@ -6,6 +6,7 @@ _BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 MARKDOWN_DIR = os.path.join(_BASE_DIR, "markdown_docs")
 PARENT_STORE_PATH = os.path.join(_BASE_DIR, "parent_store")
 QDRANT_DB_PATH = os.path.join(_BASE_DIR, "qdrant_db")
+VECTOR_DIMENSION = int(os.environ.get("VECTOR_DIMENSION", "1024"))
 
 # --- Qdrant Configuration ---
 CHILD_COLLECTION = "document_child_chunks"
@@ -33,6 +34,13 @@ OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 # Backward-compatible aliases used by the current vector layer.
 DENSE_MODEL = EMBEDDING_MODEL
 SPARSE_MODEL = os.environ.get("SPARSE_MODEL", "Qdrant/bm25")
+
+# --- PostgreSQL Configuration ---
+POSTGRES_HOST = os.environ.get("POSTGRES_HOST", "localhost")
+POSTGRES_PORT = int(os.environ.get("POSTGRES_PORT", "5432"))
+POSTGRES_DB = os.environ.get("POSTGRES_DB", "ai_companion")
+POSTGRES_USER = os.environ.get("POSTGRES_USER", "postgres")
+POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "")
 
 # --- Agent Configuration ---
 MAX_TOOL_CALLS = 8

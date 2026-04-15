@@ -1,48 +1,158 @@
+import json
 import config
+import psycopg
+from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
-from langchain_qdrant import QdrantVectorStore, FastEmbedSparse, RetrievalMode
-from qdrant_client import QdrantClient
-from qdrant_client.http import models as qmodels
 from model_factory import get_embedding_model
 
+
+def _vector_literal(values):
+    return "[" + ",".join(f"{float(v):.8f}" for v in values) + "]"
+
+
+class PgVectorCollection:
+    def __init__(self, conninfo: str, embeddings: Embeddings):
+        self._conninfo = conninfo
+        self._embeddings = embeddings
+
+    def _connect(self):
+        return psycopg.connect(self._conninfo)
+
+    def _get_document_id(self, cur, metadata):
+        source_name = metadata.get("source", "unknown.pdf")
+        document_no = source_name.rsplit(".", 1)[0]
+        cur.execute(
+            """
+            SELECT id FROM documents WHERE document_no = %s
+            """,
+            (document_no,),
+        )
+        row = cur.fetchone()
+        if not row:
+            cur.execute(
+                """
+                INSERT INTO documents (document_no, title, source_name, file_type, metadata)
+                VALUES (%s, %s, %s, %s, %s::jsonb)
+                ON CONFLICT (document_no)
+                DO UPDATE SET updated_at = NOW()
+                RETURNING id
+                """,
+                (
+                    document_no,
+                    source_name,
+                    source_name,
+                    source_name.rsplit(".", 1)[-1].lower() if "." in source_name else "pdf",
+                    json.dumps({"source": source_name}, ensure_ascii=False),
+                ),
+            )
+            row = cur.fetchone()
+        return row[0]
+
+    def add_documents(self, documents):
+        if not documents:
+            return
+
+        texts = [doc.page_content for doc in documents]
+        embeddings = self._embeddings.embed_documents(texts)
+
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                for index, (doc, embedding) in enumerate(zip(documents, embeddings)):
+                    metadata = dict(doc.metadata)
+                    chunk_id = metadata.get("chunk_id") or f"{metadata.get('parent_id', 'chunk')}_child_{index}"
+                    document_id = self._get_document_id(cur, metadata)
+                    cur.execute(
+                        """
+                        INSERT INTO child_chunks (
+                            chunk_id, parent_id, document_id, chunk_index, content,
+                            token_count, department, metadata, embedding
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, CAST(%s AS vector))
+                        ON CONFLICT (chunk_id)
+                        DO UPDATE SET
+                            parent_id = EXCLUDED.parent_id,
+                            document_id = EXCLUDED.document_id,
+                            chunk_index = EXCLUDED.chunk_index,
+                            content = EXCLUDED.content,
+                            token_count = EXCLUDED.token_count,
+                            department = EXCLUDED.department,
+                            metadata = EXCLUDED.metadata,
+                            embedding = EXCLUDED.embedding
+                        """,
+                        (
+                            chunk_id,
+                            metadata.get("parent_id"),
+                            document_id,
+                            metadata.get("chunk_index", index),
+                            doc.page_content,
+                            len(doc.page_content),
+                            metadata.get("department"),
+                            json.dumps(metadata, ensure_ascii=False),
+                            _vector_literal(embedding),
+                        ),
+                    )
+            conn.commit()
+
+    def similarity_search(self, query, k=4, score_threshold=None):
+        query_embedding = self._embeddings.embed_query(query)
+        fetch_limit = max(k * 3, k)
+
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        content,
+                        metadata,
+                        1 - (embedding <=> CAST(%s AS vector)) AS score
+                    FROM child_chunks
+                    ORDER BY embedding <=> CAST(%s AS vector)
+                    LIMIT %s
+                    """,
+                    (_vector_literal(query_embedding), _vector_literal(query_embedding), fetch_limit),
+                )
+                rows = cur.fetchall()
+
+        results = []
+        for content, metadata, score in rows:
+            score_value = float(score)
+            if score_threshold is not None and score_value < score_threshold:
+                continue
+            meta = dict(metadata or {})
+            meta["score"] = score_value
+            results.append(Document(page_content=content, metadata=meta))
+            if len(results) >= k:
+                break
+        return results
+
+
 class VectorDbManager:
-    __client: QdrantClient
-    __dense_embeddings: Embeddings
-    __sparse_embeddings: FastEmbedSparse
     def __init__(self):
-        self.__client = QdrantClient(path=config.QDRANT_DB_PATH)
+        self.__conninfo = (
+            f"host={config.POSTGRES_HOST} "
+            f"port={config.POSTGRES_PORT} "
+            f"dbname={config.POSTGRES_DB} "
+            f"user={config.POSTGRES_USER} "
+            f"password={config.POSTGRES_PASSWORD}"
+        )
         self.__dense_embeddings = get_embedding_model()
-        self.__sparse_embeddings = FastEmbedSparse(model_name=config.SPARSE_MODEL)
+
+    def _connect(self):
+        return psycopg.connect(self.__conninfo)
 
     def create_collection(self, collection_name):
-        if not self.__client.collection_exists(collection_name):
-            print(f"Creating collection: {collection_name}...")
-            self.__client.create_collection(
-                collection_name=collection_name,
-                vectors_config=qmodels.VectorParams(size=len(self.__dense_embeddings.embed_query("test")), distance=qmodels.Distance.COSINE),
-                sparse_vectors_config={config.SPARSE_VECTOR_NAME: qmodels.SparseVectorParams()},
-            )
-            print(f"✓ Collection created: {collection_name}")
-        else:
-            print(f"✓ Collection already exists: {collection_name}")
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+                cur.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+            conn.commit()
+        print(f"PostgreSQL vector store ready: {collection_name}")
 
     def delete_collection(self, collection_name):
-        try:
-            if self.__client.collection_exists(collection_name):
-                print(f"Removing existing Qdrant collection: {collection_name}")
-                self.__client.delete_collection(collection_name)
-        except Exception as e:
-            print(f"Warning: could not delete collection {collection_name}: {e}")
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("TRUNCATE TABLE child_chunks RESTART IDENTITY CASCADE")
+            conn.commit()
 
-    def get_collection(self, collection_name) -> QdrantVectorStore:
-        try:
-            return QdrantVectorStore(
-                    client=self.__client,
-                    collection_name=collection_name,
-                    embedding=self.__dense_embeddings,
-                    sparse_embedding=self.__sparse_embeddings,
-                    retrieval_mode=RetrievalMode.HYBRID,
-                    sparse_vector_name=config.SPARSE_VECTOR_NAME
-                )
-        except Exception as e:
-            print(f"Unable to get collection {collection_name}: {e}")
+    def get_collection(self, collection_name):
+        return PgVectorCollection(self.__conninfo, self.__dense_embeddings)

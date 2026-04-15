@@ -148,7 +148,7 @@ CREATE TABLE IF NOT EXISTS child_chunks (
     token_count         INTEGER,
     department          VARCHAR(128),
     metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
-    embedding           VECTOR(768),
+    embedding           VECTOR(1024),
     tsv                 tsvector,
     created_at          TIMESTAMP NOT NULL DEFAULT NOW()
 );

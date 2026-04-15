@@ -1,51 +1,149 @@
-import re
 import json
 import config
-from utils import clear_directory_contents
 from pathlib import Path
 from typing import List, Dict
+import psycopg
+
 
 class ParentStoreManager:
-    __store_path: Path
+    def __init__(self):
+        self._conninfo = (
+            f"host={config.POSTGRES_HOST} "
+            f"port={config.POSTGRES_PORT} "
+            f"dbname={config.POSTGRES_DB} "
+            f"user={config.POSTGRES_USER} "
+            f"password={config.POSTGRES_PASSWORD}"
+        )
 
-    def __init__(self, store_path=config.PARENT_STORE_PATH):
-        self.__store_path = Path(store_path) 
-        self.__store_path.mkdir(parents=True, exist_ok=True)
+    def _connect(self):
+        return psycopg.connect(self._conninfo)
+
+    @staticmethod
+    def _document_info_from_metadata(metadata: Dict) -> Dict:
+        source_name = metadata.get("source", "unknown.pdf")
+        source_path = Path(source_name)
+        document_no = source_path.stem or "unknown"
+        return {
+            "document_no": document_no,
+            "title": source_name,
+            "source_name": source_name,
+            "file_type": source_path.suffix.lstrip(".") or "pdf",
+        }
+
+    def _ensure_document(self, conn, metadata: Dict) -> int:
+        info = self._document_info_from_metadata(metadata)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO documents (document_no, title, source_name, file_type, metadata)
+                VALUES (%s, %s, %s, %s, %s::jsonb)
+                ON CONFLICT (document_no)
+                DO UPDATE SET
+                    title = EXCLUDED.title,
+                    source_name = EXCLUDED.source_name,
+                    file_type = EXCLUDED.file_type,
+                    metadata = EXCLUDED.metadata,
+                    updated_at = NOW()
+                RETURNING id
+                """,
+                (
+                    info["document_no"],
+                    info["title"],
+                    info["source_name"],
+                    info["file_type"],
+                    json.dumps({"source": info["source_name"]}, ensure_ascii=False),
+                ),
+            )
+            row = cur.fetchone()
+        return row[0]
 
     def save(self, parent_id: str, content: str, metadata: Dict) -> None:
-        file_path = self.__store_path / f"{parent_id}.json"
-        file_path.write_text(
-            json.dumps({"page_content": content,"metadata": metadata}, ensure_ascii=False, indent=2),
-            encoding="utf-8"
-        )
-    
+        with self._connect() as conn:
+            document_id = self._ensure_document(conn, metadata)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO parent_chunks (parent_id, document_id, title, department, content, metadata)
+                    VALUES (%s, %s, %s, %s, %s, %s::jsonb)
+                    ON CONFLICT (parent_id)
+                    DO UPDATE SET
+                        document_id = EXCLUDED.document_id,
+                        title = EXCLUDED.title,
+                        department = EXCLUDED.department,
+                        content = EXCLUDED.content,
+                        metadata = EXCLUDED.metadata
+                    """,
+                    (
+                        parent_id,
+                        document_id,
+                        metadata.get("H1") or metadata.get("H2") or metadata.get("H3") or metadata.get("source"),
+                        metadata.get("department"),
+                        content,
+                        json.dumps(metadata, ensure_ascii=False),
+                    ),
+                )
+            conn.commit()
+
     def save_many(self, parents: List) -> None:
-        for parent_id, doc in parents:
-            self.save(parent_id, doc.page_content, doc.metadata)
+        if not parents:
+            return
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                for parent_id, doc in parents:
+                    document_id = self._ensure_document(conn, doc.metadata)
+                    cur.execute(
+                        """
+                        INSERT INTO parent_chunks (parent_id, document_id, title, department, content, metadata)
+                        VALUES (%s, %s, %s, %s, %s, %s::jsonb)
+                        ON CONFLICT (parent_id)
+                        DO UPDATE SET
+                            document_id = EXCLUDED.document_id,
+                            title = EXCLUDED.title,
+                            department = EXCLUDED.department,
+                            content = EXCLUDED.content,
+                            metadata = EXCLUDED.metadata
+                        """,
+                        (
+                            parent_id,
+                            document_id,
+                            doc.metadata.get("H1") or doc.metadata.get("H2") or doc.metadata.get("H3") or doc.metadata.get("source"),
+                            doc.metadata.get("department"),
+                            doc.page_content,
+                            json.dumps(doc.metadata, ensure_ascii=False),
+                        ),
+                    )
+            conn.commit()
 
     def load(self, parent_id: str) -> Dict:
-        file_path = self.__store_path / (
-            parent_id if parent_id.lower().endswith(".json") else f"{parent_id}.json"
-        )
-        return json.loads(file_path.read_text(encoding="utf-8"))
-    
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT content, metadata
+                    FROM parent_chunks
+                    WHERE parent_id = %s
+                    """,
+                    (parent_id,),
+                )
+                row = cur.fetchone()
+        if not row:
+            raise FileNotFoundError(f"Parent chunk not found: {parent_id}")
+        return {"page_content": row[0], "metadata": row[1] or {}}
+
     def load_content(self, parent_id: str) -> Dict:
         data = self.load(parent_id)
         return {
-                "content": data["page_content"],
-                "parent_id": parent_id,
-                "metadata": data["metadata"]
-            }
-
-    @staticmethod
-    def _get_sort_key(id_str):
-        match = re.search(r'_parent_(\d+)$', id_str)
-        return int(match.group(1)) if match else 0
+            "content": data["page_content"],
+            "parent_id": parent_id,
+            "metadata": data["metadata"],
+        }
 
     def load_content_many(self, parent_ids: List[str]) -> List[Dict]:
-        unique_ids = set(parent_ids)
-        return [self.load_content(pid) for pid in sorted(unique_ids, key=self._get_sort_key)]
-    
+        unique_ids = list(dict.fromkeys(parent_ids))
+        return [self.load_content(pid) for pid in unique_ids]
+
     def clear_store(self) -> None:
-        self.__store_path.mkdir(parents=True, exist_ok=True)
-        clear_directory_contents(self.__store_path)
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("TRUNCATE TABLE parent_chunks, documents RESTART IDENTITY CASCADE")
+            conn.commit()

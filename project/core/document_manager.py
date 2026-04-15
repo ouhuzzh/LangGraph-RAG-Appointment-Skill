@@ -45,9 +45,9 @@ class DocumentManager:
                     skipped += 1
                     continue
                 
+                self.rag_system.parent_store.save_many(parent_chunks)
                 collection = self.rag_system.vector_db.get_collection(self.rag_system.collection_name)
                 collection.add_documents(child_chunks)
-                self.rag_system.parent_store.save_many(parent_chunks)
                 
                 added += 1
                 
@@ -66,6 +66,6 @@ class DocumentManager:
         self.markdown_dir.mkdir(parents=True, exist_ok=True)
         clear_directory_contents(self.markdown_dir)
         
-        self.rag_system.parent_store.clear_store()
         self.rag_system.vector_db.delete_collection(self.rag_system.collection_name)
+        self.rag_system.parent_store.clear_store()
         self.rag_system.vector_db.create_collection(self.rag_system.collection_name)
