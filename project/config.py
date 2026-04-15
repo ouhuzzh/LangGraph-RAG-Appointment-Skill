@@ -53,6 +53,7 @@ REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 REDIS_DB = int(os.environ.get("REDIS_DB", "0"))
 REDIS_TTL_SECONDS = int(os.environ.get("REDIS_TTL_SECONDS", "86400"))
 SHORT_TERM_WINDOW_SIZE = int(os.environ.get("SHORT_TERM_WINDOW_SIZE", "8"))
+SUMMARY_REFRESH_THRESHOLD = int(os.environ.get("SUMMARY_REFRESH_THRESHOLD", "6"))
 
 # --- Agent Configuration ---
 MAX_TOOL_CALLS = 8

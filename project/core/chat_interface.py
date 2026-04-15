@@ -1,5 +1,6 @@
 import json
 import re
+import config
 from langchain_core.messages import HumanMessage, AIMessageChunk, ToolMessage
 
 SILENT_NODES = {"rewrite_query"}
@@ -135,7 +136,11 @@ class ChatInterface:
                 graph_values = getattr(current_state, "values", {}) or {}
                 stored_messages = []
                 if not graph_values.get("messages"):
+                    self.rag_system.summary_store.ensure_session(thread_id)
                     stored_messages = self.rag_system.session_memory.get_recent_messages(thread_id)
+                    long_term_summary = self.rag_system.summary_store.get_summary(thread_id)
+                    if long_term_summary:
+                        graph_values["conversation_summary"] = long_term_summary
                 stream_input = {"messages": [*stored_messages, HumanMessage(content=user_message)]}
 
             response_messages  = []
@@ -162,6 +167,13 @@ class ChatInterface:
             final_assistant = self._extract_final_assistant_text(response_messages)
             if final_assistant:
                 self.rag_system.session_memory.append_exchange(thread_id, user_message, final_assistant)
+                recent_count = self.rag_system.session_memory.recent_message_count(thread_id)
+                if recent_count >= config.SUMMARY_REFRESH_THRESHOLD:
+                    latest_state = self.rag_system.agent_graph.get_state(config)
+                    latest_values = getattr(latest_state, "values", {}) or {}
+                    conversation_summary = latest_values.get("conversation_summary", "")
+                    if conversation_summary:
+                        self.rag_system.summary_store.save_summary(thread_id, conversation_summary, recent_count)
 
         except Exception as e:
             yield f"❌ Error: {str(e)}"

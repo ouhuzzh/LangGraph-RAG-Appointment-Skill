@@ -70,6 +70,9 @@ class RedisSessionMemory:
         raw = client.get(self._messages_key(thread_id))
         return self._deserialize_messages(raw)
 
+    def recent_message_count(self, thread_id: str) -> int:
+        return len(self.get_recent_messages(thread_id))
+
     def append_exchange(self, thread_id: str, user_message: str, assistant_message: str):
         client = self._get_client()
         if not client:
