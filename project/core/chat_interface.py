@@ -133,14 +133,15 @@ class ChatInterface:
                 self.rag_system.agent_graph.update_state(config, {"messages": [HumanMessage(content=user_message)]})
                 stream_input = None
             else:
-                graph_values = getattr(current_state, "values", {}) or {}
                 stored_messages = []
-                if not graph_values.get("messages"):
-                    self.rag_system.summary_store.ensure_session(thread_id)
-                    stored_messages = self.rag_system.session_memory.get_recent_messages(thread_id)
-                    long_term_summary = self.rag_system.summary_store.get_summary(thread_id)
-                    if long_term_summary:
-                        graph_values["conversation_summary"] = long_term_summary
+                self.rag_system.summary_store.ensure_session(thread_id)
+                stored_messages = self.rag_system.session_memory.get_recent_messages(thread_id)
+                long_term_summary = self.rag_system.summary_store.get_summary(thread_id)
+                if long_term_summary:
+                    self.rag_system.agent_graph.update_state(
+                        config,
+                        {"conversation_summary": long_term_summary},
+                    )
                 stream_input = {"messages": [*stored_messages, HumanMessage(content=user_message)]}
 
             response_messages  = []
