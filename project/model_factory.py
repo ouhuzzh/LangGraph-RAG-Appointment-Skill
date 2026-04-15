@@ -14,6 +14,10 @@ def _create_openai_chat(model, temperature, api_key, base_url=None):
         "model": model,
         "temperature": temperature,
         "api_key": api_key,
+        "extra_body": {
+            "enable_thinking": config.OPENAI_ENABLE_THINKING,
+            "thinking_budget": config.OPENAI_THINKING_BUDGET,
+        },
     }
     if base_url:
         kwargs["base_url"] = base_url

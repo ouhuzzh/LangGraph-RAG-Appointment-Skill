@@ -1,6 +1,7 @@
 import json
 import config
 import psycopg
+import httpx
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from model_factory import get_embedding_model
@@ -17,6 +18,43 @@ class PgVectorCollection:
 
     def _connect(self):
         return psycopg.connect(self._conninfo)
+
+    def _rerank_documents(self, query, candidates, top_n):
+        if not candidates or not config.ENABLE_RERANK or not config.RERANK_API_KEY or not config.RERANK_MODEL:
+            return candidates[:top_n]
+
+        documents = [doc.page_content for doc in candidates]
+        payload = {
+            "model": config.RERANK_MODEL,
+            "query": query,
+            "documents": documents,
+            "top_n": min(top_n, len(documents)),
+            "return_documents": False,
+        }
+        headers = {
+            "Authorization": f"Bearer {config.RERANK_API_KEY}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                response = client.post(config.RERANK_BASE_URL, headers=headers, json=payload)
+                response.raise_for_status()
+                data = response.json()
+        except Exception:
+            return candidates[:top_n]
+
+        ranked_items = data.get("results") or data.get("data") or []
+        reranked = []
+        for item in ranked_items:
+            index = item.get("index")
+            if index is None or index >= len(candidates):
+                continue
+            doc = candidates[index]
+            doc.metadata["rerank_score"] = item.get("relevance_score") or item.get("score")
+            reranked.append(doc)
+
+        return reranked or candidates[:top_n]
 
     def _get_document_id(self, cur, metadata):
         source_name = metadata.get("source", "unknown.pdf")
@@ -95,7 +133,7 @@ class PgVectorCollection:
 
     def similarity_search(self, query, k=4, score_threshold=None):
         query_embedding = self._embeddings.embed_query(query)
-        fetch_limit = max(k * 3, k)
+        fetch_limit = max(config.RERANK_FETCH_K, k)
 
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -121,9 +159,9 @@ class PgVectorCollection:
             meta = dict(metadata or {})
             meta["score"] = score_value
             results.append(Document(page_content=content, metadata=meta))
-            if len(results) >= k:
-                break
-        return results
+
+        reranked = self._rerank_documents(query, results, k)
+        return reranked[:k]
 
 
 class VectorDbManager:

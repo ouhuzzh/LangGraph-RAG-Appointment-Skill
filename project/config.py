@@ -20,9 +20,13 @@ LLM_MODEL = os.environ.get("LLM_MODEL", "Qwen/Qwen3-32B")
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-m3")
 RERANK_MODEL = os.environ.get("RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
 LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0"))
+ENABLE_RERANK = os.environ.get("ENABLE_RERANK", "true").lower() == "true"
+RERANK_FETCH_K = int(os.environ.get("RERANK_FETCH_K", "12"))
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "")
+OPENAI_ENABLE_THINKING = os.environ.get("OPENAI_ENABLE_THINKING", "false").lower() == "true"
+OPENAI_THINKING_BUDGET = int(os.environ.get("OPENAI_THINKING_BUDGET", "1024"))
 RERANK_API_KEY = os.environ.get("RERANK_API_KEY", OPENAI_API_KEY)
 RERANK_BASE_URL = os.environ.get("RERANK_BASE_URL", "https://api.siliconflow.cn/v1/rerank")
 
