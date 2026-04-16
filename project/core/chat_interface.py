@@ -1,9 +1,9 @@
 import json
 import re
 import config
-from langchain_core.messages import HumanMessage, AIMessageChunk, ToolMessage, SystemMessage
+from langchain_core.messages import HumanMessage, AIMessage, AIMessageChunk, ToolMessage, SystemMessage
 
-SILENT_NODES = {"rewrite_query"}
+SILENT_NODES = {"rewrite_query", "intent_router", "recommend_department"}
 SYSTEM_NODES = {"summarize_history", "rewrite_query"}
 
 SYSTEM_NODE_CONFIG = {
@@ -118,6 +118,15 @@ class ChatInterface:
         return ""
 
     @staticmethod
+    def _extract_latest_state_assistant(latest_values):
+        for message in reversed(latest_values.get("messages", []) or []):
+            if isinstance(message, AIMessage):
+                content = str(message.content or "").strip()
+                if content and not getattr(message, "tool_calls", None):
+                    return content
+        return ""
+
+    @staticmethod
     def _extract_clarification_text(response_messages):
         for message in reversed(response_messages):
             if message.get("metadata", {}).get("node") == "clarification":
@@ -176,6 +185,8 @@ class ChatInterface:
             parts.append(f"Risk level: {session_state['risk_level']}")
         if session_state.get("pending_clarification"):
             parts.append(f"Pending clarification: {session_state['pending_clarification']}")
+        if session_state.get("recommended_department"):
+            parts.append(f"Recommended department: {session_state['recommended_department']}")
 
         if not parts:
             return []
@@ -188,15 +199,15 @@ class ChatInterface:
             yield "⚠️ System not initialized!"
             return
 
-        config        = self.rag_system.get_config()
-        current_state = self.rag_system.agent_graph.get_state(config)
+        graph_config  = self.rag_system.get_config()
+        current_state = self.rag_system.agent_graph.get_state(graph_config)
         thread_id     = self.rag_system.thread_id
         user_message  = message.strip()
         session_state = self.rag_system.session_memory.get_state(thread_id)
 
         try:
             if current_state.next:
-                self.rag_system.agent_graph.update_state(config, {"messages": [HumanMessage(content=user_message)]})
+                self.rag_system.agent_graph.update_state(graph_config, {"messages": [HumanMessage(content=user_message)]})
                 stream_input = None
             else:
                 stored_messages = []
@@ -206,7 +217,7 @@ class ChatInterface:
                 state_messages = self._build_state_messages(session_state)
                 if long_term_summary:
                     self.rag_system.agent_graph.update_state(
-                        config,
+                        graph_config,
                         {"conversation_summary": long_term_summary},
                     )
                 stream_input = {"messages": [*state_messages, *stored_messages, HumanMessage(content=user_message)]}
@@ -215,7 +226,7 @@ class ChatInterface:
             active_tool_calls  = {}
             system_node_buffer = {}
 
-            for chunk, metadata in self.rag_system.agent_graph.stream(stream_input, config=config, stream_mode="messages"):
+            for chunk, metadata in self.rag_system.agent_graph.stream(stream_input, config=graph_config, stream_mode="messages"):
                 node = metadata.get("langgraph_node", "")
 
                 if node in SYSTEM_NODES and isinstance(chunk, AIMessageChunk) and chunk.content:
@@ -234,20 +245,47 @@ class ChatInterface:
 
             final_assistant = self._extract_final_assistant_text(response_messages)
             clarification_text = self._extract_clarification_text(response_messages)
+            latest_state = self.rag_system.agent_graph.get_state(graph_config)
+            latest_values = getattr(latest_state, "values", {}) or {}
+            if not final_assistant:
+                final_from_state = self._extract_latest_state_assistant(latest_values)
+                if final_from_state:
+                    response_messages.append(make_message(final_from_state))
+                    final_assistant = final_from_state
+                    yield response_messages
             if final_assistant:
                 self.rag_system.session_memory.append_exchange(thread_id, user_message, final_assistant)
                 recent_count = self.rag_system.session_memory.recent_message_count(thread_id)
                 if recent_count >= config.SUMMARY_REFRESH_THRESHOLD:
-                    latest_state = self.rag_system.agent_graph.get_state(config)
-                    latest_values = getattr(latest_state, "values", {}) or {}
                     conversation_summary = latest_values.get("conversation_summary", "")
                     if conversation_summary:
                         self.rag_system.summary_store.save_summary(thread_id, conversation_summary, recent_count)
 
+            if "intent" in latest_values:
+                resolved_intent = latest_values.get("intent")
+            else:
+                resolved_intent = self._infer_intent(user_message, session_state)
+
+            if "risk_level" in latest_values:
+                resolved_risk_level = latest_values.get("risk_level")
+            else:
+                resolved_risk_level = self._infer_risk_level(user_message, session_state)
+
+            if "pending_clarification" in latest_values:
+                resolved_pending = latest_values.get("pending_clarification") or None
+            else:
+                resolved_pending = clarification_text or None
+
+            if "recommended_department" in latest_values:
+                resolved_department = latest_values.get("recommended_department") or None
+            else:
+                resolved_department = session_state.get("recommended_department")
+
             updated_state = {
-                "intent": self._infer_intent(user_message, session_state),
-                "risk_level": self._infer_risk_level(user_message, session_state),
-                "pending_clarification": clarification_text or None,
+                "intent": resolved_intent,
+                "risk_level": resolved_risk_level,
+                "pending_clarification": resolved_pending,
+                "recommended_department": resolved_department,
             }
             self.rag_system.session_memory.set_state(thread_id, updated_state)
 

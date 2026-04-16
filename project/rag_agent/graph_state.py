@@ -14,7 +14,12 @@ class State(MessagesState):
     """State for main agent graph"""
     questionIsClear: bool = False
     conversation_summary: str = ""
-    originalQuery: str = "" 
+    originalQuery: str = ""
+    intent: str = ""
+    risk_level: str = "normal"
+    pending_clarification: str = ""
+    clarification_target: str = ""
+    recommended_department: str = ""
     rewrittenQuestions: List[str] = []
     agent_answers: Annotated[List[dict], accumulate_or_reset] = []
 

@@ -2,10 +2,10 @@ from typing import Literal, Set
 from langchain_core.messages import SystemMessage, HumanMessage, RemoveMessage, AIMessage, ToolMessage
 from langgraph.types import Command
 from .graph_state import State, AgentState
-from .schemas import QueryAnalysis
+from .schemas import QueryAnalysis, IntentAnalysis, DepartmentRecommendation
 from .prompts import *
 from utils import estimate_context_tokens
-from config import BASE_TOKEN_THRESHOLD, TOKEN_GROWTH_FACTOR
+from config import BASE_TOKEN_THRESHOLD, TOKEN_GROWTH_FACTOR, HIGH_RISK_KEYWORDS
 
 
 def _looks_like_department_question(query: str) -> bool:
@@ -27,8 +27,9 @@ def _looks_like_department_question(query: str) -> bool:
 
 
 def summarize_history(state: State, llm):
+    existing_summary = state.get("conversation_summary", "")
     if len(state["messages"]) < 4:
-        return {"conversation_summary": ""}
+        return {"conversation_summary": existing_summary}
     
     relevant_msgs = [
         msg for msg in state["messages"][:-1]
@@ -36,15 +37,67 @@ def summarize_history(state: State, llm):
     ]
 
     if not relevant_msgs:
-        return {"conversation_summary": ""}
+        return {"conversation_summary": existing_summary}
     
     conversation = "Conversation history:\n"
+    if existing_summary.strip():
+        conversation += f"[Prior conversation summary]\n{existing_summary}\n\n"
     for msg in relevant_msgs[-6:]:
         role = "User" if isinstance(msg, HumanMessage) else "Assistant"
         conversation += f"{role}: {msg.content}\n"
 
     summary_response = llm.with_config(temperature=0.2).invoke([SystemMessage(content=get_conversation_summary_prompt()), HumanMessage(content=conversation)])
     return {"conversation_summary": summary_response.content, "agent_answers": [{"__reset__": True}]}
+
+
+def _infer_risk_level(user_query: str, existing_risk: str = "normal") -> str:
+    normalized = (user_query or "").strip().lower()
+    if any(keyword.lower() in normalized for keyword in HIGH_RISK_KEYWORDS):
+        return "high"
+    return existing_risk or "normal"
+
+
+def intent_router(state: State, llm):
+    last_message = state["messages"][-1]
+    user_query = str(last_message.content).strip()
+    risk_level = _infer_risk_level(user_query, state.get("risk_level", "normal"))
+
+    if _looks_like_department_question(user_query):
+        return {
+            "intent": "triage",
+            "risk_level": risk_level,
+            "pending_clarification": "",
+            "clarification_target": "",
+            "recommended_department": "",
+        }
+
+    llm_with_structure = llm.with_config(temperature=0.1).with_structured_output(IntentAnalysis)
+    response = llm_with_structure.invoke(
+        [
+            SystemMessage(content=get_intent_router_prompt()),
+            HumanMessage(content=f"Conversation summary:\n{state.get('conversation_summary', '')}\n\nUser query:\n{user_query}"),
+        ]
+    )
+
+    if response.is_clear and response.intent in {"medical_rag", "triage"}:
+        return {
+            "intent": response.intent,
+            "risk_level": risk_level,
+            "pending_clarification": "",
+            "clarification_target": "",
+            "recommended_department": "",
+        }
+
+    clarification = response.clarification_needed if response.clarification_needed and len(response.clarification_needed.strip()) > 5 else "可以再具体描述一下你的问题吗？"
+    return {
+        "intent": "clarification",
+        "risk_level": risk_level,
+        "pending_clarification": clarification,
+        "clarification_target": "intent_router",
+        "recommended_department": "",
+        "messages": [AIMessage(content=clarification)],
+    }
+
 
 def rewrite_query(state: State, llm):
     last_message = state["messages"][-1]
@@ -58,7 +111,14 @@ def rewrite_query(state: State, llm):
 
     if response.questions and response.is_clear:
         delete_all = [RemoveMessage(id=m.id) for m in state["messages"] if not isinstance(m, SystemMessage)]
-        return {"questionIsClear": True, "messages": delete_all, "originalQuery": user_query, "rewrittenQuestions": response.questions}
+        return {
+            "questionIsClear": True,
+            "messages": delete_all,
+            "originalQuery": user_query,
+            "rewrittenQuestions": response.questions,
+            "pending_clarification": "",
+            "clarification_target": "",
+        }
 
     if _looks_like_department_question(user_query):
         delete_all = [RemoveMessage(id=m.id) for m in state["messages"] if not isinstance(m, SystemMessage)]
@@ -67,10 +127,52 @@ def rewrite_query(state: State, llm):
             "messages": delete_all,
             "originalQuery": user_query,
             "rewrittenQuestions": [user_query],
+            "pending_clarification": "",
+            "clarification_target": "",
         }
 
     clarification = response.clarification_needed if response.clarification_needed and len(response.clarification_needed.strip()) > 10 else "I need more information to understand your question."
-    return {"questionIsClear": False, "messages": [AIMessage(content=clarification)]}
+    return {
+        "questionIsClear": False,
+        "pending_clarification": clarification,
+        "clarification_target": "rewrite_query",
+        "messages": [AIMessage(content=clarification)],
+    }
+
+
+def recommend_department(state: State, llm):
+    last_message = state["messages"][-1]
+    user_query = str(last_message.content).strip()
+    conversation_summary = state.get("conversation_summary", "")
+    risk_level = state.get("risk_level", "normal")
+
+    llm_with_structure = llm.with_config(temperature=0.1).with_structured_output(DepartmentRecommendation)
+    response = llm_with_structure.invoke(
+        [
+            SystemMessage(content=get_department_recommendation_prompt()),
+            HumanMessage(content=f"Conversation summary:\n{conversation_summary}\n\nUser query:\n{user_query}"),
+        ]
+    )
+
+    if response.needs_clarification or not response.department.strip():
+        clarification = response.clarification_needed if response.clarification_needed and len(response.clarification_needed.strip()) > 5 else "可以再补充一下你的主要症状、持续时间或最不舒服的部位吗？"
+        return {
+            "pending_clarification": clarification,
+            "clarification_target": "recommend_department",
+            "recommended_department": "",
+            "messages": [AIMessage(content=clarification)],
+        }
+
+    answer = f"建议优先咨询 **{response.department.strip()}**。\n\n原因：{response.reason.strip()}"
+    if risk_level == "high":
+        answer += "\n\n你当前描述里有较高风险信号，建议尽快线下就医；如果症状明显加重，请优先考虑急诊评估。"
+
+    return {
+        "recommended_department": response.department.strip(),
+        "pending_clarification": "",
+        "clarification_target": "",
+        "messages": [AIMessage(content=answer)],
+    }
 
 def request_clarification(state: State):
     return {}

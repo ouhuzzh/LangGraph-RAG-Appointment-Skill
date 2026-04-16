@@ -3,6 +3,15 @@ from langgraph.types import Send
 from .graph_state import State, AgentState
 from config import MAX_ITERATIONS, MAX_TOOL_CALLS
 
+def route_after_intent(state: State) -> Literal["rewrite_query", "recommend_department", "request_clarification"]:
+    intent = state.get("intent", "")
+    if intent == "triage":
+        return "recommend_department"
+    if intent == "clarification":
+        return "request_clarification"
+    return "rewrite_query"
+
+
 def route_after_rewrite(state: State) -> Literal["request_clarification", "agent"]:
     if not state.get("questionIsClear", False):
         return "request_clarification"
@@ -11,7 +20,17 @@ def route_after_rewrite(state: State) -> Literal["request_clarification", "agent
                 Send("agent", {"question": query, "question_index": idx, "messages": []})
                 for idx, query in enumerate(state["rewrittenQuestions"])
             ]
-    
+
+
+def route_after_clarification(state: State) -> Literal["intent_router", "rewrite_query", "recommend_department"]:
+    target = state.get("clarification_target", "") or "intent_router"
+    if target == "rewrite_query":
+        return "rewrite_query"
+    if target == "recommend_department":
+        return "recommend_department"
+    return "intent_router"
+
+
 def route_after_orchestrator_call(state: AgentState) -> Literal["tool", "fallback_response", "collect_answer"]:
     iteration = state.get("iteration_count", 0)
     tool_count = state.get("tool_call_count", 0)
