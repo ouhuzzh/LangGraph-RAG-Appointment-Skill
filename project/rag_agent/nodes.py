@@ -9,7 +9,22 @@ from utils import estimate_context_tokens
 from config import BASE_TOKEN_THRESHOLD, TOKEN_GROWTH_FACTOR, HIGH_RISK_KEYWORDS
 
 
+def _looks_like_greeting(query: str) -> bool:
+    normalized = (query or "").strip().lower()
+    greetings = [
+        "你好", "您好", "hello", "hi", "hey", "嗨", "哈喽",
+        "早上好", "下午好", "晚上好", "good morning", "good afternoon", "good evening",
+        "谢谢", "感谢", "thanks", "thank you", "thx",
+        "再见", "拜拜", "bye", "goodbye",
+    ]
+    # 短消息且完全匹配问候语
+    if len(normalized) <= 15 and any(g in normalized for g in greetings):
+        return True
+    return False
+
+
 def _looks_like_department_question(query: str) -> bool:
+    """Check if the query looks like a department recommendation question."""
     normalized = (query or "").strip().lower()
     patterns = [
         "挂什么科",
@@ -55,16 +70,28 @@ def _normalize_time_slot(raw_value: str) -> str:
     normalized = (raw_value or "").strip().lower()
     if not normalized:
         return ""
-    if any(token in normalized for token in ["上午", "早上", "早晨", "morning", "am"]):
+    morning_tokens = ["上午", "早上", "早晨", "morning", "am",
+                      "早", "八点", "九点", "十点", "十一点",
+                      "8点", "9点", "10点", "11点",
+                      "8:00", "9:00", "10:00", "11:00"]
+    afternoon_tokens = ["下午", "afternoon", "pm",
+                        "十二点", "一点", "两点", "三点", "四点", "五点",
+                        "12点", "1点", "2点", "3点", "4点", "5点",
+                        "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"]
+    evening_tokens = ["晚上", "傍晚", "evening", "night",
+                      "六点", "七点", "八点半", "九点半",
+                      "18:00", "19:00", "20:00", "21:00"]
+    if any(token in normalized for token in morning_tokens):
         return "morning"
-    if any(token in normalized for token in ["下午", "afternoon", "pm"]):
+    if any(token in normalized for token in afternoon_tokens):
         return "afternoon"
-    if any(token in normalized for token in ["晚上", "傍晚", "evening", "night"]):
+    if any(token in normalized for token in evening_tokens):
         return "evening"
     return ""
 
 
 def _normalize_date(raw_value: str) -> str:
+    import re as _re
     normalized = (raw_value or "").strip().lower()
     if not normalized:
         return ""
@@ -75,8 +102,34 @@ def _normalize_date(raw_value: str) -> str:
         return (today + timedelta(days=1)).isoformat()
     if normalized in {"后天", "day after tomorrow"}:
         return (today + timedelta(days=2)).isoformat()
+    # ISO format: 2026-04-17
     if len(normalized) == 10 and normalized[4] == "-" and normalized[7] == "-":
         return normalized
+    # Chinese format: 2026年4月17日 or 2026年04月17日
+    m = _re.search(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]?", normalized)
+    if m:
+        try:
+            return date(int(m.group(1)), int(m.group(2)), int(m.group(3))).isoformat()
+        except ValueError:
+            pass
+    # Short Chinese format without year: 4月17日 → use current year
+    m = _re.search(r"(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]?", normalized)
+    if m:
+        try:
+            candidate = date(today.year, int(m.group(1)), int(m.group(2)))
+            # If the date has already passed this year, assume next year
+            if candidate < today:
+                candidate = date(today.year + 1, int(m.group(1)), int(m.group(2)))
+            return candidate.isoformat()
+        except ValueError:
+            pass
+    # Slash or dot format: 2026/4/17, 2026.4.17
+    m = _re.search(r"(\d{4})[/.](\d{1,2})[/.](\d{1,2})", normalized)
+    if m:
+        try:
+            return date(int(m.group(1)), int(m.group(2)), int(m.group(3))).isoformat()
+        except ValueError:
+            pass
     return ""
 
 
@@ -124,6 +177,19 @@ def intent_router(state: State, llm):
     user_query = str(last_message.content).strip()
     normalized_query = user_query.lower()
     risk_level = _infer_risk_level(user_query, state.get("risk_level", "normal"))
+
+    if _looks_like_greeting(user_query):
+        greeting_response = "你好！我是你的医疗助手，可以帮你：\n- 🏥 推荐就诊科室\n- 📅 预约挂号\n- ❌ 取消预约\n- 💊 解答医疗健康问题\n\n请问有什么可以帮你的？"
+        return {
+            "intent": "greeting",
+            "risk_level": risk_level,
+            "pending_clarification": "",
+            "clarification_target": "",
+            "recommended_department": state.get("recommended_department", ""),
+            "appointment_context": state.get("appointment_context", {}),
+            "last_appointment_no": state.get("last_appointment_no", ""),
+            "messages": [AIMessage(content=greeting_response)],
+        }
 
     if _looks_like_department_question(user_query):
         return {

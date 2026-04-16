@@ -1,4 +1,19 @@
 custom_css = """
+    :root {
+        --bg-page: #0b1220;
+        --bg-panel: #121a2b;
+        --bg-panel-soft: #182235;
+        --bg-panel-muted: #1d2940;
+        --border-strong: #31415f;
+        --text-primary: #f5f7fb;
+        --text-secondary: #d8e0ef;
+        --text-muted: #9fb0cd;
+        --accent: #4f8cff;
+        --accent-hover: #3d79e6;
+        --danger: #ef5a5a;
+        --danger-hover: #dc4444;
+    }
+
     /* ============================================
        MAIN CONTAINER
        ============================================ */
@@ -10,15 +25,62 @@ custom_css = """
         max-width: 1000px !important;
         width: 100% !important;
         margin: 0 auto !important;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-        background: #0f0f0f !important;
+        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        background:
+            radial-gradient(circle at top right, rgba(79, 140, 255, 0.14), transparent 28%),
+            linear-gradient(180deg, #0b1220 0%, #0e1728 100%) !important;
+        color: var(--text-primary) !important;
+        min-height: 100vh !important;
+    }
+
+    .gradio-container,
+    .gradio-container .prose,
+    .gradio-container p,
+    .gradio-container span,
+    .gradio-container label,
+    .gradio-container li,
+    .gradio-container div {
+        color: var(--text-secondary);
+    }
+
+    .gradio-container .prose h1,
+    .gradio-container .prose h2,
+    .gradio-container .prose h3,
+    .gradio-container .prose h4,
+    .gradio-container .prose h5,
+    .gradio-container .prose h6,
+    .gradio-container .prose strong,
+    .gradio-container .prose p strong {
+        color: var(--text-primary) !important;
+    }
+
+    .gradio-container .prose p,
+    .gradio-container .prose li,
+    .gradio-container .prose em,
+    .gradio-container .prose code {
+        color: var(--text-secondary) !important;
+    }
+
+    .gradio-container .prose {
+        background: transparent !important;
+    }
+
+    .block,
+    .gr-box,
+    .gr-panel,
+    .gr-form,
+    .gr-group,
+    .gradio-container .tabs,
+    .gradio-container .tabitem,
+    .gradio-container [role="tabpanel"] {
+        background: transparent !important;
     }
     
     /* ============================================
        TABS
        ============================================ */
     button[role="tab"] {
-        color: #a3a3a3 !important;
+        color: var(--text-muted) !important;
         border-bottom: 2px solid transparent !important;
         border-radius: 0 !important;
         transition: all 0.2s ease !important;
@@ -26,12 +88,12 @@ custom_css = """
     }
     
     button[role="tab"]:hover {
-        color: #e5e5e5 !important;
+        color: var(--text-primary) !important;
     }
     
     button[role="tab"][aria-selected="true"] {
-        color: #ffffff !important;
-        border-bottom: 2px solid #ffffff !important;
+        color: var(--text-primary) !important;
+        border-bottom: 2px solid var(--accent) !important;
         border-radius: 0 !important;
         background: transparent !important;
     }
@@ -42,7 +104,7 @@ custom_css = """
     }
     
     .tab-nav {
-        border-bottom: 1px solid #3f3f3f !important;
+        border-bottom: 1px solid var(--border-strong) !important;
         border-radius: 0 !important;
     }
     
@@ -74,22 +136,22 @@ custom_css = """
     }
     
     .primary {
-        background: #3b82f6 !important;
-        color: white !important;
+        background: var(--accent) !important;
+        color: #ffffff !important;
     }
     
     .primary:hover {
-        background: #2563eb !important;
+        background: var(--accent-hover) !important;
         transform: translateY(-1px) !important;
     }
     
     .stop {
-        background: #ef4444 !important;
-        color: white !important;
+        background: var(--danger) !important;
+        color: #ffffff !important;
     }
     
     .stop:hover {
-        background: #dc2626 !important;
+        background: var(--danger-hover) !important;
         transform: translateY(-1px) !important;
     }
     
@@ -101,6 +163,7 @@ custom_css = """
         background: transparent !important;
         border: none !important;
         box-shadow: none !important;
+        color: var(--text-primary) !important;
     }
     
     textarea[placeholder="Type a message..."]:focus {
@@ -108,13 +171,21 @@ custom_css = """
         border: none !important;
         box-shadow: none !important;
     }
+
+    textarea::placeholder,
+    input::placeholder {
+        color: var(--text-muted) !important;
+        opacity: 1 !important;
+    }
     
     .gr-text-input:has(textarea[placeholder="Type a message..."]),
     [class*="chatbot"] + * [data-testid="textbox"],
     form:has(textarea[placeholder="Type a message..."]) > div {
-        background: transparent !important;
-        border: none !important;
+        background: var(--bg-panel) !important;
+        border: 1px solid var(--border-strong) !important;
+        border-radius: 14px !important;
         gap: 12px !important;
+        padding: 6px 10px !important;
     }
     
     form:has(textarea[placeholder="Type a message..."]) button,
@@ -122,10 +193,11 @@ custom_css = """
         background: transparent !important;
         border: none !important;
         padding: 8px !important;
+        color: var(--text-secondary) !important;
     }
     
     form:has(textarea[placeholder="Type a message..."]) button:hover {
-        background: rgba(59, 130, 246, 0.1) !important;
+        background: rgba(79, 140, 255, 0.12) !important;
     }
     
     form:has(textarea[placeholder="Type a message..."]) {
@@ -138,22 +210,22 @@ custom_css = """
        ============================================ */
     .file-preview, 
     [data-testid="file-upload"] {
-        background: #1a1a1a !important;
-        border: 1px solid #3f3f3f !important;
-        border-radius: 5px !important;
-        color: #ffffff !important;
+        background: var(--bg-panel) !important;
+        border: 1px solid var(--border-strong) !important;
+        border-radius: 12px !important;
+        color: var(--text-primary) !important;
         min-height: 200px !important;
     }
     
     .file-preview:hover, 
     [data-testid="file-upload"]:hover {
-        border-color: #3b82f6 !important;
-        background: #1f1f1f !important;
+        border-color: var(--accent) !important;
+        background: var(--bg-panel-soft) !important;
     }
     
     .file-preview *,
     [data-testid="file-upload"] * {
-        color: #ffffff !important;
+        color: var(--text-primary) !important;
     }
     
     .file-preview .label,
@@ -166,39 +238,39 @@ custom_css = """
        ============================================ */
     input, 
     textarea {
-        background: #1a1a1a !important;
-        border: 1px solid #3f3f3f !important;
+        background: var(--bg-panel) !important;
+        border: 1px solid var(--border-strong) !important;
         border-radius: 10px !important;
-        color: #e5e5e5 !important;
+        color: var(--text-primary) !important;
         transition: border-color 0.2s ease !important;
     }
     
     input:focus, 
     textarea:focus {
-        border-color: #3b82f6 !important;
+        border-color: var(--accent) !important;
         outline: none !important;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+        box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.12) !important;
     }
     
     textarea[readonly] {
-        background: #1a1a1a !important;
-        color: #a3a3a3 !important;
+        background: var(--bg-panel) !important;
+        color: var(--text-muted) !important;
     }
     
     /* ============================================
        FILE LIST BOX
        ============================================ */
     #file-list-box {
-        background: #1a1a1a !important;
-        border: 1px solid #3f3f3f !important;
-        border-radius: 5px !important;
+        background: var(--bg-panel) !important;
+        border: 1px solid var(--border-strong) !important;
+        border-radius: 12px !important;
         padding: 10px !important;
     }
     
     #file-list-box textarea {
         background: transparent !important;
         border: none !important;
-        color: #e5e5e5 !important;
+        color: var(--text-secondary) !important;
         padding: 0 !important;
     }
     
@@ -206,9 +278,9 @@ custom_css = """
        CHATBOT CONTAINER
        ============================================ */
     .chatbot {
-        border-radius: 5px !important;
-        background: #1a1a1a !important;
-        border: none !important;
+        border-radius: 16px !important;
+        background: linear-gradient(180deg, rgba(18, 26, 43, 0.96), rgba(14, 22, 37, 0.98)) !important;
+        border: 1px solid var(--border-strong) !important;
     }
 
     .chatbot .message-wrap,
@@ -217,24 +289,72 @@ custom_css = """
         padding: 12px !important;
     }
 
+    .chatbot .placeholder,
+    .chatbot [data-testid="chatbot-placeholder"],
+    .chatbot .empty,
+    .chatbot .empty-chatbot {
+        color: var(--text-secondary) !important;
+    }
+
     /* ============================================
        MESSAGE BUBBLES
        ============================================ */
     .message {
-        border-radius: 10px !important;
+        border-radius: 14px !important;
     }
 
     .message.user {
-        background: #3b82f6 !important;
-        color: white !important;
+        background: linear-gradient(135deg, var(--accent), #5ca2ff) !important;
+        color: #ffffff !important;
     }
     
     .message.bot {
-        background: #1f1f1f !important;
-        color: #e5e5e5 !important;
-        border: 1px solid #3f3f3f !important;
+        background: var(--bg-panel-soft) !important;
+        color: var(--text-secondary) !important;
+        border: 1px solid var(--border-strong) !important;
         width: fit-content !important;
         max-width: 90% !important;
+    }
+
+    /* 确保消息内所有文本可见 */
+    .message.user *,
+    .message.bot *,
+    .message .md,
+    .message .md p,
+    .message .md strong,
+    .message .md li,
+    .message .md code,
+    .message .md em,
+    .message .md span,
+    .message .md div {
+        color: inherit !important;
+    }
+    
+    /* 修复折叠面板内的文本颜色 */
+    .message.bot details,
+    .message.bot summary,
+    .message.bot details *,
+    .message.bot summary * {
+        color: var(--text-primary) !important;
+    }
+    
+    .message.bot details summary {
+        color: var(--text-secondary) !important;
+    }
+    
+    /* 确保引用的文本块可读 */
+    .message.bot blockquote,
+    .message.bot .blockquote {
+        color: var(--text-primary) !important;
+        border-left-color: var(--accent) !important;
+    }
+    
+    /* 修复系统节点消息中的浅色文字 */
+    .message.bot .system-node,
+    .message.bot .system-node *,
+    .message.bot .collapsible,
+    .message.bot .collapsible * {
+        color: var(--text-primary) !important;
     }
     
     .message-row img {
@@ -251,19 +371,35 @@ custom_css = """
     .progress-bar-wrap {
         border-radius: 10px !important;
         overflow: hidden !important;
-        background: #1a1a1a !important;
+        background: var(--bg-panel) !important;
     }
 
     .progress-bar {
         border-radius: 10px !important;
-        background: #3b82f6 !important;
+        background: var(--accent) !important;
     }
     
     /* ============================================
        TYPOGRAPHY
        ============================================ */
     h1, h2, h3, h4, h5, h6 {
-        color: #e5e5e5 !important;
+        color: var(--text-primary) !important;
+    }
+
+    .gradio-container a {
+        color: #8eb6ff !important;
+    }
+
+    .gradio-container a:hover {
+        color: #bad2ff !important;
+    }
+
+    .gradio-container [data-testid="textbox"] label,
+    .gradio-container [data-testid="file-upload"] label,
+    .gradio-container .wrap label,
+    .gradio-container .label-wrap span,
+    .gradio-container .gr-button span {
+        color: var(--text-secondary) !important;
     }
     
     /* ============================================

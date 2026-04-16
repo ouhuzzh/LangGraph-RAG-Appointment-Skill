@@ -3,7 +3,7 @@ import re
 import config
 from langchain_core.messages import HumanMessage, AIMessage, AIMessageChunk, ToolMessage, SystemMessage
 
-SILENT_NODES = {"rewrite_query", "intent_router", "recommend_department", "handle_appointment", "handle_cancel_appointment"}
+SILENT_NODES = {"rewrite_query", "intent_router"}
 SYSTEM_NODES = {"summarize_history", "rewrite_query"}
 
 SYSTEM_NODE_CONFIG = {

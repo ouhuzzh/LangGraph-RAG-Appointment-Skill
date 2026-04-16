@@ -82,8 +82,9 @@ Routing rules:
 3. Requests like "帮我挂号", "帮我预约", "book an appointment" are appointment.
 4. Requests like "取消预约", "退号", "cancel my appointment" are cancel_appointment.
 5. If the user is too vague to route confidently (for example "我不舒服怎么办"), use clarification.
-4. Do not route to triage just because symptoms are mentioned; triage is specifically about department recommendation.
-5. Do not invent missing details.
+6. Do not route to triage just because symptoms are mentioned; triage is specifically about department recommendation.
+7. Do not invent missing details.
+8. Greetings or small talk (e.g., "你好", "谢谢", "再见") should be classified as clarification with is_clear=true and a friendly response.
 
 Output requirements:
 - Return structured fields only.

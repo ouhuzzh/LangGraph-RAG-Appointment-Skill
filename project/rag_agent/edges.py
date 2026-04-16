@@ -1,10 +1,13 @@
 from typing import Literal
+from langgraph.graph import END
 from langgraph.types import Send
 from .graph_state import State, AgentState
 from config import MAX_ITERATIONS, MAX_TOOL_CALLS
 
 def route_after_intent(state: State) -> Literal["rewrite_query", "recommend_department", "handle_appointment", "handle_cancel_appointment", "request_clarification"]:
     intent = state.get("intent", "")
+    if intent == "greeting":
+        return END
     if intent == "triage":
         return "recommend_department"
     if intent == "appointment":
@@ -39,7 +42,7 @@ def route_after_clarification(state: State) -> Literal["intent_router", "rewrite
     return "intent_router"
 
 
-def route_after_orchestrator_call(state: AgentState) -> Literal["tool", "fallback_response", "collect_answer"]:
+def route_after_orchestrator_call(state: AgentState) -> Literal["tools", "fallback_response", "collect_answer"]:
     iteration = state.get("iteration_count", 0)
     tool_count = state.get("tool_call_count", 0)
 
