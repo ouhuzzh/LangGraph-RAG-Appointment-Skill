@@ -7,7 +7,7 @@ from .graph_state import State
 from .nodes import *
 from .edges import *
 
-def create_agent_graph(llm, tools_list):
+def create_agent_graph(llm, tools_list, appointment_service=None):
     llm_with_tools = llm.bind_tools(tools_list)
     tool_node = ToolNode(tools_list)
 
@@ -36,6 +36,8 @@ def create_agent_graph(llm, tools_list):
     graph_builder.add_node("intent_router", partial(intent_router, llm=llm))
     graph_builder.add_node("rewrite_query", partial(rewrite_query, llm=llm))
     graph_builder.add_node("recommend_department", partial(recommend_department, llm=llm))
+    graph_builder.add_node("handle_appointment", partial(handle_appointment, llm=llm, appointment_service=appointment_service))
+    graph_builder.add_node("handle_cancel_appointment", partial(handle_cancel_appointment, llm=llm, appointment_service=appointment_service))
     graph_builder.add_node(request_clarification)
     graph_builder.add_node("agent", agent_subgraph)
     graph_builder.add_node("aggregate_answers", partial(aggregate_answers, llm=llm))
@@ -47,6 +49,8 @@ def create_agent_graph(llm, tools_list):
     graph_builder.add_conditional_edges("request_clarification", route_after_clarification)
     graph_builder.add_edge(["agent"], "aggregate_answers")
     graph_builder.add_edge("recommend_department", END)
+    graph_builder.add_edge("handle_appointment", END)
+    graph_builder.add_edge("handle_cancel_appointment", END)
     graph_builder.add_edge("aggregate_answers", END)
 
     agent_graph = graph_builder.compile(checkpointer=checkpointer, interrupt_before=["request_clarification"])

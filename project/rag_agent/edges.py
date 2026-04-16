@@ -3,10 +3,14 @@ from langgraph.types import Send
 from .graph_state import State, AgentState
 from config import MAX_ITERATIONS, MAX_TOOL_CALLS
 
-def route_after_intent(state: State) -> Literal["rewrite_query", "recommend_department", "request_clarification"]:
+def route_after_intent(state: State) -> Literal["rewrite_query", "recommend_department", "handle_appointment", "handle_cancel_appointment", "request_clarification"]:
     intent = state.get("intent", "")
     if intent == "triage":
         return "recommend_department"
+    if intent == "appointment":
+        return "handle_appointment"
+    if intent == "cancel_appointment":
+        return "handle_cancel_appointment"
     if intent == "clarification":
         return "request_clarification"
     return "rewrite_query"
@@ -22,12 +26,16 @@ def route_after_rewrite(state: State) -> Literal["request_clarification", "agent
             ]
 
 
-def route_after_clarification(state: State) -> Literal["intent_router", "rewrite_query", "recommend_department"]:
+def route_after_clarification(state: State) -> Literal["intent_router", "rewrite_query", "recommend_department", "handle_appointment", "handle_cancel_appointment"]:
     target = state.get("clarification_target", "") or "intent_router"
     if target == "rewrite_query":
         return "rewrite_query"
     if target == "recommend_department":
         return "recommend_department"
+    if target == "handle_appointment":
+        return "handle_appointment"
+    if target == "handle_cancel_appointment":
+        return "handle_cancel_appointment"
     return "intent_router"
 
 

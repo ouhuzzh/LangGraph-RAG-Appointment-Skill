@@ -3,7 +3,7 @@ import re
 import config
 from langchain_core.messages import HumanMessage, AIMessage, AIMessageChunk, ToolMessage, SystemMessage
 
-SILENT_NODES = {"rewrite_query", "intent_router", "recommend_department"}
+SILENT_NODES = {"rewrite_query", "intent_router", "recommend_department", "handle_appointment", "handle_cancel_appointment"}
 SYSTEM_NODES = {"summarize_history", "rewrite_query"}
 
 SYSTEM_NODE_CONFIG = {
@@ -187,6 +187,10 @@ class ChatInterface:
             parts.append(f"Pending clarification: {session_state['pending_clarification']}")
         if session_state.get("recommended_department"):
             parts.append(f"Recommended department: {session_state['recommended_department']}")
+        if session_state.get("appointment_context"):
+            parts.append(f"Appointment context: {session_state['appointment_context']}")
+        if session_state.get("last_appointment_no"):
+            parts.append(f"Last appointment number: {session_state['last_appointment_no']}")
 
         if not parts:
             return []
@@ -207,7 +211,7 @@ class ChatInterface:
 
         try:
             if current_state.next:
-                self.rag_system.agent_graph.update_state(graph_config, {"messages": [HumanMessage(content=user_message)]})
+                self.rag_system.agent_graph.update_state(graph_config, {"messages": [HumanMessage(content=user_message)], "thread_id": thread_id})
                 stream_input = None
             else:
                 stored_messages = []
@@ -220,6 +224,21 @@ class ChatInterface:
                         graph_config,
                         {"conversation_summary": long_term_summary},
                     )
+                if session_state:
+                    self.rag_system.agent_graph.update_state(
+                        graph_config,
+                        {
+                            "thread_id": thread_id,
+                            "intent": session_state.get("intent", ""),
+                            "risk_level": session_state.get("risk_level", "normal"),
+                            "pending_clarification": session_state.get("pending_clarification") or "",
+                            "recommended_department": session_state.get("recommended_department") or "",
+                            "appointment_context": session_state.get("appointment_context") or {},
+                            "last_appointment_no": session_state.get("last_appointment_no") or "",
+                        },
+                    )
+                if not session_state:
+                    self.rag_system.agent_graph.update_state(graph_config, {"thread_id": thread_id})
                 stream_input = {"messages": [*state_messages, *stored_messages, HumanMessage(content=user_message)]}
 
             response_messages  = []
@@ -281,11 +300,23 @@ class ChatInterface:
             else:
                 resolved_department = session_state.get("recommended_department")
 
+            if "appointment_context" in latest_values:
+                resolved_appointment_context = latest_values.get("appointment_context") or {}
+            else:
+                resolved_appointment_context = session_state.get("appointment_context") or {}
+
+            if "last_appointment_no" in latest_values:
+                resolved_last_appointment_no = latest_values.get("last_appointment_no") or None
+            else:
+                resolved_last_appointment_no = session_state.get("last_appointment_no")
+
             updated_state = {
                 "intent": resolved_intent,
                 "risk_level": resolved_risk_level,
                 "pending_clarification": resolved_pending,
                 "recommended_department": resolved_department,
+                "appointment_context": resolved_appointment_context,
+                "last_appointment_no": resolved_last_appointment_no,
             }
             self.rag_system.session_memory.set_state(thread_id, updated_state)
 

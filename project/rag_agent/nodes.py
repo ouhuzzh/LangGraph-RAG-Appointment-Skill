@@ -1,8 +1,9 @@
 from typing import Literal, Set
+from datetime import date, timedelta
 from langchain_core.messages import SystemMessage, HumanMessage, RemoveMessage, AIMessage, ToolMessage
 from langgraph.types import Command
 from .graph_state import State, AgentState
-from .schemas import QueryAnalysis, IntentAnalysis, DepartmentRecommendation
+from .schemas import QueryAnalysis, IntentAnalysis, DepartmentRecommendation, AppointmentRequest, CancelAppointmentRequest
 from .prompts import *
 from utils import estimate_context_tokens
 from config import BASE_TOKEN_THRESHOLD, TOKEN_GROWTH_FACTOR, HIGH_RISK_KEYWORDS
@@ -50,6 +51,43 @@ def _looks_like_medical_knowledge_question(query: str) -> bool:
     return has_medical_term and has_question_pattern
 
 
+def _normalize_time_slot(raw_value: str) -> str:
+    normalized = (raw_value or "").strip().lower()
+    if not normalized:
+        return ""
+    if any(token in normalized for token in ["上午", "早上", "早晨", "morning", "am"]):
+        return "morning"
+    if any(token in normalized for token in ["下午", "afternoon", "pm"]):
+        return "afternoon"
+    if any(token in normalized for token in ["晚上", "傍晚", "evening", "night"]):
+        return "evening"
+    return ""
+
+
+def _normalize_date(raw_value: str) -> str:
+    normalized = (raw_value or "").strip().lower()
+    if not normalized:
+        return ""
+    today = date.today()
+    if normalized in {"今天", "today"}:
+        return today.isoformat()
+    if normalized in {"明天", "tomorrow"}:
+        return (today + timedelta(days=1)).isoformat()
+    if normalized in {"后天", "day after tomorrow"}:
+        return (today + timedelta(days=2)).isoformat()
+    if len(normalized) == 10 and normalized[4] == "-" and normalized[7] == "-":
+        return normalized
+    return ""
+
+
+def _build_appointment_context(existing: dict | None, updates: dict) -> dict:
+    context = dict(existing or {})
+    for key, value in updates.items():
+        if value:
+            context[key] = value
+    return context
+
+
 def summarize_history(state: State, llm):
     existing_summary = state.get("conversation_summary", "")
     if len(state["messages"]) < 4:
@@ -84,6 +122,7 @@ def _infer_risk_level(user_query: str, existing_risk: str = "normal") -> str:
 def intent_router(state: State, llm):
     last_message = state["messages"][-1]
     user_query = str(last_message.content).strip()
+    normalized_query = user_query.lower()
     risk_level = _infer_risk_level(user_query, state.get("risk_level", "normal"))
 
     if _looks_like_department_question(user_query):
@@ -93,6 +132,30 @@ def intent_router(state: State, llm):
             "pending_clarification": "",
             "clarification_target": "",
             "recommended_department": "",
+            "appointment_context": {},
+            "last_appointment_no": "",
+        }
+
+    if any(keyword in normalized_query for keyword in ["取消", "退号", "cancel appointment", "cancel booking"]):
+        return {
+            "intent": "cancel_appointment",
+            "risk_level": risk_level,
+            "pending_clarification": "",
+            "clarification_target": "",
+            "recommended_department": state.get("recommended_department", ""),
+            "appointment_context": state.get("appointment_context", {}),
+            "last_appointment_no": state.get("last_appointment_no", ""),
+        }
+
+    if any(keyword in normalized_query for keyword in ["挂号", "预约", "book appointment", "register"]):
+        return {
+            "intent": "appointment",
+            "risk_level": risk_level,
+            "pending_clarification": "",
+            "clarification_target": "",
+            "recommended_department": state.get("recommended_department", ""),
+            "appointment_context": state.get("appointment_context", {}),
+            "last_appointment_no": state.get("last_appointment_no", ""),
         }
 
     llm_with_structure = llm.with_config(temperature=0.1).with_structured_output(IntentAnalysis)
@@ -103,13 +166,15 @@ def intent_router(state: State, llm):
         ]
     )
 
-    if response.is_clear and response.intent in {"medical_rag", "triage"}:
+    if response.is_clear and response.intent in {"medical_rag", "triage", "appointment", "cancel_appointment"}:
         return {
             "intent": response.intent,
             "risk_level": risk_level,
             "pending_clarification": "",
             "clarification_target": "",
-            "recommended_department": "",
+            "recommended_department": state.get("recommended_department", ""),
+            "appointment_context": state.get("appointment_context", {}),
+            "last_appointment_no": state.get("last_appointment_no", ""),
         }
 
     clarification = response.clarification_needed if response.clarification_needed and len(response.clarification_needed.strip()) > 5 else "可以再具体描述一下你的问题吗？"
@@ -118,7 +183,9 @@ def intent_router(state: State, llm):
         "risk_level": risk_level,
         "pending_clarification": clarification,
         "clarification_target": "intent_router",
-        "recommended_department": "",
+        "recommended_department": state.get("recommended_department", ""),
+        "appointment_context": state.get("appointment_context", {}),
+        "last_appointment_no": state.get("last_appointment_no", ""),
         "messages": [AIMessage(content=clarification)],
     }
 
@@ -207,6 +274,179 @@ def recommend_department(state: State, llm):
         "recommended_department": response.department.strip(),
         "pending_clarification": "",
         "clarification_target": "",
+        "appointment_context": _build_appointment_context(state.get("appointment_context"), {"department": response.department.strip()}),
+        "messages": [AIMessage(content=answer)],
+    }
+
+
+def handle_appointment(state: State, llm, appointment_service):
+    last_message = state["messages"][-1]
+    user_query = str(last_message.content).strip()
+    appointment_context = dict(state.get("appointment_context") or {})
+
+    llm_with_structure = llm.with_config(temperature=0.1).with_structured_output(AppointmentRequest)
+    response = llm_with_structure.invoke(
+        [
+            SystemMessage(content=get_appointment_request_prompt()),
+            HumanMessage(
+                content=(
+                    f"Conversation summary:\n{state.get('conversation_summary', '')}\n\n"
+                    f"Recommended department:\n{state.get('recommended_department', '')}\n\n"
+                    f"Existing appointment context:\n{appointment_context}\n\n"
+                    f"User query:\n{user_query}"
+                )
+            ),
+        ]
+    )
+
+    department = (response.department or "").strip() or state.get("recommended_department", "") or appointment_context.get("department", "")
+    normalized_date = _normalize_date(response.date or appointment_context.get("date", ""))
+    time_slot = _normalize_time_slot(response.time_slot or appointment_context.get("time_slot", ""))
+    doctor_name = (response.doctor_name or "").strip() or appointment_context.get("doctor_name", "")
+
+    merged_context = _build_appointment_context(
+        appointment_context,
+        {
+            "department": department,
+            "date": normalized_date,
+            "time_slot": time_slot,
+            "doctor_name": doctor_name,
+        },
+    )
+
+    missing_fields = []
+    if not department:
+        missing_fields.append("科室")
+    if not normalized_date:
+        missing_fields.append("日期")
+    if not time_slot:
+        missing_fields.append("时间段")
+
+    if response.needs_clarification or missing_fields:
+        clarification = response.clarification_needed if response.clarification_needed and len(response.clarification_needed.strip()) > 5 else f"请补充要预约的{'、'.join(missing_fields)}。"
+        return {
+            "intent": "appointment",
+            "pending_clarification": clarification,
+            "clarification_target": "handle_appointment",
+            "appointment_context": merged_context,
+            "messages": [AIMessage(content=clarification)],
+        }
+
+    booking = appointment_service.create_appointment(
+        thread_id=state["thread_id"],
+        department=department,
+        schedule_date=date.fromisoformat(normalized_date),
+        time_slot=time_slot,
+        doctor_name=doctor_name or None,
+    )
+    if not booking:
+        answer = f"暂时没有找到 **{department}** 在 {normalized_date} {time_slot} 的可预约号源。你可以换一个日期、时间段，或继续让我帮你改约。"
+        return {
+            "intent": "appointment",
+            "pending_clarification": "",
+            "clarification_target": "",
+            "appointment_context": merged_context,
+            "messages": [AIMessage(content=answer)],
+        }
+
+    answer = (
+        f"已为你预约成功：\n\n"
+        f"- 科室：**{booking['department']}**\n"
+        f"- 日期：**{booking['date']}**\n"
+        f"- 时段：**{booking['time_slot']}**\n"
+        f"- 医生：**{booking['doctor_name']}**\n"
+        f"- 预约号：**{booking['appointment_no']}**"
+    )
+    return {
+        "intent": "appointment",
+        "pending_clarification": "",
+        "clarification_target": "",
+        "appointment_context": merged_context,
+        "last_appointment_no": booking["appointment_no"],
+        "messages": [AIMessage(content=answer)],
+    }
+
+
+def handle_cancel_appointment(state: State, llm, appointment_service):
+    last_message = state["messages"][-1]
+    user_query = str(last_message.content).strip()
+    appointment_context = dict(state.get("appointment_context") or {})
+    last_appointment_no = state.get("last_appointment_no", "")
+
+    llm_with_structure = llm.with_config(temperature=0.1).with_structured_output(CancelAppointmentRequest)
+    response = llm_with_structure.invoke(
+        [
+            SystemMessage(content=get_cancel_appointment_prompt()),
+            HumanMessage(
+                content=(
+                    f"Conversation summary:\n{state.get('conversation_summary', '')}\n\n"
+                    f"Last appointment number:\n{last_appointment_no}\n\n"
+                    f"Existing appointment context:\n{appointment_context}\n\n"
+                    f"User query:\n{user_query}"
+                )
+            ),
+        ]
+    )
+
+    appointment_no = (response.appointment_no or "").strip() or last_appointment_no
+    department = (response.department or "").strip() or appointment_context.get("department", "")
+    normalized_date = _normalize_date(response.date or appointment_context.get("date", ""))
+
+    if not appointment_no and not (department and normalized_date):
+        clarification = response.clarification_needed if response.clarification_needed and len(response.clarification_needed.strip()) > 5 else "请告诉我要取消的预约号，或者提供科室和日期。"
+        return {
+            "intent": "cancel_appointment",
+            "pending_clarification": clarification,
+            "clarification_target": "handle_cancel_appointment",
+            "messages": [AIMessage(content=clarification)],
+        }
+
+    candidates = appointment_service.find_candidate_appointments(
+        thread_id=state["thread_id"],
+        appointment_no=appointment_no or None,
+        department=department or None,
+        schedule_date=date.fromisoformat(normalized_date) if normalized_date else None,
+    )
+    if not candidates:
+        return {
+            "intent": "cancel_appointment",
+            "pending_clarification": "",
+            "clarification_target": "",
+            "messages": [AIMessage(content="我没有找到符合条件的可取消预约。你可以再提供预约号，或者补充科室和日期。")],
+        }
+    if len(candidates) > 1:
+        options = "\n".join(
+            f"- 预约号：{item['appointment_no']}，{item['department']}，{item['appointment_date'].isoformat()} {item['time_slot']}"
+            for item in candidates[:5]
+        )
+        clarification = f"我找到了多条可取消预约，请告诉我具体的预约号：\n{options}"
+        return {
+            "intent": "cancel_appointment",
+            "pending_clarification": clarification,
+            "clarification_target": "handle_cancel_appointment",
+            "messages": [AIMessage(content=clarification)],
+        }
+
+    cancelled = appointment_service.cancel_appointment(state["thread_id"], candidates[0]["appointment_id"])
+    if not cancelled:
+        return {
+            "intent": "cancel_appointment",
+            "pending_clarification": "",
+            "clarification_target": "",
+            "messages": [AIMessage(content="这条预约当前无法取消，请稍后再试。")],
+        }
+
+    answer = (
+        f"已为你取消预约：\n\n"
+        f"- 预约号：**{cancelled['appointment_no']}**\n"
+        f"- 日期：**{cancelled['date']}**\n"
+        f"- 时段：**{cancelled['time_slot']}**"
+    )
+    return {
+        "intent": "cancel_appointment",
+        "pending_clarification": "",
+        "clarification_target": "",
+        "last_appointment_no": "",
         "messages": [AIMessage(content=answer)],
     }
 

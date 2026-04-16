@@ -1,4 +1,4 @@
-from typing import List, Annotated, Set
+from typing import List, Annotated, Set, Dict
 from langgraph.graph import MessagesState
 import operator
 
@@ -15,11 +15,14 @@ class State(MessagesState):
     questionIsClear: bool = False
     conversation_summary: str = ""
     originalQuery: str = ""
+    thread_id: str = ""
     intent: str = ""
     risk_level: str = "normal"
     pending_clarification: str = ""
     clarification_target: str = ""
     recommended_department: str = ""
+    appointment_context: Dict[str, str] = {}
+    last_appointment_no: str = ""
     rewrittenQuestions: List[str] = []
     agent_answers: Annotated[List[dict], accumulate_or_reset] = []
 

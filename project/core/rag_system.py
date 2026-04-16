@@ -9,6 +9,7 @@ from model_factory import get_chat_model
 from rag_agent.tools import ToolFactory
 from rag_agent.graph import create_agent_graph
 from core.observability import Observability
+from services.appointment_service import AppointmentService
 
 class RAGSystem:
 
@@ -19,6 +20,7 @@ class RAGSystem:
         self.chunker = DocumentChuncker()
         self.session_memory = RedisSessionMemory()
         self.summary_store = SummaryStore()
+        self.appointment_service = AppointmentService()
         self.observability = Observability()
         self.agent_graph = None
         self.thread_id = str(uuid.uuid4())
@@ -30,7 +32,7 @@ class RAGSystem:
 
         llm = get_chat_model()
         tools = ToolFactory(collection).create_tools()
-        self.agent_graph = create_agent_graph(llm, tools)
+        self.agent_graph = create_agent_graph(llm, tools, appointment_service=self.appointment_service)
 
     def get_config(self):
         cfg = {"configurable": {"thread_id": self.thread_id}, "recursion_limit": self.recursion_limit}

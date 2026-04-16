@@ -14,8 +14,8 @@ class QueryAnalysis(BaseModel):
 
 
 class IntentAnalysis(BaseModel):
-    intent: Literal["medical_rag", "triage", "clarification"] = Field(
-        description="Intent classification. Must be one of: medical_rag, triage, clarification."
+    intent: Literal["medical_rag", "triage", "appointment", "cancel_appointment", "clarification"] = Field(
+        description="Intent classification. Must be one of: medical_rag, triage, appointment, cancel_appointment, clarification."
     )
     is_clear: bool = Field(
         description="Whether the user's request is clear enough to continue."
@@ -38,3 +38,20 @@ class DepartmentRecommendation(BaseModel):
     clarification_needed: str = Field(
         description="Clarification question when more information is needed."
     )
+
+
+class AppointmentRequest(BaseModel):
+    department: str = Field(description="Department name if available, otherwise empty string.")
+    date: str = Field(description="Appointment date phrase or ISO date string if available, otherwise empty string.")
+    time_slot: str = Field(description="Preferred time slot such as 上午/下午/晚上 or morning/afternoon/evening, otherwise empty string.")
+    doctor_name: str = Field(description="Doctor name if explicitly requested, otherwise empty string.")
+    needs_clarification: bool = Field(description="Whether more information is required before booking.")
+    clarification_needed: str = Field(description="Clarification question when required fields are missing.")
+
+
+class CancelAppointmentRequest(BaseModel):
+    appointment_no: str = Field(description="Appointment number if explicitly provided, otherwise empty string.")
+    department: str = Field(description="Department name if available, otherwise empty string.")
+    date: str = Field(description="Appointment date phrase or ISO date string if available, otherwise empty string.")
+    needs_clarification: bool = Field(description="Whether more information is required before cancellation.")
+    clarification_needed: str = Field(description="Clarification question when the appointment cannot be identified yet.")

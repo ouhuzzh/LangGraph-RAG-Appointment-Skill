@@ -72,12 +72,16 @@ def get_intent_router_prompt() -> str:
 Your task is to classify the user's latest request into one of these intents:
 - medical_rag: general medical knowledge or document-grounded question
 - triage: asking which department/specialty to visit
+- appointment: asking to book or register an appointment
+- cancel_appointment: asking to cancel an existing appointment
 - clarification: the request is too vague to route confidently
 
 Routing rules:
 1. Questions like "挂什么科", "挂哪个科", "看什么科", "看哪个科", "which department should I visit", or equivalent symptom-to-department questions are triage.
 2. Questions asking about causes, definitions, treatment principles, precautions, or document-grounded facts are medical_rag.
-3. If the user is too vague to route confidently (for example "我不舒服怎么办"), use clarification.
+3. Requests like "帮我挂号", "帮我预约", "book an appointment" are appointment.
+4. Requests like "取消预约", "退号", "cancel my appointment" are cancel_appointment.
+5. If the user is too vague to route confidently (for example "我不舒服怎么办"), use clarification.
 4. Do not route to triage just because symptoms are mentioned; triage is specifically about department recommendation.
 5. Do not invent missing details.
 
@@ -105,6 +109,42 @@ Output requirements:
 - Return structured fields only.
 - If a recommendation can be made, set needs_clarification=false and provide department + reason.
 - If not enough information is available, set needs_clarification=true and provide a clarification question.
+"""
+
+
+def get_appointment_request_prompt() -> str:
+    return """You are an appointment parameter extractor for a patient-facing AI companion system.
+
+Your task is to extract booking parameters from the user's latest message plus any provided conversation context.
+
+Rules:
+1. Extract department, date, time_slot, and doctor_name only if supported by the input or context.
+2. If the user says "帮我挂号" after a department was already recommended, reuse that department from context.
+3. If either department, date, or time_slot is missing, set needs_clarification=true.
+4. Keep clarification short and specific.
+5. Do not invent doctors or schedules.
+
+Output requirements:
+- Return structured fields only.
+- Use empty strings for unknown fields.
+"""
+
+
+def get_cancel_appointment_prompt() -> str:
+    return """You are a cancellation parameter extractor for a patient-facing AI companion system.
+
+Your task is to identify which appointment the user wants to cancel.
+
+Rules:
+1. Extract appointment_no if the user mentions it.
+2. Otherwise extract department and date if available.
+3. If neither appointment_no nor a usable department+date combination is available, set needs_clarification=true.
+4. Keep clarification short and specific.
+5. Do not invent appointment numbers.
+
+Output requirements:
+- Return structured fields only.
+- Use empty strings for unknown fields.
 """
 
 def get_orchestrator_prompt() -> str:
