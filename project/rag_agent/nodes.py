@@ -26,6 +26,30 @@ def _looks_like_department_question(query: str) -> bool:
     return any(pattern in normalized for pattern in patterns)
 
 
+def _looks_like_medical_knowledge_question(query: str) -> bool:
+    normalized = (query or "").strip().lower()
+    if not normalized or _looks_like_department_question(normalized):
+        return False
+
+    medical_terms = [
+        "高血压", "糖尿病", "感冒", "发烧", "头晕", "咳嗽", "腹痛", "胃痛", "胸闷", "胸痛",
+        "呼吸困难", "肺炎", "哮喘", "鼻炎", "胃炎", "肠胃炎", "失眠", "焦虑", "抑郁",
+        "血压", "血糖", "检查", "药", "症状", "疾病", "炎", "癌", "病",
+        "hypertension", "diabetes", "fever", "cough", "dizziness", "headache", "pneumonia",
+        "asthma", "symptom", "treatment", "disease", "medicine", "blood pressure",
+    ]
+    question_patterns = [
+        "是什么", "怎么回事", "为什么", "原因", "症状", "表现", "怎么办", "如何", "怎么处理",
+        "怎么缓解", "严重吗", "会不会", "会引起", "会导致", "能不能", "可以吗", "要不要",
+        "是否", "注意事项", "治疗", "预防", "means", "what is", "why", "how to", "symptoms",
+        "treatment", "can ", "could ", "does ", "is it",
+    ]
+
+    has_medical_term = any(term in normalized for term in medical_terms)
+    has_question_pattern = any(pattern in normalized for pattern in question_patterns) or normalized.endswith("?") or normalized.endswith("？")
+    return has_medical_term and has_question_pattern
+
+
 def summarize_history(state: State, llm):
     existing_summary = state.get("conversation_summary", "")
     if len(state["messages"]) < 4:
@@ -127,6 +151,18 @@ def rewrite_query(state: State, llm):
             "messages": delete_all,
             "originalQuery": user_query,
             "rewrittenQuestions": [user_query],
+            "pending_clarification": "",
+            "clarification_target": "",
+        }
+
+    if state.get("intent") == "medical_rag" and _looks_like_medical_knowledge_question(user_query):
+        delete_all = [RemoveMessage(id=m.id) for m in state["messages"] if not isinstance(m, SystemMessage)]
+        fallback_query = response.questions[0] if response.questions else user_query
+        return {
+            "questionIsClear": True,
+            "messages": delete_all,
+            "originalQuery": user_query,
+            "rewrittenQuestions": [fallback_query],
             "pending_clarification": "",
             "clarification_target": "",
         }

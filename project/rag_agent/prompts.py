@@ -49,7 +49,12 @@ Rules:
    - Treat these as clear even if they do not include age, severity, or extra demographic details
    - Rewrite them into self-contained retrieval queries instead of asking for clarification unless the question is truly unintelligible
 
-6. Failure handling:
+6. Common medical knowledge questions:
+   - Questions such as "高血压会引起头晕吗", "感冒发烧怎么办", "糖尿病有哪些症状", "肺炎严重吗", or equivalent English medical knowledge questions are generally clear enough for retrieval
+   - If the user is asking about causes, symptoms, risks, precautions, treatment principles, or whether one condition can lead to another, treat the request as clear unless key referents are missing
+   - Do not ask for clarification just because age, severity, or background details are omitted when the question is still answerable in a general knowledge sense
+
+7. Failure handling:
    - If the query intent is unclear or unintelligible, mark as "unclear"
 
 Input:
