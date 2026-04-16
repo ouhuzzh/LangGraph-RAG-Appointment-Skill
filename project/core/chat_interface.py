@@ -1,7 +1,7 @@
 import json
 import re
 import config
-from langchain_core.messages import HumanMessage, AIMessageChunk, ToolMessage
+from langchain_core.messages import HumanMessage, AIMessageChunk, ToolMessage, SystemMessage
 
 SILENT_NODES = {"rewrite_query"}
 SYSTEM_NODES = {"summarize_history", "rewrite_query"}
@@ -117,6 +117,71 @@ class ChatInterface:
                 return message["content"].strip()
         return ""
 
+    @staticmethod
+    def _extract_clarification_text(response_messages):
+        for message in reversed(response_messages):
+            if message.get("metadata", {}).get("node") == "clarification":
+                content = message.get("content", "").strip()
+                if content:
+                    return content
+        return ""
+
+    @staticmethod
+    def _looks_like_department_question(query: str) -> bool:
+        normalized = (query or "").strip().lower()
+        patterns = [
+            "挂什么科",
+            "挂哪个科",
+            "看什么科",
+            "看哪个科",
+            "挂哪科",
+            "看哪科",
+            "咨询什么科",
+            "which department",
+            "what department should i visit",
+            "what department should i register for",
+        ]
+        return any(pattern in normalized for pattern in patterns)
+
+    @staticmethod
+    def _infer_intent(user_message: str, existing_state: dict):
+        if existing_state.get("pending_clarification"):
+            return existing_state.get("intent", "clarification")
+
+        normalized = (user_message or "").strip().lower()
+        if any(keyword in normalized for keyword in ["取消", "退号", "cancel appointment", "cancel booking"]):
+            return "cancel_appointment"
+        if any(keyword in normalized for keyword in ["挂号", "预约", "book appointment", "register"]):
+            return "appointment"
+        if ChatInterface._looks_like_department_question(user_message):
+            return "triage"
+        return "medical_rag"
+
+    @staticmethod
+    def _infer_risk_level(user_message: str, existing_state: dict):
+        normalized = (user_message or "").strip().lower()
+        if any(keyword.lower() in normalized for keyword in config.HIGH_RISK_KEYWORDS):
+            return "high"
+        return existing_state.get("risk_level", "normal")
+
+    @staticmethod
+    def _build_state_messages(session_state: dict):
+        if not session_state:
+            return []
+
+        parts = []
+        if session_state.get("intent"):
+            parts.append(f"Active intent: {session_state['intent']}")
+        if session_state.get("risk_level"):
+            parts.append(f"Risk level: {session_state['risk_level']}")
+        if session_state.get("pending_clarification"):
+            parts.append(f"Pending clarification: {session_state['pending_clarification']}")
+
+        if not parts:
+            return []
+
+        return [SystemMessage(content="Conversation state context:\n" + "\n".join(parts))]
+
     def chat(self, message, history):
         """Generator that streams Gradio chat message dicts."""
         if not self.rag_system.agent_graph:
@@ -127,6 +192,7 @@ class ChatInterface:
         current_state = self.rag_system.agent_graph.get_state(config)
         thread_id     = self.rag_system.thread_id
         user_message  = message.strip()
+        session_state = self.rag_system.session_memory.get_state(thread_id)
 
         try:
             if current_state.next:
@@ -137,12 +203,13 @@ class ChatInterface:
                 self.rag_system.summary_store.ensure_session(thread_id)
                 stored_messages = self.rag_system.session_memory.get_recent_messages(thread_id)
                 long_term_summary = self.rag_system.summary_store.get_summary(thread_id)
+                state_messages = self._build_state_messages(session_state)
                 if long_term_summary:
                     self.rag_system.agent_graph.update_state(
                         config,
                         {"conversation_summary": long_term_summary},
                     )
-                stream_input = {"messages": [*stored_messages, HumanMessage(content=user_message)]}
+                stream_input = {"messages": [*state_messages, *stored_messages, HumanMessage(content=user_message)]}
 
             response_messages  = []
             active_tool_calls  = {}
@@ -166,6 +233,7 @@ class ChatInterface:
                 yield response_messages
 
             final_assistant = self._extract_final_assistant_text(response_messages)
+            clarification_text = self._extract_clarification_text(response_messages)
             if final_assistant:
                 self.rag_system.session_memory.append_exchange(thread_id, user_message, final_assistant)
                 recent_count = self.rag_system.session_memory.recent_message_count(thread_id)
@@ -175,6 +243,13 @@ class ChatInterface:
                     conversation_summary = latest_values.get("conversation_summary", "")
                     if conversation_summary:
                         self.rag_system.summary_store.save_summary(thread_id, conversation_summary, recent_count)
+
+            updated_state = {
+                "intent": self._infer_intent(user_message, session_state),
+                "risk_level": self._infer_risk_level(user_message, session_state),
+                "pending_clarification": clarification_text or None,
+            }
+            self.rag_system.session_memory.set_state(thread_id, updated_state)
 
         except Exception as e:
             yield f"❌ Error: {str(e)}"

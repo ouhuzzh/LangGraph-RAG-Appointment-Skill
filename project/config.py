@@ -54,6 +54,22 @@ REDIS_DB = int(os.environ.get("REDIS_DB", "0"))
 REDIS_TTL_SECONDS = int(os.environ.get("REDIS_TTL_SECONDS", "86400"))
 SHORT_TERM_WINDOW_SIZE = int(os.environ.get("SHORT_TERM_WINDOW_SIZE", "8"))
 SUMMARY_REFRESH_THRESHOLD = int(os.environ.get("SUMMARY_REFRESH_THRESHOLD", "6"))
+HIGH_RISK_KEYWORDS = [
+    "胸痛",
+    "胸闷",
+    "呼吸困难",
+    "呼吸急促",
+    "意识模糊",
+    "抽搐",
+    "大出血",
+    "持续高热",
+    "晕厥",
+    "severe chest pain",
+    "shortness of breath",
+    "confusion",
+    "convulsion",
+    "heavy bleeding",
+]
 
 # --- Agent Configuration ---
 MAX_TOOL_CALLS = 8
