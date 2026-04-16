@@ -158,12 +158,19 @@ class ChatInterface:
             return existing_state.get("intent", "clarification")
 
         normalized = (user_message or "").strip().lower()
-        if any(keyword in normalized for keyword in ["取消", "退号", "cancel appointment", "cancel booking"]):
-            return "cancel_appointment"
-        if any(keyword in normalized for keyword in ["挂号", "预约", "book appointment", "register"]):
-            return "appointment"
+        # 问候语
+        greetings = ["你好", "您好", "hello", "hi", "谢谢", "感谢", "thanks", "再见", "bye"]
+        if len(normalized) <= 15 and any(g in normalized for g in greetings):
+            return "greeting"
+        # 科室问题优先(与 intent_router 一致)
         if ChatInterface._looks_like_department_question(user_message):
             return "triage"
+        has_appointment = any(keyword in normalized for keyword in ["挂号", "预约", "book appointment", "register"])
+        has_cancel = any(keyword in normalized for keyword in ["取消", "退号", "cancel appointment", "cancel booking"])
+        if has_appointment:
+            return "appointment"
+        if has_cancel:
+            return "cancel_appointment"
         return "medical_rag"
 
     @staticmethod

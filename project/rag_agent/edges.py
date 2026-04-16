@@ -1,13 +1,12 @@
 from typing import Literal
-from langgraph.graph import END
 from langgraph.types import Send
 from .graph_state import State, AgentState
 from config import MAX_ITERATIONS, MAX_TOOL_CALLS
 
-def route_after_intent(state: State) -> Literal["rewrite_query", "recommend_department", "handle_appointment", "handle_cancel_appointment", "request_clarification"]:
+def route_after_intent(state: State) -> Literal["rewrite_query", "recommend_department", "handle_appointment", "handle_cancel_appointment", "request_clarification", "__end__"]:
     intent = state.get("intent", "")
     if intent == "greeting":
-        return END
+        return "__end__"
     if intent == "triage":
         return "recommend_department"
     if intent == "appointment":
@@ -23,8 +22,9 @@ def route_after_rewrite(state: State) -> Literal["request_clarification", "agent
     if not state.get("questionIsClear", False):
         return "request_clarification"
     else:
+        summary = state.get("conversation_summary", "")
         return [
-                Send("agent", {"question": query, "question_index": idx, "messages": []})
+                Send("agent", {"question": query, "question_index": idx, "messages": [], "context_summary": summary})
                 for idx, query in enumerate(state["rewrittenQuestions"])
             ]
 

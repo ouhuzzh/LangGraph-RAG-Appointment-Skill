@@ -70,23 +70,45 @@ def _normalize_time_slot(raw_value: str) -> str:
     normalized = (raw_value or "").strip().lower()
     if not normalized:
         return ""
-    morning_tokens = ["上午", "早上", "早晨", "morning", "am",
-                      "早", "八点", "九点", "十点", "十一点",
-                      "8点", "9点", "10点", "11点",
-                      "8:00", "9:00", "10:00", "11:00"]
-    afternoon_tokens = ["下午", "afternoon", "pm",
-                        "十二点", "一点", "两点", "三点", "四点", "五点",
-                        "12点", "1点", "2点", "3点", "4点", "5点",
-                        "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"]
-    evening_tokens = ["晚上", "傍晚", "evening", "night",
-                      "六点", "七点", "八点半", "九点半",
-                      "18:00", "19:00", "20:00", "21:00"]
-    if any(token in normalized for token in morning_tokens):
-        return "morning"
-    if any(token in normalized for token in afternoon_tokens):
-        return "afternoon"
-    if any(token in normalized for token in evening_tokens):
+    # 先检查上下文关键词(优先级最高)
+    context_evening = ["晚上", "傍晚", "evening", "night", "晚间"]
+    context_afternoon = ["下午", "afternoon", "午后"]
+    context_morning = ["上午", "早上", "早晨", "morning", "清晨"]
+    if any(token in normalized for token in context_evening):
         return "evening"
+    if any(token in normalized for token in context_afternoon):
+        return "afternoon"
+    if any(token in normalized for token in context_morning):
+        return "morning"
+    # 无上下文关键词时,按具体时间数字判断
+    import re as _re
+    # 提取数字时间(如 8:30, 20:00, 八点半, 3点)
+    hour_match = _re.search(r'(\d{1,2})[:：点时]', normalized)
+    cn_hour_match = _re.search(r'(十[一二三四五六七八九]?|[一二三四五六七八九十]|十一|十二)', normalized)
+    has_half = "半" in normalized or ":30" in normalized or "：30" in normalized
+    hour = None
+    if hour_match:
+        try:
+            hour = int(hour_match.group(1))
+        except ValueError:
+            pass
+    elif cn_hour_match:
+        cn_map = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9,
+                  "十": 10, "十一": 11, "十二": 12, "十三": 13, "十四": 14, "十五": 15, "十六": 16,
+                  "十七": 17, "十八": 18, "十九": 19, "二十": 20, "二十一": 21, "二十二": 22, "二十三": 23}
+        cn_str = cn_hour_match.group(1)
+        hour = cn_map.get(cn_str)
+    if hour is not None:
+        if hour >= 18 or (hour == 12 and has_half):
+            return "evening"
+        if hour >= 12:
+            return "afternoon"
+        return "morning"
+    # 兜底: am/pm 标识
+    if "am" in normalized:
+        return "morning"
+    if "pm" in normalized:
+        return "afternoon"
     return ""
 
 
@@ -202,9 +224,13 @@ def intent_router(state: State, llm):
             "last_appointment_no": "",
         }
 
-    if any(keyword in normalized_query for keyword in ["取消", "退号", "cancel appointment", "cancel booking"]):
+    has_appointment_keyword = any(keyword in normalized_query for keyword in ["挂号", "预约", "book appointment", "register"])
+    has_cancel_keyword = any(keyword in normalized_query for keyword in ["取消", "退号", "cancel appointment", "cancel booking"])
+
+    # 复合意图: "取消+挂号" → 优先走预约(用户最终目的是挂号)
+    if has_appointment_keyword:
         return {
-            "intent": "cancel_appointment",
+            "intent": "appointment",
             "risk_level": risk_level,
             "pending_clarification": "",
             "clarification_target": "",
@@ -213,9 +239,9 @@ def intent_router(state: State, llm):
             "last_appointment_no": state.get("last_appointment_no", ""),
         }
 
-    if any(keyword in normalized_query for keyword in ["挂号", "预约", "book appointment", "register"]):
+    if has_cancel_keyword:
         return {
-            "intent": "appointment",
+            "intent": "cancel_appointment",
             "risk_level": risk_level,
             "pending_clarification": "",
             "clarification_target": "",

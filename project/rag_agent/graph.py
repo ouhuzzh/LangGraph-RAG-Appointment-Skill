@@ -44,7 +44,14 @@ def create_agent_graph(llm, tools_list, appointment_service=None):
 
     graph_builder.add_edge(START, "summarize_history")
     graph_builder.add_edge("summarize_history", "intent_router")
-    graph_builder.add_conditional_edges("intent_router", route_after_intent)
+    graph_builder.add_conditional_edges("intent_router", route_after_intent, {
+        "rewrite_query": "rewrite_query",
+        "recommend_department": "recommend_department",
+        "handle_appointment": "handle_appointment",
+        "handle_cancel_appointment": "handle_cancel_appointment",
+        "request_clarification": "request_clarification",
+        "__end__": END,
+    })
     graph_builder.add_conditional_edges("rewrite_query", route_after_rewrite)
     graph_builder.add_conditional_edges("request_clarification", route_after_clarification)
     graph_builder.add_edge(["agent"], "aggregate_answers")
