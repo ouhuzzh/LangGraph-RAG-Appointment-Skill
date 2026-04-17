@@ -1,5 +1,7 @@
 import io
+import json
 import re
+import tempfile
 import zipfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -8,6 +10,7 @@ from pathlib import Path
 from urllib.parse import urljoin
 
 import requests
+from utils import pdf_to_markdown
 
 
 def _slugify(value: str) -> str:
@@ -100,6 +103,7 @@ class MedicalImportResult:
     skipped: int
     output_dir: Path
     discovered_url: str
+    failed: int = 0
 
 
 class MedlinePlusXmlImporter:
@@ -221,4 +225,89 @@ class MedlinePlusXmlImporter:
             skipped=skipped,
             output_dir=Path(output_dir),
             discovered_url=archive_url,
+        )
+
+
+class NhcPdfWhitelistImporter:
+    def __init__(self, session=None, manifest_path: str | Path | None = None):
+        self.session = session or requests.Session()
+        self.manifest_path = Path(manifest_path) if manifest_path else Path(__file__).with_name("manifests") / "nhc_whitelist.json"
+
+    def load_manifest(self) -> list[dict]:
+        data = json.loads(self.manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(data, list):
+            raise ValueError("NHC whitelist manifest must be a list.")
+        return data
+
+    def _download_pdf_bytes(self, entry: dict) -> bytes:
+        pdf_url = entry["pdf_url"]
+        response = self.session.get(pdf_url, timeout=90)
+        response.raise_for_status()
+        return response.content
+
+    def _convert_pdf_bytes_to_markdown(self, pdf_bytes: bytes, stem: str) -> str:
+        with tempfile.TemporaryDirectory(prefix="nhc-pdf-") as temp_dir:
+            temp_dir_path = Path(temp_dir)
+            pdf_path = temp_dir_path / f"{stem}.pdf"
+            pdf_path.write_bytes(pdf_bytes)
+            pdf_to_markdown(str(pdf_path), temp_dir_path)
+            markdown_path = temp_dir_path / f"{stem}.md"
+            if not markdown_path.exists():
+                raise FileNotFoundError(f"Markdown conversion failed for {stem}")
+            return markdown_path.read_text(encoding="utf-8")
+
+    def _render_entry_markdown(self, entry: dict, body_markdown: str) -> str:
+        metadata_lines = [
+            "Source: 国家卫生健康委员会",
+            f"Original URL: {entry.get('page_url', entry['pdf_url'])}",
+            f"PDF URL: {entry['pdf_url']}",
+        ]
+        if entry.get("document_type"):
+            metadata_lines.append(f"Document type: {entry['document_type']}")
+        if entry.get("department"):
+            metadata_lines.append(f"Department: {entry['department']}")
+        if entry.get("tags"):
+            metadata_lines.append(f"Tags: {', '.join(entry['tags'])}")
+
+        sections = [
+            f"# {entry['title']}",
+            "\n".join(metadata_lines),
+            "## Content",
+            _collapse_text(body_markdown),
+        ]
+        return "\n\n".join(section for section in sections if section.strip()) + "\n"
+
+    def import_whitelist(self, output_dir: str | Path, limit: int | None = None, overwrite: bool = False) -> MedicalImportResult:
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        entries = self.load_manifest()
+        if limit is not None:
+            entries = entries[:limit]
+
+        written = 0
+        skipped = 0
+        failed = 0
+        for entry in entries:
+            stem = entry.get("id") or f"nhc-{_slugify(entry['title'])}"
+            markdown_path = output_path / f"{stem}.md"
+            if markdown_path.exists() and not overwrite:
+                skipped += 1
+                continue
+            try:
+                pdf_bytes = self._download_pdf_bytes(entry)
+                body_markdown = self._convert_pdf_bytes_to_markdown(pdf_bytes, stem)
+                markdown_path.write_text(self._render_entry_markdown(entry, body_markdown), encoding="utf-8")
+                written += 1
+            except Exception as exc:
+                print(f"Failed to import NHC document '{entry.get('title', stem)}': {exc}")
+                failed += 1
+
+        return MedicalImportResult(
+            downloaded=len(entries),
+            written=written,
+            skipped=skipped,
+            output_dir=output_path,
+            discovered_url=str(self.manifest_path),
+            failed=failed,
         )
