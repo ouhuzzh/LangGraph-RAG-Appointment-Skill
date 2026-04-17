@@ -191,6 +191,10 @@ class MedlinePlusXmlImporter:
     def render_topic_markdown(self, topic: ImportedMedicalDocument) -> str:
         metadata_lines = [
             f"Source: MedlinePlus",
+            "Source type: patient_education",
+            "Language: en",
+            "File type: md",
+            f"Title: {topic.title}",
             f"Original URL: {topic.source_url}",
         ]
         if topic.summary:
@@ -267,6 +271,10 @@ class NhcPdfWhitelistImporter:
     def _render_entry_markdown(self, entry: dict, body_markdown: str) -> str:
         metadata_lines = [
             "Source: 国家卫生健康委员会",
+            f"Source type: {entry.get('document_type', 'clinical_guideline')}",
+            "Language: zh",
+            "File type: pdf",
+            f"Title: {entry['title']}",
             f"Original URL: {entry.get('page_url', entry['pdf_url'])}",
             f"PDF URL: {entry['pdf_url']}",
         ]
@@ -353,6 +361,10 @@ class WhoHtmlWhitelistImporter:
     def _render_entry_markdown(self, entry: dict, body_markdown: str) -> str:
         metadata_lines = [
             "Source: World Health Organization",
+            f"Source type: {entry.get('document_type', 'public_health')}",
+            "Language: en",
+            "File type: html",
+            f"Title: {entry['title']}",
             f"Original URL: {entry['url']}",
         ]
         if entry.get("document_type"):

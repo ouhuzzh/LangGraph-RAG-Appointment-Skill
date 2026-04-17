@@ -1,6 +1,7 @@
 from pathlib import Path
 import shutil
 import config
+from core.medical_source_ingest import MedlinePlusXmlImporter, NhcPdfWhitelistImporter, WhoHtmlWhitelistImporter
 from utils import pdfs_to_markdowns, clear_directory_contents
 
 class DocumentManager:
@@ -116,3 +117,25 @@ class DocumentManager:
         self.rag_system.vector_db.delete_collection(self.rag_system.collection_name)
         self.rag_system.parent_store.clear_store()
         self.rag_system.vector_db.create_collection(self.rag_system.collection_name)
+
+    def import_official_source(self, source: str, limit: int = 10, overwrite: bool = False, index_after_import: bool = True):
+        importers = {
+            "medlineplus": MedlinePlusXmlImporter,
+            "nhc": NhcPdfWhitelistImporter,
+            "who": WhoHtmlWhitelistImporter,
+        }
+        if source not in importers:
+            raise ValueError(f"Unsupported official source: {source}")
+
+        importer = importers[source]()
+        if source == "medlineplus":
+            result = importer.import_latest(self.markdown_dir, limit=limit, overwrite=overwrite)
+        else:
+            result = importer.import_whitelist(self.markdown_dir, limit=limit, overwrite=overwrite)
+
+        index_result = {"processed": 0, "added": 0, "skipped": 0}
+        if index_after_import:
+            index_result = self.index_existing_markdowns(skip_existing=True)
+            self.rag_system.refresh_knowledge_base_status()
+
+        return result, index_result

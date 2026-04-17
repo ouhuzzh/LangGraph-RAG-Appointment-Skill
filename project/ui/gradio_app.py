@@ -93,6 +93,34 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
         system_status, knowledge_status, chat_system_status, chat_knowledge_status, file_list_value = refresh_status_panel()
         return file_list_value, system_status, knowledge_status, chat_system_status, chat_knowledge_status
 
+    def official_import_handler(source, limit, overwrite):
+        result, index_result = doc_manager.import_official_source(
+            source=source,
+            limit=int(limit),
+            overwrite=bool(overwrite),
+            index_after_import=True,
+        )
+        rag_system.refresh_knowledge_base_status()
+        rag_system.start_knowledge_base_bootstrap()
+        gr.Info(
+            f"官方导入完成：source={source} downloaded={result.downloaded} written={result.written} "
+            f"skipped={result.skipped} failed={result.failed} | "
+            f"index added={index_result['added']} skipped={index_result['skipped']}"
+        )
+        system_status, knowledge_status, chat_system_status, chat_knowledge_status, file_list_value = refresh_status_panel()
+        summary = (
+            f"Source: {source}\n"
+            f"Downloaded: {result.downloaded}\n"
+            f"Written: {result.written}\n"
+            f"Skipped: {result.skipped}\n"
+            f"Failed: {result.failed}\n"
+            f"Index processed: {index_result['processed']}\n"
+            f"Index added: {index_result['added']}\n"
+            f"Index skipped: {index_result['skipped']}\n"
+            f"Manifest/Origin: {result.discovered_url}"
+        )
+        return summary, file_list_value, system_status, knowledge_status, chat_system_status, chat_knowledge_status
+
     def chat_handler(msg, hist):
         for chunk in chat_interface.chat(msg, hist):
             yield chunk
@@ -127,6 +155,27 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
             )
             
             add_btn = gr.Button("Add Documents", variant="primary", size="md")
+
+            gr.Markdown("## Import Official Medical Sources")
+            with gr.Row():
+                official_source = gr.Dropdown(
+                    choices=[
+                        ("MedlinePlus", "medlineplus"),
+                        ("国家卫健委", "nhc"),
+                        ("WHO Fact Sheets", "who"),
+                    ],
+                    value="medlineplus",
+                    label="Official Source",
+                )
+                official_limit = gr.Number(value=5, precision=0, minimum=1, maximum=100, label="Limit")
+                official_overwrite = gr.Checkbox(value=False, label="Overwrite Existing Markdown")
+            official_import_btn = gr.Button("Import Official Docs", variant="secondary", size="md")
+            official_import_result = gr.Textbox(
+                value="",
+                label="Official Import Result",
+                interactive=False,
+                lines=8,
+            )
             
             gr.Markdown("## Current Documents in the Knowledge Base")
             file_list = gr.Textbox(
@@ -170,6 +219,12 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
             upload_handler,
             [files_input],
             [files_input, file_list, docs_system_status, docs_knowledge_status, chat_system_status, chat_knowledge_status],
+            show_progress="corner",
+        )
+        official_import_btn.click(
+            official_import_handler,
+            [official_source, official_limit, official_overwrite],
+            [official_import_result, file_list, docs_system_status, docs_knowledge_status, chat_system_status, chat_knowledge_status],
             show_progress="corner",
         )
         refresh_btn.click(

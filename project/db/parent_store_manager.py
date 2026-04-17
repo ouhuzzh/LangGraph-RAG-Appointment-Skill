@@ -25,9 +25,9 @@ class ParentStoreManager:
         document_no = source_path.stem or "unknown"
         return {
             "document_no": document_no,
-            "title": source_name,
+            "title": metadata.get("title") or source_name,
             "source_name": source_name,
-            "file_type": source_path.suffix.lstrip(".") or "pdf",
+            "file_type": metadata.get("file_type") or source_path.suffix.lstrip(".") or "pdf",
         }
 
     def _ensure_document(self, conn, metadata: Dict) -> int:
@@ -51,7 +51,7 @@ class ParentStoreManager:
                     info["title"],
                     info["source_name"],
                     info["file_type"],
-                    json.dumps({"source": info["source_name"]}, ensure_ascii=False),
+                    json.dumps(metadata, ensure_ascii=False),
                 ),
             )
             row = cur.fetchone()

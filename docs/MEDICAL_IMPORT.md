@@ -6,6 +6,8 @@
 
 ## 用法
 
+现在除了命令行，你也可以直接在 Documents 页通过 `Import Official Docs` 按钮导入官方资料。
+
 只下载并生成 Markdown：
 
 ```powershell

@@ -1,5 +1,6 @@
 import os
 import glob
+import re
 import config
 from pathlib import Path
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
@@ -30,17 +31,60 @@ class DocumentChuncker:
 
     def create_chunks_single(self, md_path):
         doc_path = Path(md_path)
-        
+
         with open(doc_path, "r", encoding="utf-8") as f:
-            parent_chunks = self.__parent_splitter.split_text(f.read())
+            raw_text = f.read()
+
+        metadata = self.__extract_front_matter_metadata(raw_text)
+        content_text = self.__strip_front_matter(raw_text)
+        parent_chunks = self.__parent_splitter.split_text(content_text)
         
         merged_parents = self.__merge_small_parents(parent_chunks)
         split_parents = self.__split_large_parents(merged_parents)
         cleaned_parents = self.__clean_small_chunks(split_parents)
         
         all_parent_chunks, all_child_chunks = [], []
-        self.__create_child_chunks(all_parent_chunks, all_child_chunks, cleaned_parents, doc_path)
+        self.__create_child_chunks(all_parent_chunks, all_child_chunks, cleaned_parents, doc_path, metadata)
         return all_parent_chunks, all_child_chunks
+
+    @staticmethod
+    def __extract_front_matter_metadata(raw_text):
+        lines = raw_text.splitlines()
+        metadata = {}
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                if metadata:
+                    break
+                continue
+            match = re.match(r"^([A-Za-z][A-Za-z0-9 _-]*):\s*(.+?)\s*$", stripped)
+            if not match:
+                if metadata:
+                    break
+                continue
+            key = match.group(1).strip().lower().replace(" ", "_")
+            metadata[key] = match.group(2).strip()
+        return metadata
+
+    @staticmethod
+    def __strip_front_matter(raw_text):
+        lines = raw_text.splitlines()
+        stripped_lines = []
+        seen_metadata = False
+        metadata_done = False
+        for line in lines:
+            stripped = line.strip()
+            is_metadata_line = bool(re.match(r"^([A-Za-z][A-Za-z0-9 _-]*):\s*(.+?)\s*$", stripped))
+            if not metadata_done and is_metadata_line:
+                seen_metadata = True
+                continue
+            if seen_metadata and not metadata_done:
+                if stripped:
+                    metadata_done = True
+                    stripped_lines.append(line)
+                continue
+            stripped_lines.append(line)
+        return "\n".join(stripped_lines)
 
     def __merge_small_parents(self, chunks):
         if not chunks:
@@ -118,9 +162,10 @@ class DocumentChuncker:
         
         return cleaned
 
-    def __create_child_chunks(self, all_parent_pairs, all_child_chunks, parent_chunks, doc_path):
+    def __create_child_chunks(self, all_parent_pairs, all_child_chunks, parent_chunks, doc_path, base_metadata):
         for i, p_chunk in enumerate(parent_chunks):
             parent_id = f"{doc_path.stem}_parent_{i}"
+            p_chunk.metadata.update(base_metadata)
             p_chunk.metadata.update({"source": str(doc_path.stem)+".pdf", "parent_id": parent_id})
             
             all_parent_pairs.append((parent_id, p_chunk))

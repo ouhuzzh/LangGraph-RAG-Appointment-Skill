@@ -86,10 +86,10 @@ class PgVectorCollection:
                 """,
                 (
                     document_no,
+                    metadata.get("title") or source_name,
                     source_name,
-                    source_name,
-                    source_name.rsplit(".", 1)[-1].lower() if "." in source_name else "pdf",
-                    json.dumps({"source": source_name}, ensure_ascii=False),
+                    metadata.get("file_type") or (source_name.rsplit(".", 1)[-1].lower() if "." in source_name else "pdf"),
+                    json.dumps(metadata, ensure_ascii=False),
                 ),
             )
             row = cur.fetchone()
