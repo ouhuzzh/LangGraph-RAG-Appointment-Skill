@@ -5,6 +5,7 @@ import unittest
 import uuid
 from datetime import date, timedelta
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, r"D:\nageoffer\agentic-rag-for-dummies\project")
 
@@ -176,7 +177,8 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
         manager.markdown_dir = Path(self.temp_markdown_dir)
 
         result = manager.index_existing_markdowns(skip_existing=True)
-        rag.refresh_knowledge_base_status()
+        with mock.patch("core.document_manager.config.MARKDOWN_DIR", self.temp_markdown_dir):
+            rag.refresh_knowledge_base_status()
         matches = rag.vector_db.get_collection(rag.collection_name).similarity_search("慢性咳嗽", k=1)
 
         self.assertEqual(result["added"], 1)
