@@ -25,6 +25,7 @@ class RagSystemImportHistoryTests(unittest.TestCase):
         self.assertEqual(len(history), 8)
         self.assertEqual(history[0]["source"], "source-9")
         self.assertEqual(history[-1]["source"], "source-2")
+        self.assertIn("timestamp", history[0])
 
 
 if __name__ == "__main__":

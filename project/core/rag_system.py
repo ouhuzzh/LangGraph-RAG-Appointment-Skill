@@ -1,6 +1,7 @@
 import uuid
 import threading
 import time
+from datetime import datetime
 import config
 from db.vector_db_manager import VectorDbManager
 from db.parent_store_manager import ParentStoreManager
@@ -106,7 +107,9 @@ class RAGSystem:
 
     def record_import_event(self, event: dict):
         history = list(self._knowledge_base_status["stats"].get("recent_imports", []))
-        history.insert(0, dict(event))
+        payload = dict(event)
+        payload.setdefault("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        history.insert(0, payload)
         self._knowledge_base_status["stats"]["recent_imports"] = history[:8]
 
     def refresh_knowledge_base_status(self):

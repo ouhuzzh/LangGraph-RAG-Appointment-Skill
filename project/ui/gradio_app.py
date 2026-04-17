@@ -1,5 +1,6 @@
 import gradio as gr
 import config
+import time
 from core.chat_interface import ChatInterface
 from core.document_manager import DocumentManager
 from core.rag_system import RAGSystem
@@ -57,22 +58,44 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
         ]
         if stats.get("last_bootstrap_result"):
             lines.append(f"最近补建结果：{stats['last_bootstrap_result']}")
-        recent_imports = stats.get("recent_imports") or []
-        if recent_imports:
-            lines.append("最近导入记录：")
-            for item in recent_imports[:5]:
-                lines.append(
-                    f"- {item.get('source', 'manual')} | written={item.get('written', 0)} "
-                    f"skipped={item.get('skipped', 0)} failed={item.get('failed', 0)}"
-                )
         if knowledge_status.get("last_error"):
             lines.append(f"最近错误：{knowledge_status['last_error']}")
         return "\n".join(lines)
+
+    def format_recent_import_tasks():
+        knowledge_status = rag_system.get_knowledge_base_status()
+        recent_imports = knowledge_status["stats"].get("recent_imports") or []
+        if not recent_imports:
+            return "暂无导入任务记录。"
+
+        lines = []
+        for item in recent_imports[:6]:
+            lines.extend(
+                [
+                    f"[{item.get('timestamp', '-')}] {item.get('label', item.get('source', 'manual_upload'))}",
+                    (
+                        f"status={item.get('status', 'completed')} duration={item.get('duration_ms', 0)} ms "
+                        f"written={item.get('written', 0)} skipped={item.get('skipped', 0)} failed={item.get('failed', 0)} "
+                        f"index_added={item.get('index_added', 0)}"
+                    ),
+                ]
+            )
+            if item.get("downloaded") is not None:
+                lines.append(f"downloaded={item.get('downloaded', 0)}")
+            if item.get("conversion_details"):
+                lines.append(f"conversion: {' | '.join(item['conversion_details'][:2])}")
+            if item.get("failure_details"):
+                lines.append(f"failures: {' | '.join(item['failure_details'][:2])}")
+            if item.get("note"):
+                lines.append(f"note: {item['note']}")
+            lines.append("")
+        return "\n".join(lines).strip()
 
     def refresh_status_panel():
         return (
             format_system_status(),
             format_knowledge_base_status(),
+            format_recent_import_tasks(),
             format_system_status(),
             format_knowledge_base_status(),
             format_file_list(),
@@ -80,9 +103,10 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
 
     def upload_handler(files, progress=gr.Progress()):
         if not files:
-            system_status, knowledge_status, _, _, file_list_value = refresh_status_panel()
-            return None, file_list_value, system_status, knowledge_status, system_status, knowledge_status
+            system_status, knowledge_status, import_tasks, _, _, file_list_value = refresh_status_panel()
+            return None, file_list_value, system_status, knowledge_status, import_tasks, system_status, knowledge_status
 
+        started_at = time.perf_counter()
         added, skipped = doc_manager.add_documents(
             files,
             progress_callback=lambda p, desc: progress(p, desc=desc)
@@ -92,24 +116,31 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
         rag_system.record_import_event(
             {
                 "source": "manual_upload",
+                "label": "Manual Upload",
+                "status": "completed",
                 "written": added,
                 "skipped": skipped,
                 "failed": 0,
+                "downloaded": len(files),
+                "duration_ms": round((time.perf_counter() - started_at) * 1000, 2),
+                "note": "Uploaded PDF/Markdown files from the local workspace.",
+                "index_added": added,
             }
         )
         rag_system.start_knowledge_base_bootstrap()
         gr.Info(f"✅ Added: {added} | Skipped: {skipped}")
-        system_status, knowledge_status, chat_system_status, chat_knowledge_status, file_list_value = refresh_status_panel()
-        return None, file_list_value, system_status, knowledge_status, chat_system_status, chat_knowledge_status
+        system_status, knowledge_status, import_tasks, chat_system_status, chat_knowledge_status, file_list_value = refresh_status_panel()
+        return None, file_list_value, system_status, knowledge_status, import_tasks, chat_system_status, chat_knowledge_status
 
     def clear_handler():
         doc_manager.clear_all()
         rag_system.refresh_knowledge_base_status()
         gr.Info(f"🗑️ Removed all documents")
-        system_status, knowledge_status, chat_system_status, chat_knowledge_status, file_list_value = refresh_status_panel()
-        return file_list_value, system_status, knowledge_status, chat_system_status, chat_knowledge_status
+        system_status, knowledge_status, import_tasks, chat_system_status, chat_knowledge_status, file_list_value = refresh_status_panel()
+        return file_list_value, system_status, knowledge_status, import_tasks, chat_system_status, chat_knowledge_status
 
     def official_import_handler(source, limit, overwrite):
+        started_at = time.perf_counter()
         result, index_result = doc_manager.import_official_source(
             source=source,
             limit=int(limit),
@@ -121,9 +152,22 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
         rag_system.record_import_event(
             {
                 "source": source,
+                "label": {
+                    "medlineplus": "MedlinePlus Import",
+                    "nhc": "NHC PDF Import",
+                    "who": "WHO Fact Sheet Import",
+                }.get(source, source),
+                "status": "completed" if result.failed == 0 else "completed_with_failures",
+                "downloaded": result.downloaded,
                 "written": result.written,
                 "skipped": result.skipped,
                 "failed": result.failed,
+                "duration_ms": round((time.perf_counter() - started_at) * 1000, 2),
+                "index_added": index_result["added"],
+                "index_skipped": index_result["skipped"],
+                "conversion_details": list(result.conversion_details),
+                "failure_details": list(result.failure_details),
+                "note": f"Origin: {result.discovered_url}",
             }
         )
         gr.Info(
@@ -131,7 +175,7 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
             f"skipped={result.skipped} failed={result.failed} | "
             f"index added={index_result['added']} skipped={index_result['skipped']}"
         )
-        system_status, knowledge_status, chat_system_status, chat_knowledge_status, file_list_value = refresh_status_panel()
+        system_status, knowledge_status, import_tasks, chat_system_status, chat_knowledge_status, file_list_value = refresh_status_panel()
         summary = (
             f"Source: {source}\n"
             f"Downloaded: {result.downloaded}\n"
@@ -141,9 +185,14 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
             f"Index processed: {index_result['processed']}\n"
             f"Index added: {index_result['added']}\n"
             f"Index skipped: {index_result['skipped']}\n"
-            f"Manifest/Origin: {result.discovered_url}"
+            f"Manifest/Origin: {result.discovered_url}\n"
+            f"Duration: {round((time.perf_counter() - started_at) * 1000, 2)} ms"
         )
-        return summary, file_list_value, system_status, knowledge_status, chat_system_status, chat_knowledge_status
+        if result.conversion_details:
+            summary += "\nConversion details:\n- " + "\n- ".join(result.conversion_details[:3])
+        if result.failure_details:
+            summary += "\nFailure details:\n- " + "\n- ".join(result.failure_details[:3])
+        return summary, file_list_value, system_status, knowledge_status, import_tasks, chat_system_status, chat_knowledge_status
 
     def chat_handler(msg, hist):
         for chunk in chat_interface.chat(msg, hist):
@@ -166,6 +215,12 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
                 label="Knowledge Base Status",
                 interactive=False,
                 lines=7,
+            )
+            docs_import_tasks = gr.Textbox(
+                value=format_recent_import_tasks(),
+                label="Recent Import Tasks",
+                interactive=False,
+                lines=10,
             )
             gr.Markdown("## Add New Documents")
             gr.Markdown("Upload PDF or Markdown files. Duplicates will be automatically skipped.")
@@ -242,36 +297,36 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
         add_btn.click(
             upload_handler,
             [files_input],
-            [files_input, file_list, docs_system_status, docs_knowledge_status, chat_system_status, chat_knowledge_status],
+            [files_input, file_list, docs_system_status, docs_knowledge_status, docs_import_tasks, chat_system_status, chat_knowledge_status],
             show_progress="corner",
         )
         official_import_btn.click(
             official_import_handler,
             [official_source, official_limit, official_overwrite],
-            [official_import_result, file_list, docs_system_status, docs_knowledge_status, chat_system_status, chat_knowledge_status],
+            [official_import_result, file_list, docs_system_status, docs_knowledge_status, docs_import_tasks, chat_system_status, chat_knowledge_status],
             show_progress="corner",
         )
         refresh_btn.click(
             refresh_status_panel,
             None,
-            [docs_system_status, docs_knowledge_status, chat_system_status, chat_knowledge_status, file_list],
+            [docs_system_status, docs_knowledge_status, docs_import_tasks, chat_system_status, chat_knowledge_status, file_list],
         )
         clear_btn.click(
             clear_handler,
             None,
-            [file_list, docs_system_status, docs_knowledge_status, chat_system_status, chat_knowledge_status],
+            [file_list, docs_system_status, docs_knowledge_status, docs_import_tasks, chat_system_status, chat_knowledge_status],
         )
 
         demo.load(
             refresh_status_panel,
             None,
-            [docs_system_status, docs_knowledge_status, chat_system_status, chat_knowledge_status, file_list],
+            [docs_system_status, docs_knowledge_status, docs_import_tasks, chat_system_status, chat_knowledge_status, file_list],
         )
         status_timer = gr.Timer(config.STATUS_REFRESH_SECONDS)
         status_timer.tick(
             refresh_status_panel,
             None,
-            [docs_system_status, docs_knowledge_status, chat_system_status, chat_knowledge_status, file_list],
+            [docs_system_status, docs_knowledge_status, docs_import_tasks, chat_system_status, chat_knowledge_status, file_list],
         )
 
     return demo

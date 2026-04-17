@@ -2,6 +2,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, r"D:\nageoffer\agentic-rag-for-dummies\project")
 
@@ -19,8 +20,11 @@ class FakeNhcImporter(NhcPdfWhitelistImporter):
         self.downloaded_urls.append(entry["pdf_url"])
         return b"%PDF-1.4 fake"
 
-    def _convert_pdf_bytes_to_markdown(self, pdf_bytes: bytes, stem: str) -> str:
-        return "第一段内容\n\n第二段内容"
+    def _convert_pdf_bytes_to_markdown(self, pdf_bytes: bytes, stem: str):
+        return (
+            "第一段内容\n\n第二段内容",
+            SimpleNamespace(method_used="plain_text_fallback", extracted_char_count=12, warnings=["fallback-used"]),
+        )
 
 
 class NhcPdfImporterTests(unittest.TestCase):
@@ -45,6 +49,8 @@ class NhcPdfImporterTests(unittest.TestCase):
         self.assertEqual(result.written, 1)
         self.assertEqual(result.failed, 0)
         self.assertEqual(result.skipped, 0)
+        self.assertEqual(len(result.conversion_details), 1)
+        self.assertIn("plain_text_fallback", result.conversion_details[0])
         self.assertIn("Source: 国家卫生健康委员会", content)
         self.assertIn("样例诊疗指南", content)
         self.assertIn("第一段内容", content)

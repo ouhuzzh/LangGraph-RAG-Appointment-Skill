@@ -4,7 +4,7 @@ import re
 import tempfile
 import zipfile
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urljoin
@@ -112,6 +112,8 @@ class MedicalImportResult:
     output_dir: Path
     discovered_url: str
     failed: int = 0
+    failure_details: list[str] = field(default_factory=list)
+    conversion_details: list[str] = field(default_factory=list)
 
 
 class MedlinePlusXmlImporter:
@@ -257,16 +259,16 @@ class NhcPdfWhitelistImporter:
         response.raise_for_status()
         return response.content
 
-    def _convert_pdf_bytes_to_markdown(self, pdf_bytes: bytes, stem: str) -> str:
+    def _convert_pdf_bytes_to_markdown(self, pdf_bytes: bytes, stem: str) -> tuple[str, object]:
         with tempfile.TemporaryDirectory(prefix="nhc-pdf-") as temp_dir:
             temp_dir_path = Path(temp_dir)
             pdf_path = temp_dir_path / f"{stem}.pdf"
             pdf_path.write_bytes(pdf_bytes)
-            pdf_to_markdown(str(pdf_path), temp_dir_path)
+            conversion_result = pdf_to_markdown(str(pdf_path), temp_dir_path)
             markdown_path = temp_dir_path / f"{stem}.md"
             if not markdown_path.exists():
                 raise FileNotFoundError(f"Markdown conversion failed for {stem}")
-            return markdown_path.read_text(encoding="utf-8")
+            return markdown_path.read_text(encoding="utf-8"), conversion_result
 
     def _render_entry_markdown(self, entry: dict, body_markdown: str) -> str:
         metadata_lines = [
@@ -304,6 +306,8 @@ class NhcPdfWhitelistImporter:
         written = 0
         skipped = 0
         failed = 0
+        failure_details = []
+        conversion_details = []
         for entry in entries:
             stem = entry.get("id") or f"nhc-{_slugify(entry['title'])}"
             markdown_path = output_path / f"{stem}.md"
@@ -312,12 +316,20 @@ class NhcPdfWhitelistImporter:
                 continue
             try:
                 pdf_bytes = self._download_pdf_bytes(entry)
-                body_markdown = self._convert_pdf_bytes_to_markdown(pdf_bytes, stem)
+                body_markdown, conversion_result = self._convert_pdf_bytes_to_markdown(pdf_bytes, stem)
+                detail = (
+                    f"{entry.get('title', stem)} | method={conversion_result.method_used} "
+                    f"chars={conversion_result.extracted_char_count}"
+                )
+                if conversion_result.warnings:
+                    detail += f" | warnings={' ; '.join(conversion_result.warnings[:2])}"
+                conversion_details.append(detail)
                 markdown_path.write_text(self._render_entry_markdown(entry, body_markdown), encoding="utf-8")
                 written += 1
             except Exception as exc:
                 print(f"Failed to import NHC document '{entry.get('title', stem)}': {exc}")
                 failed += 1
+                failure_details.append(f"{entry.get('title', stem)}: {exc}")
 
         return MedicalImportResult(
             downloaded=len(entries),
@@ -326,6 +338,8 @@ class NhcPdfWhitelistImporter:
             output_dir=output_path,
             discovered_url=str(self.manifest_path),
             failed=failed,
+            failure_details=failure_details,
+            conversion_details=conversion_details,
         )
 
 
@@ -391,6 +405,7 @@ class WhoHtmlWhitelistImporter:
         written = 0
         skipped = 0
         failed = 0
+        failure_details = []
         for entry in entries:
             stem = entry.get("id") or f"who-{_slugify(entry['title'])}"
             markdown_path = output_path / f"{stem}.md"
@@ -408,6 +423,7 @@ class WhoHtmlWhitelistImporter:
             except Exception as exc:
                 print(f"Failed to import WHO document '{entry.get('title', stem)}': {exc}")
                 failed += 1
+                failure_details.append(f"{entry.get('title', stem)}: {exc}")
 
         return MedicalImportResult(
             downloaded=len(entries),
@@ -416,4 +432,5 @@ class WhoHtmlWhitelistImporter:
             output_dir=output_path,
             discovered_url=str(self.manifest_path),
             failed=failed,
+            failure_details=failure_details,
         )
