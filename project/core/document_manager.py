@@ -69,46 +69,65 @@ class DocumentManager:
             skip_existing=skip_existing,
         )
 
-    def add_documents(self, document_paths, progress_callback=None):
+    def add_documents_with_report(self, document_paths, progress_callback=None):
         if not document_paths:
-            return 0, 0
+            return {"processed": 0, "added": 0, "skipped": 0, "skipped_details": []}
 
         document_paths = [document_paths] if isinstance(document_paths, str) else document_paths
         document_paths = [p for p in document_paths if p and Path(p).suffix.lower() in [".pdf", ".md"]]
 
         if not document_paths:
-            return 0, 0
+            return {"processed": 0, "added": 0, "skipped": 0, "skipped_details": []}
 
         prepared_markdowns = []
         skipped = 0
+        skipped_details = []
 
         for i, doc_path in enumerate(document_paths):
+            source_path = Path(doc_path)
             if progress_callback:
-                progress_callback((i + 1) / len(document_paths), f"Processing {Path(doc_path).name}")
+                progress_callback((i + 1) / len(document_paths), f"Processing {source_path.name}")
 
-            doc_name = Path(doc_path).stem
+            doc_name = source_path.stem
             md_path = self.markdown_dir / f"{doc_name}.md"
 
             try:
-                if Path(doc_path).suffix.lower() == ".md":
-                    if not md_path.exists():
-                        shutil.copy(doc_path, md_path)
+                if source_path.suffix.lower() == ".md":
+                    if md_path.exists():
+                        skipped += 1
+                        skipped_details.append(f"{source_path.name}: 同名 Markdown 已存在，已跳过。")
+                        continue
+                    shutil.copy(source_path, md_path)
                 else:
-                    pdfs_to_markdowns(str(doc_path), overwrite=False)
+                    if md_path.exists():
+                        skipped += 1
+                        skipped_details.append(f"{source_path.name}: 已存在同名文档索引，请先删除或改名后再上传。")
+                        continue
+                    pdfs_to_markdowns(str(source_path), overwrite=False)
                 prepared_markdowns.append(md_path)
             except Exception as e:
                 print(f"Error processing {doc_path}: {e}")
                 skipped += 1
+                skipped_details.append(f"{source_path.name}: {e}")
 
         result = self._index_markdown_paths(
             prepared_markdowns,
             progress_callback=progress_callback,
-            skip_existing=True,
+            skip_existing=False,
         )
-        return result["added"], skipped + result["skipped"]
+        return {
+            "processed": len(document_paths),
+            "added": result["added"],
+            "skipped": skipped + result["skipped"],
+            "skipped_details": skipped_details,
+        }
+
+    def add_documents(self, document_paths, progress_callback=None):
+        report = self.add_documents_with_report(document_paths, progress_callback=progress_callback)
+        return report["added"], report["skipped"]
 
     def get_markdown_files(self):
-        return sorted([p.name.replace(".md", ".pdf") for p in self.get_markdown_paths()])
+        return sorted([p.name for p in self.get_markdown_paths()])
 
     def clear_all(self):
         self.markdown_dir.mkdir(parents=True, exist_ok=True)
@@ -135,7 +154,7 @@ class DocumentManager:
 
         index_result = {"processed": 0, "added": 0, "skipped": 0}
         if index_after_import:
-            index_result = self.index_existing_markdowns(skip_existing=True)
+            index_result = self._index_markdown_paths(result.written_files, skip_existing=False)
             self.rag_system.refresh_knowledge_base_status()
 
         return result, index_result

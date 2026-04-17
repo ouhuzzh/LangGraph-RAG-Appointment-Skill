@@ -38,6 +38,10 @@ _CANCEL_CONFIRM_WORDS = (
 _ABORT_WORDS = (
     "先不用", "先不", "不用了", "算了", "取消这个操作", "放弃", "暂不", "不预约了", "不取消了",
 )
+_MEDICAL_FOLLOW_UP_HINTS = (
+    "那", "这个", "这种情况", "这会", "还会", "严重吗", "怎么办", "注意什么", "要紧吗",
+    "what about", "does that", "is that", "should i", "what should",
+)
 
 
 def _clear_pending_action_state() -> dict:
@@ -275,6 +279,43 @@ def _should_use_last_appointment(user_query: str) -> bool:
     return any(token in normalized for token in hints)
 
 
+def _looks_like_medical_follow_up(user_query: str, conversation_summary: str) -> bool:
+    normalized = (user_query or "").strip().lower()
+    if not normalized or not conversation_summary.strip():
+        return False
+    return any(token in normalized for token in _MEDICAL_FOLLOW_UP_HINTS)
+
+
+def _looks_like_appointment_update(user_query: str) -> bool:
+    normalized = (user_query or "").strip().lower()
+    if any(keyword in normalized for keyword in ("挂号", "预约", "改到", "换到", "改成", "换成", "医生", "科", "时间", "时段")):
+        return True
+    return bool(_normalize_date(user_query) or _normalize_time_slot(user_query))
+
+
+def _looks_like_cancel_update(user_query: str) -> bool:
+    normalized = (user_query or "").strip().lower()
+    if any(keyword in normalized for keyword in ("取消", "退号", "预约号", "appointment", "cancel")):
+        return True
+    return bool(_APPOINTMENT_NO_RE.search(user_query or "") or _ORDINAL_RE.search(user_query or ""))
+
+
+def _should_continue_pending_action(state: State, user_query: str) -> bool:
+    pending_action_type = state.get("pending_action_type", "")
+    pending_candidates = state.get("pending_candidates", []) or []
+    if not pending_action_type and not pending_candidates:
+        return False
+    if _is_explicit_confirmation(user_query, pending_action_type) or _is_abort_request(user_query):
+        return True
+    if pending_candidates and _pick_candidate_from_text(user_query, pending_candidates):
+        return True
+    if pending_action_type == "appointment":
+        return _looks_like_appointment_update(user_query)
+    if pending_action_type == "cancel_appointment":
+        return _looks_like_cancel_update(user_query)
+    return False
+
+
 def _build_pending_confirmation(action_type: str, payload: dict) -> dict:
     return {
         "pending_action_type": action_type,
@@ -346,7 +387,7 @@ def intent_router(state: State, llm):
     pending_action_type = state.get("pending_action_type", "")
     pending_candidates = state.get("pending_candidates", []) or []
 
-    if pending_action_type and (_is_explicit_confirmation(user_query, pending_action_type) or _is_abort_request(user_query)):
+    if pending_action_type and _should_continue_pending_action(state, user_query):
         return {
             "intent": pending_action_type,
             "risk_level": risk_level,
@@ -466,6 +507,18 @@ def intent_router(state: State, llm):
             **pending_updates,
         }
 
+    if _looks_like_medical_knowledge_question(user_query) or _looks_like_medical_follow_up(user_query, state.get("conversation_summary", "")):
+        return {
+            "intent": "medical_rag",
+            "risk_level": risk_level,
+            "pending_clarification": "",
+            "clarification_target": "",
+            "recommended_department": state.get("recommended_department", ""),
+            "appointment_context": state.get("appointment_context", {}),
+            "last_appointment_no": state.get("last_appointment_no", ""),
+            **_reset_pending_action_if_needed(state),
+        }
+
     clarification = response.clarification_needed if response.clarification_needed and len(response.clarification_needed.strip()) > 5 else "可以再具体描述一下你的问题吗？"
     return {
         "intent": "clarification",
@@ -524,7 +577,19 @@ def rewrite_query(state: State, llm):
             "clarification_target": "",
         }
 
-    clarification = response.clarification_needed if response.clarification_needed and len(response.clarification_needed.strip()) > 10 else "I need more information to understand your question."
+    if state.get("intent") == "medical_rag" and _looks_like_medical_follow_up(user_query, conversation_summary):
+        delete_all = [RemoveMessage(id=m.id) for m in state["messages"] if not isinstance(m, SystemMessage)]
+        fallback_query = response.questions[0] if response.questions else f"{conversation_summary}\nFollow-up: {user_query}"
+        return {
+            "questionIsClear": True,
+            "messages": delete_all,
+            "originalQuery": user_query,
+            "rewrittenQuestions": [fallback_query],
+            "pending_clarification": "",
+            "clarification_target": "",
+        }
+
+    clarification = response.clarification_needed if response.clarification_needed and len(response.clarification_needed.strip()) > 10 else "我可以继续帮你，但还差一点关键信息。你能再具体一点吗？"
     return {
         "questionIsClear": False,
         "pending_clarification": clarification,
@@ -548,6 +613,16 @@ def recommend_department(state: State, llm):
     )
 
     if response.needs_clarification or not response.department.strip():
+        if risk_level == "high":
+            answer = "你描述里有较高风险信号，建议优先去 **急诊科** 进一步评估；如果症状明显加重，请立即线下就医。"
+            return {
+                "pending_clarification": "",
+                "clarification_target": "",
+                "recommended_department": "急诊科",
+                "appointment_context": _build_appointment_context(state.get("appointment_context"), {"department": "急诊科"}),
+                **_reset_pending_action_if_needed(state),
+                "messages": [AIMessage(content=answer)],
+            }
         clarification = response.clarification_needed if response.clarification_needed and len(response.clarification_needed.strip()) > 5 else "可以再补充一下你的主要症状、持续时间或最不舒服的部位吗？"
         return {
             "pending_clarification": clarification,

@@ -48,6 +48,30 @@ class ChatInterfaceTests(unittest.TestCase):
         self.assertEqual(len(responses), 1)
         self.assertIn("知识库里还没有可检索文档", responses[0])
 
+    def test_infer_intent_does_not_let_pending_appointment_hijack_unrelated_medical_question(self):
+        intent = ChatInterface._infer_intent(
+            "高血压会引起头晕吗",
+            {"pending_action_type": "appointment", "pending_action_payload": {"department": "呼吸内科"}},
+        )
+
+        self.assertEqual(intent, "medical_rag")
+
+    def test_infer_intent_keeps_pending_appointment_for_short_acknowledgement(self):
+        intent = ChatInterface._infer_intent(
+            "可以",
+            {"pending_action_type": "appointment", "pending_action_payload": {"department": "呼吸内科"}},
+        )
+
+        self.assertEqual(intent, "appointment")
+
+    def test_infer_intent_keeps_pending_clarification_for_schedule_answer(self):
+        intent = ChatInterface._infer_intent(
+            "明天下午",
+            {"intent": "appointment", "pending_clarification": "请补充时间"},
+        )
+
+        self.assertEqual(intent, "appointment")
+
 
 if __name__ == "__main__":
     unittest.main()

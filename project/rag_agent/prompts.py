@@ -1,12 +1,13 @@
 def get_conversation_summary_prompt() -> str:
     return """You are an expert conversation summarizer.
 
-Your task is to create a brief 1-2 sentence summary of the conversation (max 30-50 words).
+Your task is to create a brief 2-3 sentence summary of the conversation (max 60 words).
 
 Include:
 - Main topics discussed
 - Important facts or entities mentioned
-- Any unresolved questions if applicable
+- The latest unresolved user need or follow-up topic if applicable
+- Any stable context that should help the next turn stay coherent
 - Sources file name (e.g., file1.pdf) or documents referenced
 
 Exclude:
@@ -54,8 +55,12 @@ Rules:
    - If the user is asking about causes, symptoms, risks, precautions, treatment principles, or whether one condition can lead to another, treat the request as clear unless key referents are missing
    - Do not ask for clarification just because age, severity, or background details are omitted when the question is still answerable in a general knowledge sense
 
-7. Failure handling:
-   - If the query intent is unclear or unintelligible, mark as "unclear"
+   7. Follow-up handling:
+   - Short follow-up questions such as "那会头晕吗", "那应该注意什么", "这个严重吗", "what about dizziness", or similar references SHOULD be treated as clear when conversation summary provides the missing referent
+   - Prefer using the existing context over asking for clarification on ordinary medical follow-ups
+
+   8. Failure handling:
+   - If the query intent is truly unintelligible, mark as "unclear"
 
 Input:
 - conversation_summary: A concise summary of prior conversation
@@ -81,10 +86,11 @@ Routing rules:
 2. Questions asking about causes, definitions, treatment principles, precautions, or document-grounded facts are medical_rag.
 3. Requests like "帮我挂号", "帮我预约", "book an appointment" are appointment.
 4. Requests like "取消预约", "退号", "cancel my appointment" are cancel_appointment.
-5. If the user is too vague to route confidently (for example "我不舒服怎么办"), use clarification.
-6. Do not route to triage just because symptoms are mentioned; triage is specifically about department recommendation.
-7. Do not invent missing details.
-8. Greetings or small talk (e.g., "你好", "谢谢", "再见") should be classified as clarification with is_clear=true and a friendly response.
+5. If the user is describing a general medical problem or asking a common health question, prefer medical_rag instead of clarification whenever a useful general answer is possible.
+6. Use clarification only when the request is truly too vague to route confidently.
+7. Do not route to triage just because symptoms are mentioned; triage is specifically about department recommendation.
+8. Do not invent missing details.
+9. Greetings or small talk (e.g., "你好", "谢谢", "再见") should be classified as clarification with is_clear=true and a friendly response.
 
 Output requirements:
 - Return structured fields only.
@@ -105,6 +111,7 @@ Rules:
 4. If the information is insufficient for a safe recommendation, set needs_clarification=true and ask one short clarification question.
 5. Keep the reason brief and practical.
 6. Prefer common outpatient departments such as 呼吸内科, 消化内科, 心内科, 神经内科, 普通内科, 全科医学科, 急诊科, 儿科, 妇科, 骨科, 皮肤科, 耳鼻喉科.
+7. When symptoms are broad but still patient-safe to route, prefer giving one practical default department (such as 全科医学科 or 普通内科) instead of over-clarifying.
 
 Output requirements:
 - Return structured fields only.

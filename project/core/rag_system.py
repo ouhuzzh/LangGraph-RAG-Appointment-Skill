@@ -5,6 +5,7 @@ from datetime import datetime
 import config
 from db.vector_db_manager import VectorDbManager
 from db.parent_store_manager import ParentStoreManager
+from db.import_task_store import ImportTaskStore
 from document_chunker import DocumentChuncker
 from memory.redis_memory import RedisSessionMemory
 from memory.summary_store import SummaryStore
@@ -20,6 +21,7 @@ class RAGSystem:
         self.collection_name = collection_name
         self.vector_db = VectorDbManager()
         self.parent_store = ParentStoreManager()
+        self.import_task_store = ImportTaskStore()
         self.chunker = DocumentChuncker()
         self.session_memory = RedisSessionMemory()
         self.summary_store = SummaryStore()
@@ -76,11 +78,21 @@ class RAGSystem:
         }
 
     def get_knowledge_base_status(self):
+        recent_imports = list(self._knowledge_base_status["stats"].get("recent_imports", []))
+        if not recent_imports:
+            try:
+                recent_imports = self.import_task_store.list_recent(config.RECENT_IMPORT_TASK_LIMIT)
+                self._knowledge_base_status["stats"]["recent_imports"] = recent_imports
+            except Exception:
+                recent_imports = []
         return {
             "status": self._knowledge_base_status["status"],
             "message": self._knowledge_base_status["message"],
             "last_error": self._knowledge_base_status["last_error"],
-            "stats": dict(self._knowledge_base_status["stats"]),
+            "stats": {
+                **dict(self._knowledge_base_status["stats"]),
+                "recent_imports": recent_imports,
+            },
         }
 
     def is_ready(self):
@@ -109,8 +121,12 @@ class RAGSystem:
         history = list(self._knowledge_base_status["stats"].get("recent_imports", []))
         payload = dict(event)
         payload.setdefault("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        try:
+            self.import_task_store.save_event(payload)
+        except Exception:
+            pass
         history.insert(0, payload)
-        self._knowledge_base_status["stats"]["recent_imports"] = history[:8]
+        self._knowledge_base_status["stats"]["recent_imports"] = history[:config.RECENT_IMPORT_TASK_LIMIT]
 
     def refresh_knowledge_base_status(self):
         from core.document_manager import DocumentManager
@@ -124,6 +140,10 @@ class RAGSystem:
             "last_bootstrap_result": self._knowledge_base_status["stats"].get("last_bootstrap_result", ""),
             "recent_imports": list(self._knowledge_base_status["stats"].get("recent_imports", [])),
         }
+        try:
+            stats["recent_imports"] = self.import_task_store.list_recent(config.RECENT_IMPORT_TASK_LIMIT)
+        except Exception:
+            pass
 
         current_status = self._knowledge_base_status["status"]
         if current_status == "building":

@@ -13,6 +13,8 @@ class RedisSessionMemory:
         self._enabled = bool(redis) and config.REDIS_ENABLED
         self._client = None
         self._checked = False
+        self._fallback_messages = {}
+        self._fallback_state = {}
 
     def _messages_key(self, thread_id: str) -> str:
         return f"chat:session:{thread_id}:recent_messages"
@@ -66,7 +68,7 @@ class RedisSessionMemory:
     def get_recent_messages(self, thread_id: str):
         client = self._get_client()
         if not client:
-            return []
+            return self._deserialize_messages(self._fallback_messages.get(thread_id))
         raw = client.get(self._messages_key(thread_id))
         return self._deserialize_messages(raw)
 
@@ -75,9 +77,6 @@ class RedisSessionMemory:
 
     def append_exchange(self, thread_id: str, user_message: str, assistant_message: str) -> int:
         client = self._get_client()
-        if not client:
-            return 0
-
         existing = self.get_recent_messages(thread_id)
         serialized = []
         for msg in existing:
@@ -93,6 +92,9 @@ class RedisSessionMemory:
 
         max_messages = max(config.SHORT_TERM_WINDOW_SIZE * 2, 2)
         serialized = serialized[-max_messages:]
+        if not client:
+            self._fallback_messages[thread_id] = self._serialize_messages(serialized)
+            return len(serialized)
         client.setex(
             self._messages_key(thread_id),
             config.REDIS_TTL_SECONDS,
@@ -103,7 +105,7 @@ class RedisSessionMemory:
     def get_state(self, thread_id: str):
         client = self._get_client()
         if not client:
-            return {}
+            return dict(self._fallback_state.get(thread_id) or {})
         raw = client.get(self._state_key(thread_id))
         if not raw:
             return {}
@@ -115,6 +117,7 @@ class RedisSessionMemory:
     def set_state(self, thread_id: str, state: dict):
         client = self._get_client()
         if not client:
+            self._fallback_state[thread_id] = dict(state or {})
             return
         client.setex(
             self._state_key(thread_id),
@@ -125,5 +128,7 @@ class RedisSessionMemory:
     def clear_session(self, thread_id: str):
         client = self._get_client()
         if not client:
+            self._fallback_messages.pop(thread_id, None)
+            self._fallback_state.pop(thread_id, None)
             return
         client.delete(self._messages_key(thread_id), self._state_key(thread_id))

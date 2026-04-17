@@ -13,6 +13,7 @@ import psycopg  # noqa: E402
 import config  # noqa: E402
 from core.document_manager import DocumentManager  # noqa: E402
 from core.rag_system import RAGSystem  # noqa: E402
+from db.import_task_store import ImportTaskStore  # noqa: E402
 from db.vector_db_manager import PgVectorCollection, VectorDbManager  # noqa: E402
 from memory.summary_store import SummaryStore  # noqa: E402
 from services.appointment_service import AppointmentService  # noqa: E402
@@ -42,6 +43,7 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.summary_store = SummaryStore()
+        cls.import_task_store = ImportTaskStore()
         cls.appointment_service = AppointmentService()
         cls.vector_db = VectorDbManager()
 
@@ -153,8 +155,35 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
         self.assertIn("pg_trgm", schema_status["extensions"])
         self.assertIn("uq_chat_session_summaries_thread_type", schema_status["indexes"])
         self.assertIn("idx_child_chunks_embedding_cosine", schema_status["indexes"])
+        self.assertIn("idx_import_task_logs_created_at", schema_status["indexes"])
         self.assertIn("001_summary_dedup_and_indexes", schema_status["versions"])
         self.assertIn("002_child_chunks_vector_index", schema_status["versions"])
+        self.assertIn("003_import_task_logs", schema_status["versions"])
+
+    def test_import_task_store_round_trip(self):
+        self.vector_db.create_collection(config.CHILD_COLLECTION)
+        unique_note = f"live-import-{uuid.uuid4().hex[:10]}"
+        self.import_task_store.save_event(
+            {
+                "source": "medlineplus",
+                "label": "MedlinePlus Import",
+                "status": "completed",
+                "downloaded": 2,
+                "written": 1,
+                "skipped": 1,
+                "failed": 0,
+                "index_added": 1,
+                "index_skipped": 0,
+                "duration_ms": 123.45,
+                "note": unique_note,
+                "conversion_details": ["method=pymupdf4llm"],
+                "failure_details": [],
+            }
+        )
+
+        events = self.import_task_store.list_recent(limit=10)
+
+        self.assertTrue(any(item["note"] == unique_note for item in events))
 
     def test_auto_index_single_markdown_with_fake_embeddings(self):
         class FakeEmbeddings:

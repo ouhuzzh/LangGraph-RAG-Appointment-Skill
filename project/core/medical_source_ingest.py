@@ -114,6 +114,7 @@ class MedicalImportResult:
     failed: int = 0
     failure_details: list[str] = field(default_factory=list)
     conversion_details: list[str] = field(default_factory=list)
+    written_files: list[Path] = field(default_factory=list)
 
 
 class MedlinePlusXmlImporter:
@@ -214,11 +215,12 @@ class MedlinePlusXmlImporter:
         ]
         return "\n\n".join(section for section in sections if section.strip()) + "\n"
 
-    def write_topics(self, topics: list[ImportedMedicalDocument], output_dir: str | Path, overwrite: bool = False) -> tuple[int, int]:
+    def write_topics(self, topics: list[ImportedMedicalDocument], output_dir: str | Path, overwrite: bool = False) -> tuple[int, int, list[Path]]:
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
         written = 0
         skipped = 0
+        written_files = []
         for topic in topics:
             file_path = output_path / f"{topic.source_id}.md"
             if file_path.exists() and not overwrite:
@@ -226,19 +228,21 @@ class MedlinePlusXmlImporter:
                 continue
             file_path.write_text(self.render_topic_markdown(topic), encoding="utf-8")
             written += 1
-        return written, skipped
+            written_files.append(file_path)
+        return written, skipped, written_files
 
     def import_latest(self, output_dir: str | Path, limit: int | None = None, overwrite: bool = False) -> MedicalImportResult:
         archive_url, archive_bytes = self.fetch_latest_archive()
         xml_text = self.extract_xml_text(archive_bytes)
         topics = self.parse_topics(xml_text, limit=limit)
-        written, skipped = self.write_topics(topics, output_dir, overwrite=overwrite)
+        written, skipped, written_files = self.write_topics(topics, output_dir, overwrite=overwrite)
         return MedicalImportResult(
             downloaded=len(topics),
             written=written,
             skipped=skipped,
             output_dir=Path(output_dir),
             discovered_url=archive_url,
+            written_files=written_files,
         )
 
 
@@ -308,6 +312,7 @@ class NhcPdfWhitelistImporter:
         failed = 0
         failure_details = []
         conversion_details = []
+        written_files = []
         for entry in entries:
             stem = entry.get("id") or f"nhc-{_slugify(entry['title'])}"
             markdown_path = output_path / f"{stem}.md"
@@ -326,6 +331,7 @@ class NhcPdfWhitelistImporter:
                 conversion_details.append(detail)
                 markdown_path.write_text(self._render_entry_markdown(entry, body_markdown), encoding="utf-8")
                 written += 1
+                written_files.append(markdown_path)
             except Exception as exc:
                 print(f"Failed to import NHC document '{entry.get('title', stem)}': {exc}")
                 failed += 1
@@ -340,6 +346,7 @@ class NhcPdfWhitelistImporter:
             failed=failed,
             failure_details=failure_details,
             conversion_details=conversion_details,
+            written_files=written_files,
         )
 
 
@@ -406,6 +413,7 @@ class WhoHtmlWhitelistImporter:
         skipped = 0
         failed = 0
         failure_details = []
+        written_files = []
         for entry in entries:
             stem = entry.get("id") or f"who-{_slugify(entry['title'])}"
             markdown_path = output_path / f"{stem}.md"
@@ -420,6 +428,7 @@ class WhoHtmlWhitelistImporter:
                     raise ValueError("WHO article content was empty after HTML conversion.")
                 markdown_path.write_text(self._render_entry_markdown(entry, body_markdown), encoding="utf-8")
                 written += 1
+                written_files.append(markdown_path)
             except Exception as exc:
                 print(f"Failed to import WHO document '{entry.get('title', stem)}': {exc}")
                 failed += 1
@@ -433,4 +442,5 @@ class WhoHtmlWhitelistImporter:
             discovered_url=str(self.manifest_path),
             failed=failed,
             failure_details=failure_details,
+            written_files=written_files,
         )

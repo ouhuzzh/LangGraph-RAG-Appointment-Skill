@@ -1,10 +1,14 @@
 import json
 import re
+
 import config
 from langchain_core.messages import HumanMessage, AIMessage, AIMessageChunk, ToolMessage, SystemMessage
 
 SILENT_NODES = {"rewrite_query", "intent_router"}
 SYSTEM_NODES = {"summarize_history", "rewrite_query"}
+APPOINTMENT_UPDATE_HINTS = ("改", "换", "预约", "挂号", "医生", "科", "时间", "时段")
+CANCEL_UPDATE_HINTS = ("取消", "退号", "预约号", "第", "appointment", "cancel")
+PENDING_ACK_HINTS = ("可以", "好的", "行", "好", "ok", "okay")
 
 SYSTEM_NODE_CONFIG = {
     "rewrite_query":     {"title": "🔍 Query Analysis & Rewriting"},
@@ -153,11 +157,45 @@ class ChatInterface:
         return any(pattern in normalized for pattern in patterns)
 
     @staticmethod
+    def _looks_like_schedule_update(query: str) -> bool:
+        normalized = (query or "").strip().lower()
+        if any(token in normalized for token in APPOINTMENT_UPDATE_HINTS):
+            return True
+        return bool(re.search(r"\d{1,2}[点时:：]", normalized) or re.search(r"\d{1,2}\s*月|\d{4}-\d{1,2}-\d{1,2}|明天|后天|周[一二三四五六日天]", normalized))
+
+    @staticmethod
+    def _should_continue_pending_intent(user_message: str, existing_state: dict) -> bool:
+        normalized = (user_message or "").strip().lower()
+        pending_action_type = existing_state.get("pending_action_type", "")
+        pending_candidates = existing_state.get("pending_candidates") or []
+        if pending_action_type:
+            if any(word in normalized for word in ("确认预约", "确认挂号", "确认取消", "确认退号", "先不用", "不用了", "算了", "放弃")):
+                return True
+            if normalized in PENDING_ACK_HINTS:
+                return True
+            if pending_candidates and (re.search(r"\bapt[a-z0-9]+\b", normalized, re.IGNORECASE) or re.search(r"第\s*[1-9]\d*", normalized)):
+                return True
+            if pending_action_type == "appointment":
+                return ChatInterface._looks_like_schedule_update(user_message)
+            if pending_action_type == "cancel_appointment":
+                return any(token in normalized for token in CANCEL_UPDATE_HINTS)
+
+        pending_clarification = existing_state.get("pending_clarification")
+        current_intent = existing_state.get("intent", "")
+        if not pending_clarification or not current_intent:
+            return False
+        if current_intent == "appointment":
+            return ChatInterface._looks_like_schedule_update(user_message) or len(normalized) <= 20
+        if current_intent == "cancel_appointment":
+            return any(token in normalized for token in CANCEL_UPDATE_HINTS) or len(normalized) <= 20
+        if current_intent == "triage":
+            return len(normalized) <= 30 and not any(token in normalized for token in ("是什么", "怎么办", "为什么"))
+        return False
+
+    @staticmethod
     def _infer_intent(user_message: str, existing_state: dict):
-        if existing_state.get("pending_clarification"):
-            return existing_state.get("intent", "clarification")
-        if existing_state.get("pending_action_type"):
-            return existing_state.get("pending_action_type")
+        if ChatInterface._should_continue_pending_intent(user_message, existing_state or {}):
+            return existing_state.get("pending_action_type") or existing_state.get("intent", "clarification")
 
         normalized = (user_message or "").strip().lower()
         # 问候语
@@ -281,22 +319,11 @@ class ChatInterface:
                 stream_input = {"messages": [*state_messages, *stored_messages, HumanMessage(content=user_message)]}
 
             response_messages  = []
-            active_tool_calls  = {}
-            system_node_buffer = {}
 
             for chunk, metadata in self.rag_system.agent_graph.stream(stream_input, config=graph_config, stream_mode="messages"):
                 node = metadata.get("langgraph_node", "")
 
-                if node in SYSTEM_NODES and isinstance(chunk, AIMessageChunk) and chunk.content:
-                    self._handle_system_node(chunk, node, response_messages, system_node_buffer)
-
-                elif hasattr(chunk, "tool_calls") and chunk.tool_calls:
-                    self._handle_tool_call(chunk, response_messages, active_tool_calls)
-
-                elif isinstance(chunk, ToolMessage):
-                    self._handle_tool_result(chunk, response_messages, active_tool_calls)
-
-                elif isinstance(chunk, AIMessageChunk) and chunk.content and node not in SILENT_NODES:
+                if isinstance(chunk, AIMessageChunk) and chunk.content and node not in SILENT_NODES and node not in SYSTEM_NODES:
                     self._handle_llm_token(chunk, node, response_messages)
 
                 yield response_messages

@@ -106,6 +106,33 @@ class DocumentManagerTests(unittest.TestCase):
         self.assertEqual(stats["local_markdown_files"], 2)
         self.assertEqual(stats["local_markdown_names"], ["alpha.md", "beta.md"])
 
+    def test_get_markdown_files_preserves_real_extension(self):
+        rag_system = FakeRagSystem()
+        manager = DocumentManager(rag_system)
+        manager.markdown_dir = Path(self.temp_dir)
+        self._write_markdown("care-plan.md")
+
+        files = manager.get_markdown_files()
+
+        self.assertEqual(files, ["care-plan.md"])
+
+    def test_add_documents_with_report_explains_duplicate_markdown(self):
+        rag_system = FakeRagSystem()
+        manager = DocumentManager(rag_system)
+        manager.markdown_dir = Path(self.temp_dir)
+        existing = self._write_markdown("duplicate.md", "# Existing\n\nhello")
+        duplicate_source_dir = Path(self.temp_dir) / "source"
+        duplicate_source_dir.mkdir(parents=True, exist_ok=True)
+        duplicate_source = duplicate_source_dir / "duplicate.md"
+        duplicate_source.write_text("# Updated\n\nworld", encoding="utf-8")
+
+        report = manager.add_documents_with_report([str(duplicate_source)])
+
+        self.assertEqual(report["added"], 0)
+        self.assertEqual(report["skipped"], 1)
+        self.assertIn("同名 Markdown 已存在", report["skipped_details"][0])
+        self.assertEqual(existing.read_text(encoding="utf-8"), "# Existing\n\nhello")
+
 
 if __name__ == "__main__":
     unittest.main()

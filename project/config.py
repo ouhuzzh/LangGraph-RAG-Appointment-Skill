@@ -51,6 +51,7 @@ POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "")
 VECTOR_INDEX_LISTS = int(os.environ.get("VECTOR_INDEX_LISTS", "100"))
 AUTO_BOOTSTRAP_KNOWLEDGE_BASE = os.environ.get("AUTO_BOOTSTRAP_KNOWLEDGE_BASE", "true").lower() == "true"
 STATUS_REFRESH_SECONDS = float(os.environ.get("STATUS_REFRESH_SECONDS", "2"))
+RECENT_IMPORT_TASK_LIMIT = int(os.environ.get("RECENT_IMPORT_TASK_LIMIT", "8"))
 
 # --- Redis Configuration ---
 REDIS_ENABLED = os.environ.get("REDIS_ENABLED", "true").lower() == "true"
@@ -58,8 +59,8 @@ REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 REDIS_DB = int(os.environ.get("REDIS_DB", "0"))
 REDIS_TTL_SECONDS = int(os.environ.get("REDIS_TTL_SECONDS", "86400"))
-SHORT_TERM_WINDOW_SIZE = int(os.environ.get("SHORT_TERM_WINDOW_SIZE", "8"))
-SUMMARY_REFRESH_THRESHOLD = int(os.environ.get("SUMMARY_REFRESH_THRESHOLD", "6"))
+SHORT_TERM_WINDOW_SIZE = int(os.environ.get("SHORT_TERM_WINDOW_SIZE", "12"))
+SUMMARY_REFRESH_THRESHOLD = int(os.environ.get("SUMMARY_REFRESH_THRESHOLD", "4"))
 HIGH_RISK_KEYWORDS = [
     "胸痛",
     "胸闷",

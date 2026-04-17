@@ -60,6 +60,35 @@ class SchemaManager:
                 "ANALYZE child_chunks",
             ],
         ),
+        (
+            "003_import_task_logs",
+            "Persist recent import task history for the UI.",
+            [
+                """
+                CREATE TABLE IF NOT EXISTS import_task_logs (
+                    id                  BIGSERIAL PRIMARY KEY,
+                    source              VARCHAR(64) NOT NULL,
+                    label               VARCHAR(128),
+                    status              VARCHAR(64) NOT NULL DEFAULT 'completed',
+                    downloaded          INTEGER NOT NULL DEFAULT 0,
+                    written             INTEGER NOT NULL DEFAULT 0,
+                    skipped             INTEGER NOT NULL DEFAULT 0,
+                    failed              INTEGER NOT NULL DEFAULT 0,
+                    index_added         INTEGER NOT NULL DEFAULT 0,
+                    index_skipped       INTEGER NOT NULL DEFAULT 0,
+                    duration_ms         DOUBLE PRECISION NOT NULL DEFAULT 0,
+                    note                TEXT,
+                    conversion_details  JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    failure_details     JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    created_at          TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_import_task_logs_created_at
+                ON import_task_logs(created_at DESC)
+                """,
+            ],
+        ),
     ]
 
     def __init__(self, conninfo: str):
@@ -129,7 +158,8 @@ class SchemaManager:
                           'idx_child_chunks_embedding_cosine',
                           'idx_appointments_patient_status_date',
                           'idx_chat_sessions_patient_id',
-                          'idx_documents_source_name'
+                          'idx_documents_source_name',
+                          'idx_import_task_logs_created_at'
                       )
                     """
                 )
