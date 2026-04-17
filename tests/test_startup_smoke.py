@@ -1,9 +1,13 @@
 import asyncio
+import contextlib
+import io
 import sys
 import unittest
 import warnings
 
 sys.path.insert(0, r"D:\nageoffer\agentic-rag-for-dummies\project")
+
+warnings.filterwarnings("ignore", category=ResourceWarning)
 
 import psycopg  # noqa: E402
 import config  # noqa: E402
@@ -46,11 +50,11 @@ class StartupSmokeTests(unittest.TestCase):
         self.assertIsNotNone(rag.agent_graph)
 
     def test_gradio_ui_creation(self):
-        from ui.gradio_app import create_gradio_ui
-
-        with warnings.catch_warnings():
+        with warnings.catch_warnings(), contextlib.redirect_stderr(io.StringIO()):
             warnings.filterwarnings("ignore", category=ResourceWarning, message="unclosed event loop.*")
-            demo = create_gradio_ui()
+            warnings.filterwarnings("ignore", category=ResourceWarning)
+            from ui.gradio_app import create_gradio_ui
+            demo = create_gradio_ui(start_background_tasks=False)
         try:
             self.assertIsNotNone(demo)
         finally:

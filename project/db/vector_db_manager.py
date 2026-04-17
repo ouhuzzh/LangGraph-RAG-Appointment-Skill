@@ -4,6 +4,7 @@ import psycopg
 import httpx
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
+from db.schema_manager import SchemaManager
 from model_factory import get_embedding_model
 
 
@@ -177,24 +178,29 @@ class PgVectorCollection:
 
 class VectorDbManager:
     def __init__(self):
-        self.__conninfo = (
+        self._conninfo = (
             f"host={config.POSTGRES_HOST} "
             f"port={config.POSTGRES_PORT} "
             f"dbname={config.POSTGRES_DB} "
             f"user={config.POSTGRES_USER} "
             f"password={config.POSTGRES_PASSWORD}"
         )
-        self.__dense_embeddings = get_embedding_model()
+        self._dense_embeddings = get_embedding_model()
+        self._schema_manager = SchemaManager(self._conninfo)
 
     def _connect(self):
-        return psycopg.connect(self.__conninfo)
+        return psycopg.connect(self._conninfo)
+
+    @property
+    def conninfo(self):
+        return self._conninfo
+
+    @property
+    def schema_manager(self):
+        return self._schema_manager
 
     def create_collection(self, collection_name):
-        with self._connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
-                cur.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
-            conn.commit()
+        self._schema_manager.apply_migrations()
         print(f"PostgreSQL vector store ready: {collection_name}")
 
     def delete_collection(self, collection_name):
@@ -209,5 +215,32 @@ class VectorDbManager:
                 cur.execute("SELECT EXISTS (SELECT 1 FROM child_chunks LIMIT 1)")
                 return bool(cur.fetchone()[0])
 
+    def get_collection_stats(self):
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        (SELECT COUNT(*) FROM documents),
+                        (SELECT COUNT(*) FROM parent_chunks),
+                        (SELECT COUNT(*) FROM child_chunks)
+                    """
+                )
+                row = cur.fetchone() or (0, 0, 0)
+        return {
+            "documents": int(row[0]),
+            "parent_chunks": int(row[1]),
+            "child_chunks": int(row[2]),
+        }
+
+    def get_indexed_document_nos(self):
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT document_no FROM documents")
+                return {row[0] for row in cur.fetchall()}
+
+    def get_schema_status(self):
+        return self._schema_manager.inspect_schema()
+
     def get_collection(self, collection_name):
-        return PgVectorCollection(self.__conninfo, self.__dense_embeddings)
+        return PgVectorCollection(self._conninfo, self._dense_embeddings)

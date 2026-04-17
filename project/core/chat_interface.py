@@ -215,7 +215,11 @@ class ChatInterface:
     def chat(self, message, history):
         """Generator that streams Gradio chat message dicts."""
         if not self.rag_system.agent_graph:
-            yield "⚠️ System not initialized!"
+            readiness_getter = getattr(self.rag_system, "get_readiness_message", None)
+            if callable(readiness_getter):
+                yield readiness_getter()
+            else:
+                yield "系统正在准备中，请稍后再试。"
             return
 
         graph_config  = self.rag_system.get_config()
@@ -226,7 +230,19 @@ class ChatInterface:
         inferred_intent = self._infer_intent(user_message, session_state or {})
 
         if inferred_intent == "medical_rag" and not self.rag_system.vector_db.has_documents():
-            yield "当前知识库里还没有可检索文档，暂时没法回答文档型/知识库型问题。你可以先到 Documents 页上传 PDF 或 Markdown，再回来提问。"
+            knowledge_status_getter = getattr(self.rag_system, "get_knowledge_base_status", None)
+            knowledge_status = knowledge_status_getter() if callable(knowledge_status_getter) else {}
+            status = knowledge_status.get("status")
+            if status == "building":
+                yield "知识库正在后台补建中，医学知识类问题稍后再试会更准确。预约/取消功能现在仍然可以正常使用。"
+            elif status == "failed":
+                detail = knowledge_status.get("last_error", "")
+                extra = f" 失败原因：{detail}" if detail else ""
+                yield f"知识库补建失败，暂时没法回答文档型/知识库型问题。{extra}"
+            elif status == "no_documents":
+                yield "当前还没有本地文档可供索引，暂时没法回答文档型/知识库型问题。你可以先到 Documents 页上传 PDF 或 Markdown，再回来提问。"
+            else:
+                yield "当前知识库里还没有可检索文档，系统会继续尝试补建。你也可以先到 Documents 页检查文档状态。"
             return
 
         try:
