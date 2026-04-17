@@ -23,6 +23,10 @@ class State(MessagesState):
     recommended_department: str = ""
     appointment_context: Dict[str, str] = {}
     last_appointment_no: str = ""
+    pending_action_type: str = ""
+    pending_action_payload: Dict[str, str] = {}
+    pending_confirmation_id: str = ""
+    pending_candidates: List[dict] = []
     rewrittenQuestions: List[str] = []
     agent_answers: Annotated[List[dict], accumulate_or_reset] = []
 

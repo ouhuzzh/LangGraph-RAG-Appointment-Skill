@@ -18,11 +18,13 @@ class AppointmentService:
     def _connect(self):
         return psycopg.connect(self._conninfo)
 
-    def ensure_patient_for_thread(self, thread_id: str) -> int:
-        patient_no = f"thread-{thread_id[:16]}"
+    def ensure_patient_for_thread(self, thread_id: str, conn=None) -> int:
+        patient_no = "thread-" + uuid.uuid5(uuid.NAMESPACE_URL, thread_id).hex
         patient_name = f"Session {thread_id[:8]}"
-        with self._connect() as conn:
-            with conn.cursor() as cur:
+        owns_connection = conn is None
+        connection = conn or self._connect()
+        try:
+            with connection.cursor() as cur:
                 cur.execute(
                     """
                     INSERT INTO chat_sessions (thread_id)
@@ -34,7 +36,8 @@ class AppointmentService:
                 cur.execute("SELECT patient_id FROM chat_sessions WHERE thread_id = %s", (thread_id,))
                 row = cur.fetchone()
                 if row and row[0]:
-                    conn.commit()
+                    if owns_connection:
+                        connection.commit()
                     return row[0]
 
                 cur.execute(
@@ -56,14 +59,20 @@ class AppointmentService:
                     """,
                     (patient_id, thread_id),
                 )
-            conn.commit()
+            if owns_connection:
+                connection.commit()
+        finally:
+            if owns_connection:
+                connection.close()
         return patient_id
 
-    def find_department_by_name(self, name: str):
+    def find_department_by_name(self, name: str, conn=None):
         if not name:
             return None
-        with self._connect() as conn:
-            with conn.cursor() as cur:
+        owns_connection = conn is None
+        connection = conn or self._connect()
+        try:
+            with connection.cursor() as cur:
                 cur.execute(
                     """
                     SELECT id, code, name
@@ -77,17 +86,24 @@ class AppointmentService:
                     (name, name, f"%{name}%", name),
                 )
                 row = cur.fetchone()
+        finally:
+            if owns_connection:
+                connection.close()
         if not row:
             return None
         return {"id": row[0], "code": row[1], "name": row[2]}
 
-    def find_available_schedule(self, department: str, schedule_date: date, time_slot: str, doctor_name: str | None = None):
-        department_row = self.find_department_by_name(department)
+    def find_available_schedule(self, department: str, schedule_date: date, time_slot: str, doctor_name: str | None = None, conn=None):
+        owns_connection = conn is None
+        connection = conn or self._connect()
+        department_row = self.find_department_by_name(department, conn=connection)
         if not department_row:
+            if owns_connection:
+                connection.close()
             return None
 
-        with self._connect() as conn:
-            with conn.cursor() as cur:
+        try:
+            with connection.cursor() as cur:
                 if doctor_name:
                     cur.execute(
                         """
@@ -122,6 +138,9 @@ class AppointmentService:
                         (department_row["id"], schedule_date, time_slot),
                     )
                 row = cur.fetchone()
+        finally:
+            if owns_connection:
+                connection.close()
         if not row:
             return None
         return {
@@ -136,11 +155,6 @@ class AppointmentService:
         }
 
     def create_appointment(self, thread_id: str, department: str, schedule_date: date, time_slot: str, doctor_name: str | None = None):
-        patient_id = self.ensure_patient_for_thread(thread_id)
-        schedule = self.find_available_schedule(department, schedule_date, time_slot, doctor_name=doctor_name)
-        if not schedule:
-            return None
-
         appointment_no = "APT" + uuid.uuid4().hex[:10].upper()
         request_payload = {
             "department": department,
@@ -149,6 +163,17 @@ class AppointmentService:
             "doctor_name": doctor_name or "",
         }
         with self._connect() as conn:
+            patient_id = self.ensure_patient_for_thread(thread_id, conn=conn)
+            schedule = self.find_available_schedule(
+                department,
+                schedule_date,
+                time_slot,
+                doctor_name=doctor_name,
+                conn=conn,
+            )
+            if not schedule:
+                return None
+
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -207,13 +232,15 @@ class AppointmentService:
             conn.commit()
         return response_payload
 
-    def find_candidate_appointments(self, thread_id: str, appointment_no: str | None = None, department: str | None = None, schedule_date: date | None = None):
-        patient_id = self.ensure_patient_for_thread(thread_id)
+    def find_candidate_appointments(self, thread_id: str, appointment_no: str | None = None, department: str | None = None, schedule_date: date | None = None, conn=None):
+        owns_connection = conn is None
+        connection = conn or self._connect()
+        patient_id = self.ensure_patient_for_thread(thread_id, conn=connection)
         conditions = ["a.patient_id = %s", "a.status = 'booked'"]
         params = [patient_id]
         if appointment_no:
             conditions.append("a.appointment_no = %s")
-            params.append(appointment_no)
+            params.append(appointment_no.upper())
         else:
             if department:
                 conditions.append("lower(dep.name) LIKE lower(%s)")
@@ -230,10 +257,13 @@ class AppointmentService:
             WHERE {' AND '.join(conditions)}
             ORDER BY a.appointment_date, a.time_slot, a.id
         """
-        with self._connect() as conn:
-            with conn.cursor() as cur:
+        try:
+            with connection.cursor() as cur:
                 cur.execute(query, params)
                 rows = cur.fetchall()
+        finally:
+            if owns_connection:
+                connection.close()
         return [
             {
                 "appointment_id": row[0],
@@ -248,14 +278,16 @@ class AppointmentService:
         ]
 
     def cancel_appointment(self, thread_id: str, appointment_id: int):
-        patient_id = self.ensure_patient_for_thread(thread_id)
         with self._connect() as conn:
+            patient_id = self.ensure_patient_for_thread(thread_id, conn=conn)
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, appointment_no, appointment_date, time_slot, schedule_id, department_id
+                    SELECT a.id, a.appointment_no, a.appointment_date, a.time_slot, a.schedule_id, dep.name
                     FROM appointments
-                    WHERE id = %s AND patient_id = %s AND status = 'booked'
+                    a
+                    JOIN departments dep ON dep.id = a.department_id
+                    WHERE a.id = %s AND a.patient_id = %s AND a.status = 'booked'
                     """,
                     (appointment_id, patient_id),
                 )
@@ -284,6 +316,7 @@ class AppointmentService:
                     "appointment_no": row[1],
                     "date": row[2].isoformat(),
                     "time_slot": row[3],
+                    "department": row[5],
                     "status": "cancelled",
                 }
                 cur.execute(

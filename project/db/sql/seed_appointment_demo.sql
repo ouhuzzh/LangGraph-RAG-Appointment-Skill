@@ -24,11 +24,20 @@ WHERE NOT EXISTS (
 INSERT INTO doctor_schedules (doctor_id, department_id, schedule_date, time_slot, quota_total, quota_available)
 SELECT doc.id, doc.department_id, seed.schedule_date, seed.time_slot, 10, 10
 FROM (
-    VALUES
-        ('张医生', CURRENT_DATE + INTERVAL '1 day', 'afternoon'),
-        ('张医生', CURRENT_DATE + INTERVAL '1 day', 'morning'),
-        ('李医生', CURRENT_DATE + INTERVAL '1 day', 'afternoon'),
-        ('王医生', CURRENT_DATE + INTERVAL '1 day', 'morning')
+    SELECT doctor_name, schedule_date::date, time_slot
+    FROM (
+        SELECT '张医生' AS doctor_name, gs::date AS schedule_date, 'afternoon' AS time_slot
+        FROM generate_series(CURRENT_DATE, CURRENT_DATE + INTERVAL '3 day', INTERVAL '1 day') AS gs
+        UNION ALL
+        SELECT '张医生', gs::date, 'morning'
+        FROM generate_series(CURRENT_DATE, CURRENT_DATE + INTERVAL '3 day', INTERVAL '1 day') AS gs
+        UNION ALL
+        SELECT '李医生', gs::date, 'afternoon'
+        FROM generate_series(CURRENT_DATE, CURRENT_DATE + INTERVAL '3 day', INTERVAL '1 day') AS gs
+        UNION ALL
+        SELECT '王医生', gs::date, 'morning'
+        FROM generate_series(CURRENT_DATE, CURRENT_DATE + INTERVAL '3 day', INTERVAL '1 day') AS gs
+    ) t
 ) AS seed(doctor_name, schedule_date, time_slot)
 JOIN doctors doc ON doc.name = seed.doctor_name
 WHERE NOT EXISTS (

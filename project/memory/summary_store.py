@@ -15,9 +15,11 @@ class SummaryStore:
     def _connect(self):
         return psycopg.connect(self._conninfo)
 
-    def ensure_session(self, thread_id: str):
-        with self._connect() as conn:
-            with conn.cursor() as cur:
+    def ensure_session(self, thread_id: str, conn=None):
+        owns_connection = conn is None
+        connection = conn or self._connect()
+        try:
+            with connection.cursor() as cur:
                 cur.execute(
                     """
                     INSERT INTO chat_sessions (thread_id)
@@ -26,11 +28,15 @@ class SummaryStore:
                     """,
                     (thread_id,),
                 )
-            conn.commit()
+            if owns_connection:
+                connection.commit()
+        finally:
+            if owns_connection:
+                connection.close()
 
     def get_summary(self, thread_id: str) -> str:
-        self.ensure_session(thread_id)
         with self._connect() as conn:
+            self.ensure_session(thread_id, conn=conn)
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -48,32 +54,22 @@ class SummaryStore:
     def save_summary(self, thread_id: str, summary: str, last_message_index: int = 0):
         if not summary.strip():
             return
-        self.ensure_session(thread_id)
         with self._connect() as conn:
+            self.ensure_session(thread_id, conn=conn)
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO chat_session_summaries (thread_id, summary_type, summary_content, last_message_index)
+                    INSERT INTO chat_session_summaries (
+                        thread_id, summary_type, summary_content, last_message_index
+                    )
                     VALUES (%s, 'long_term', %s, %s)
-                    ON CONFLICT DO NOTHING
+                    ON CONFLICT (thread_id, summary_type)
+                    DO UPDATE SET
+                        summary_content = EXCLUDED.summary_content,
+                        last_message_index = EXCLUDED.last_message_index,
+                        updated_at = NOW()
                     """,
                     (thread_id, summary, last_message_index),
-                )
-                cur.execute(
-                    """
-                    UPDATE chat_session_summaries
-                    SET summary_content = %s,
-                        last_message_index = %s,
-                        updated_at = NOW()
-                    WHERE id = (
-                        SELECT id
-                        FROM chat_session_summaries
-                        WHERE thread_id = %s AND summary_type = 'long_term'
-                        ORDER BY updated_at DESC
-                        LIMIT 1
-                    )
-                    """,
-                    (summary, last_message_index, thread_id),
                 )
             conn.commit()
 

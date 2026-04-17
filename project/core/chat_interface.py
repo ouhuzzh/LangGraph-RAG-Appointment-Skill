@@ -156,6 +156,8 @@ class ChatInterface:
     def _infer_intent(user_message: str, existing_state: dict):
         if existing_state.get("pending_clarification"):
             return existing_state.get("intent", "clarification")
+        if existing_state.get("pending_action_type"):
+            return existing_state.get("pending_action_type")
 
         normalized = (user_message or "").strip().lower()
         # 问候语
@@ -198,6 +200,12 @@ class ChatInterface:
             parts.append(f"Appointment context: {session_state['appointment_context']}")
         if session_state.get("last_appointment_no"):
             parts.append(f"Last appointment number: {session_state['last_appointment_no']}")
+        if session_state.get("pending_action_type"):
+            parts.append(f"Pending action type: {session_state['pending_action_type']}")
+        if session_state.get("pending_action_payload"):
+            parts.append(f"Pending action payload: {session_state['pending_action_payload']}")
+        if session_state.get("pending_candidates"):
+            parts.append(f"Pending candidates: {session_state['pending_candidates']}")
 
         if not parts:
             return []
@@ -215,6 +223,11 @@ class ChatInterface:
         thread_id     = self.rag_system.thread_id
         user_message  = message.strip()
         session_state = self.rag_system.session_memory.get_state(thread_id)
+        inferred_intent = self._infer_intent(user_message, session_state or {})
+
+        if inferred_intent == "medical_rag" and not self.rag_system.vector_db.has_documents():
+            yield "当前知识库里还没有可检索文档，暂时没法回答文档型/知识库型问题。你可以先到 Documents 页上传 PDF 或 Markdown，再回来提问。"
+            return
 
         try:
             if current_state.next:
@@ -222,7 +235,6 @@ class ChatInterface:
                 stream_input = None
             else:
                 stored_messages = []
-                self.rag_system.summary_store.ensure_session(thread_id)
                 stored_messages = self.rag_system.session_memory.get_recent_messages(thread_id)
                 long_term_summary = self.rag_system.summary_store.get_summary(thread_id)
                 state_messages = self._build_state_messages(session_state)
@@ -242,6 +254,10 @@ class ChatInterface:
                             "recommended_department": session_state.get("recommended_department") or "",
                             "appointment_context": session_state.get("appointment_context") or {},
                             "last_appointment_no": session_state.get("last_appointment_no") or "",
+                            "pending_action_type": session_state.get("pending_action_type") or "",
+                            "pending_action_payload": session_state.get("pending_action_payload") or {},
+                            "pending_confirmation_id": session_state.get("pending_confirmation_id") or "",
+                            "pending_candidates": session_state.get("pending_candidates") or [],
                         },
                     )
                 if not session_state:
@@ -280,8 +296,7 @@ class ChatInterface:
                     final_assistant = final_from_state
                     yield response_messages
             if final_assistant:
-                self.rag_system.session_memory.append_exchange(thread_id, user_message, final_assistant)
-                recent_count = self.rag_system.session_memory.recent_message_count(thread_id)
+                recent_count = self.rag_system.session_memory.append_exchange(thread_id, user_message, final_assistant)
                 if recent_count >= config.SUMMARY_REFRESH_THRESHOLD:
                     conversation_summary = latest_values.get("conversation_summary", "")
                     if conversation_summary:
@@ -290,7 +305,7 @@ class ChatInterface:
             if "intent" in latest_values:
                 resolved_intent = latest_values.get("intent")
             else:
-                resolved_intent = self._infer_intent(user_message, session_state)
+                resolved_intent = inferred_intent
 
             if "risk_level" in latest_values:
                 resolved_risk_level = latest_values.get("risk_level")
@@ -317,6 +332,26 @@ class ChatInterface:
             else:
                 resolved_last_appointment_no = session_state.get("last_appointment_no")
 
+            if "pending_action_type" in latest_values:
+                resolved_pending_action_type = latest_values.get("pending_action_type") or ""
+            else:
+                resolved_pending_action_type = session_state.get("pending_action_type") or ""
+
+            if "pending_action_payload" in latest_values:
+                resolved_pending_action_payload = latest_values.get("pending_action_payload") or {}
+            else:
+                resolved_pending_action_payload = session_state.get("pending_action_payload") or {}
+
+            if "pending_confirmation_id" in latest_values:
+                resolved_pending_confirmation_id = latest_values.get("pending_confirmation_id") or ""
+            else:
+                resolved_pending_confirmation_id = session_state.get("pending_confirmation_id") or ""
+
+            if "pending_candidates" in latest_values:
+                resolved_pending_candidates = latest_values.get("pending_candidates") or []
+            else:
+                resolved_pending_candidates = session_state.get("pending_candidates") or []
+
             updated_state = {
                 "intent": resolved_intent,
                 "risk_level": resolved_risk_level,
@@ -324,8 +359,13 @@ class ChatInterface:
                 "recommended_department": resolved_department,
                 "appointment_context": resolved_appointment_context,
                 "last_appointment_no": resolved_last_appointment_no,
+                "pending_action_type": resolved_pending_action_type,
+                "pending_action_payload": resolved_pending_action_payload,
+                "pending_confirmation_id": resolved_pending_confirmation_id,
+                "pending_candidates": resolved_pending_candidates,
             }
-            self.rag_system.session_memory.set_state(thread_id, updated_state)
+            if updated_state != (session_state or {}):
+                self.rag_system.session_memory.set_state(thread_id, updated_state)
 
         except Exception as e:
             yield f"❌ Error: {str(e)}"

@@ -114,38 +114,40 @@ Output requirements:
 
 
 def get_appointment_request_prompt() -> str:
-    return """You are an appointment parameter extractor for a patient-facing AI companion system.
+    return """You are a controlled booking planner for a patient-facing AI companion system.
 
-Your task is to extract booking parameters from the user's latest message plus any provided conversation context.
+You MUST respond by calling the provided function exactly once.
+
+Task:
+- Read the user's latest message together with conversation context.
+- Decide whether to ask for missing booking information or prepare a booking preview for confirmation.
 
 Rules:
 1. Extract department, date, time_slot, and doctor_name only if supported by the input or context.
 2. If the user says "帮我挂号" after a department was already recommended, reuse that department from context.
-3. If either department, date, or time_slot is missing, set needs_clarification=true.
-4. Keep clarification short and specific.
-5. Do not invent doctors or schedules.
-
-Output requirements:
-- Return structured fields only.
-- Use empty strings for unknown fields.
+3. If any required field is still missing, call the function with action="clarify" and a short clarification question.
+4. If department, date, and time_slot are all available, call the function with action="prepare_booking".
+5. Do not invent doctors, schedules, or confirmation results.
+6. Never execute the booking yourself. You are only preparing the next controlled step.
 """
 
 
 def get_cancel_appointment_prompt() -> str:
-    return """You are a cancellation parameter extractor for a patient-facing AI companion system.
+    return """You are a controlled cancellation planner for a patient-facing AI companion system.
 
-Your task is to identify which appointment the user wants to cancel.
+You MUST respond by calling the provided function exactly once.
+
+Task:
+- Identify which appointment the user wants to cancel.
+- Decide whether to ask for missing information or prepare a cancellation preview for confirmation.
 
 Rules:
 1. Extract appointment_no if the user mentions it.
 2. Otherwise extract department and date if available.
-3. If neither appointment_no nor a usable department+date combination is available, set needs_clarification=true.
-4. Keep clarification short and specific.
-5. Do not invent appointment numbers.
-
-Output requirements:
-- Return structured fields only.
-- Use empty strings for unknown fields.
+3. If neither appointment_no nor a usable department+date combination is available, call the function with action="clarify".
+4. If enough information exists to search for cancellation candidates, call the function with action="prepare_cancellation".
+5. Do not invent appointment numbers or pretend the cancellation already happened.
+6. Never execute the cancellation yourself. You are only preparing the next controlled step.
 """
 
 def get_orchestrator_prompt() -> str:

@@ -55,3 +55,24 @@ class CancelAppointmentRequest(BaseModel):
     date: str = Field(description="Appointment date phrase or ISO date string if available, otherwise empty string.")
     needs_clarification: bool = Field(description="Whether more information is required before cancellation.")
     clarification_needed: str = Field(description="Clarification question when the appointment cannot be identified yet.")
+
+
+class AppointmentActionCall(BaseModel):
+    action: Literal["clarify", "prepare_booking"] = Field(
+        description="Either ask for missing booking information or prepare a booking preview for confirmation."
+    )
+    department: str = Field(description="Department name if available, otherwise empty string.")
+    date: str = Field(description="Appointment date phrase or ISO date string if available, otherwise empty string.")
+    time_slot: str = Field(description="Preferred time slot if available, otherwise empty string.")
+    doctor_name: str = Field(description="Doctor name if explicitly requested, otherwise empty string.")
+    clarification: str = Field(description="Short clarification question when action is clarify, otherwise empty string.")
+
+
+class CancelActionCall(BaseModel):
+    action: Literal["clarify", "prepare_cancellation"] = Field(
+        description="Either ask for missing cancellation information or prepare a cancellation preview for confirmation."
+    )
+    appointment_no: str = Field(description="Appointment number if available, otherwise empty string.")
+    department: str = Field(description="Department name if available, otherwise empty string.")
+    date: str = Field(description="Appointment date phrase or ISO date string if available, otherwise empty string.")
+    clarification: str = Field(description="Short clarification question when action is clarify, otherwise empty string.")

@@ -15,9 +15,15 @@ class PgVectorCollection:
     def __init__(self, conninfo: str, embeddings: Embeddings):
         self._conninfo = conninfo
         self._embeddings = embeddings
+        self._rerank_client = None
 
     def _connect(self):
         return psycopg.connect(self._conninfo)
+
+    def _get_rerank_client(self):
+        if self._rerank_client is None:
+            self._rerank_client = httpx.Client(timeout=30.0)
+        return self._rerank_client
 
     def _rerank_documents(self, query, candidates, top_n):
         if not candidates or not config.ENABLE_RERANK or not config.RERANK_API_KEY or not config.RERANK_MODEL:
@@ -37,10 +43,10 @@ class PgVectorCollection:
         }
 
         try:
-            with httpx.Client(timeout=30.0) as client:
-                response = client.post(config.RERANK_BASE_URL, headers=headers, json=payload)
-                response.raise_for_status()
-                data = response.json()
+            client = self._get_rerank_client()
+            response = client.post(config.RERANK_BASE_URL, headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
         except Exception:
             return candidates[:top_n]
 
@@ -56,9 +62,11 @@ class PgVectorCollection:
 
         return reranked or candidates[:top_n]
 
-    def _get_document_id(self, cur, metadata):
+    def _get_document_id(self, cur, metadata, cache=None):
         source_name = metadata.get("source", "unknown.pdf")
         document_no = source_name.rsplit(".", 1)[0]
+        if cache is not None and document_no in cache:
+            return cache[document_no]
         cur.execute(
             """
             SELECT id FROM documents WHERE document_no = %s
@@ -84,6 +92,8 @@ class PgVectorCollection:
                 ),
             )
             row = cur.fetchone()
+        if cache is not None:
+            cache[document_no] = row[0]
         return row[0]
 
     def add_documents(self, documents):
@@ -92,13 +102,14 @@ class PgVectorCollection:
 
         texts = [doc.page_content for doc in documents]
         embeddings = self._embeddings.embed_documents(texts)
+        document_cache = {}
 
         with self._connect() as conn:
             with conn.cursor() as cur:
                 for index, (doc, embedding) in enumerate(zip(documents, embeddings)):
                     metadata = dict(doc.metadata)
                     chunk_id = metadata.get("chunk_id") or f"{metadata.get('parent_id', 'chunk')}_child_{index}"
-                    document_id = self._get_document_id(cur, metadata)
+                    document_id = self._get_document_id(cur, metadata, cache=document_cache)
                     cur.execute(
                         """
                         INSERT INTO child_chunks (
@@ -191,6 +202,12 @@ class VectorDbManager:
             with conn.cursor() as cur:
                 cur.execute("TRUNCATE TABLE child_chunks RESTART IDENTITY CASCADE")
             conn.commit()
+
+    def has_documents(self) -> bool:
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT EXISTS (SELECT 1 FROM child_chunks LIMIT 1)")
+                return bool(cur.fetchone()[0])
 
     def get_collection(self, collection_name):
         return PgVectorCollection(self.__conninfo, self.__dense_embeddings)

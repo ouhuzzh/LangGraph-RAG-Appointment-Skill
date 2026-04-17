@@ -73,10 +73,10 @@ class RedisSessionMemory:
     def recent_message_count(self, thread_id: str) -> int:
         return len(self.get_recent_messages(thread_id))
 
-    def append_exchange(self, thread_id: str, user_message: str, assistant_message: str):
+    def append_exchange(self, thread_id: str, user_message: str, assistant_message: str) -> int:
         client = self._get_client()
         if not client:
-            return
+            return 0
 
         existing = self.get_recent_messages(thread_id)
         serialized = []
@@ -98,6 +98,7 @@ class RedisSessionMemory:
             config.REDIS_TTL_SECONDS,
             self._serialize_messages(serialized),
         )
+        return len(serialized)
 
     def get_state(self, thread_id: str):
         client = self._get_client()

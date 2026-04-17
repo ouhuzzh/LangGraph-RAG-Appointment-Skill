@@ -88,9 +88,14 @@ class ParentStoreManager:
         if not parents:
             return
         with self._connect() as conn:
+            document_cache = {}
             with conn.cursor() as cur:
                 for parent_id, doc in parents:
-                    document_id = self._ensure_document(conn, doc.metadata)
+                    document_no = self._document_info_from_metadata(doc.metadata)["document_no"]
+                    document_id = document_cache.get(document_no)
+                    if document_id is None:
+                        document_id = self._ensure_document(conn, doc.metadata)
+                        document_cache[document_no] = document_id
                     cur.execute(
                         """
                         INSERT INTO parent_chunks (parent_id, document_id, title, department, content, metadata)
@@ -140,7 +145,30 @@ class ParentStoreManager:
 
     def load_content_many(self, parent_ids: List[str]) -> List[Dict]:
         unique_ids = list(dict.fromkeys(parent_ids))
-        return [self.load_content(pid) for pid in unique_ids]
+        if not unique_ids:
+            return []
+
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT parent_id, content, metadata
+                    FROM parent_chunks
+                    WHERE parent_id = ANY(%s)
+                    """,
+                    (unique_ids,),
+                )
+                rows = cur.fetchall()
+
+        row_map = {
+            row[0]: {
+                "content": row[1],
+                "parent_id": row[0],
+                "metadata": row[2] or {},
+            }
+            for row in rows
+        }
+        return [row_map[parent_id] for parent_id in unique_ids if parent_id in row_map]
 
     def clear_store(self) -> None:
         with self._connect() as conn:

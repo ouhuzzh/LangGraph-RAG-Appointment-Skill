@@ -35,6 +35,9 @@ CREATE TABLE IF NOT EXISTS chat_session_summaries (
 CREATE INDEX IF NOT EXISTS idx_chat_session_summaries_thread_id
 ON chat_session_summaries(thread_id);
 
+CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_session_summaries_thread_type
+ON chat_session_summaries(thread_id, summary_type);
+
 CREATE TABLE IF NOT EXISTS departments (
     id              BIGSERIAL PRIMARY KEY,
     code            VARCHAR(64) NOT NULL UNIQUE,

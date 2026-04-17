@@ -22,7 +22,8 @@ class DocumentManager:
             
         added = 0
         skipped = 0
-            
+        collection = self.rag_system.vector_db.get_collection(self.rag_system.collection_name)
+             
         for i, doc_path in enumerate(document_paths):
             if progress_callback:
                 progress_callback((i + 1) / len(document_paths), f"Processing {Path(doc_path).name}")
@@ -44,9 +45,8 @@ class DocumentManager:
                 if not child_chunks:
                     skipped += 1
                     continue
-                
+                 
                 self.rag_system.parent_store.save_many(parent_chunks)
-                collection = self.rag_system.vector_db.get_collection(self.rag_system.collection_name)
                 collection.add_documents(child_chunks)
                 
                 added += 1
