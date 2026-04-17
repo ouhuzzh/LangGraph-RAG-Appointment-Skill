@@ -1,0 +1,12 @@
+{
+  "patient-hypertension-symptoms": "高血压有时没有明显症状，但也可能出现头痛、头晕或心悸。平时建议按医嘱用药，注意低盐饮食、规律作息和定期复诊。",
+  "follow-up-hypertension-precautions": "如果是在说高血压，平时可以继续监测血压，注意低盐饮食、控制体重和按时复诊。有不适或者血压波动明显时要及时就医。",
+  "patient-hypertension-seek-care": "如果高血压时突然胸痛或呼吸困难，不建议继续在家观察，应尽快就医。尤其症状持续或加重时，要尽快到医院评估。",
+  "public-health-flu-prevention": "流感主要通过飞沫和接触传播。平时建议接种疫苗、勤洗手、保持通风，出现发热咳嗽时尽量减少聚集活动。",
+  "public-health-flu-high-risk": "老年人、婴幼儿、孕妇以及有慢性基础疾病的人更应该重视流感预防。这些人群一旦出现症状，也更需要早期就医。",
+  "public-health-flu-cluster-followup": "如果办公室里很多人同时发热咳嗽，要关注聚集性传播风险，及时留意公共卫生提示，必要时配合筛查和健康管理安排。",
+  "clinical-guideline-hypertension-dosing": "从临床指南角度看，初始治疗通常要结合危险分层、合并症和血压水平来决定单药还是联合治疗；剂量调整则需要根据耐受性、复诊结果和治疗目标逐步完成。",
+  "clinical-guideline-hypertension-followup-goals": "复诊时医生一般会看治疗目标是否达成、血压变化、不良反应以及当前方案的耐受性，再决定是否继续调整剂量。",
+  "clinical-guideline-patient-friendly-boundary": "临床指南更适合帮助医生理解诊疗标准，直接给患者看时往往不够好懂。面向患者解释时，通常需要转写成更易懂、更贴近日常决策的表述。",
+  "no-evidence-rare-condition": "我目前没有在知识库里找到“月球低重力综合征”的相关证据，暂时不能给出可靠治疗建议。"
+}

@@ -3,6 +3,7 @@ import config
 from pathlib import Path
 from typing import List, Dict
 import psycopg
+from db.document_ids import build_document_no
 
 
 class ParentStoreManager:
@@ -22,7 +23,7 @@ class ParentStoreManager:
     def _document_info_from_metadata(metadata: Dict) -> Dict:
         source_name = metadata.get("source", "unknown.pdf")
         source_path = Path(source_name)
-        document_no = source_path.stem or "unknown"
+        document_no = build_document_no(source_name)
         return {
             "document_no": document_no,
             "title": metadata.get("title") or source_name,

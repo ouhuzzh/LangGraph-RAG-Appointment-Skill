@@ -175,6 +175,9 @@ class AppointmentService:
                 return None
 
             with conn.cursor() as cur:
+                # PostgreSQL will take a row-level lock for this UPDATE, so only one
+                # concurrent transaction can decrement the same schedule record when
+                # quota_available is down to the last remaining slot.
                 cur.execute(
                     """
                     UPDATE doctor_schedules

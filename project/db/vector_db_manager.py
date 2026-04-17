@@ -4,6 +4,7 @@ import psycopg
 import httpx
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
+from db.document_ids import build_document_no
 from db.schema_manager import SchemaManager
 from model_factory import get_embedding_model
 
@@ -66,9 +67,32 @@ class PgVectorCollection:
     def rerank_candidates(self, query, candidates, top_n):
         return self._rerank_documents(query, candidates, top_n)
 
+    def log_retrieval(self, thread_id=None, query_text="", rewritten_query="", retrieval_mode="", top_k=None, result_count=0, selected_parent_ids=None):
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO retrieval_logs (
+                        thread_id, query_text, rewritten_query, retrieval_mode,
+                        top_k, result_count, selected_parent_ids
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)
+                    """,
+                    (
+                        thread_id,
+                        query_text,
+                        rewritten_query or None,
+                        retrieval_mode or None,
+                        top_k,
+                        result_count,
+                        json.dumps(selected_parent_ids or [], ensure_ascii=False),
+                    ),
+                )
+            conn.commit()
+
     def _get_document_id(self, cur, metadata, cache=None):
         source_name = metadata.get("source", "unknown.pdf")
-        document_no = source_name.rsplit(".", 1)[0]
+        document_no = build_document_no(source_name)
         if cache is not None and document_no in cache:
             return cache[document_no]
         cur.execute(
@@ -188,6 +212,57 @@ class PgVectorCollection:
 
         reranked = self._rerank_documents(query, results, k)
         return reranked[:k]
+
+    def keyword_search(self, query, k=4, source_types=None):
+        fetch_limit = max(config.KEYWORD_FETCH_K, k)
+        source_types = [str(item).strip().lower() for item in (source_types or []) if str(item).strip()]
+        where_clauses = ["tsv @@ websearch_to_tsquery('simple', %s)"]
+        params = [query]
+        if source_types:
+            where_clauses.append("lower(coalesce(metadata->>'source_type', '')) = ANY(%s)")
+            params.append(source_types)
+        where_sql = f"WHERE {' AND '.join(where_clauses)}"
+
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                try:
+                    cur.execute(
+                        f"""
+                        SELECT
+                            content,
+                            metadata,
+                            ts_rank_cd(tsv, websearch_to_tsquery('simple', %s)) AS keyword_score
+                        FROM child_chunks
+                        {where_sql}
+                        ORDER BY keyword_score DESC, id
+                        LIMIT %s
+                        """,
+                        [query, *params, fetch_limit],
+                    )
+                except psycopg.Error:
+                    cur.execute(
+                        f"""
+                        SELECT
+                            content,
+                            metadata,
+                            ts_rank_cd(tsv, plainto_tsquery('simple', %s)) AS keyword_score
+                        FROM child_chunks
+                        WHERE tsv @@ plainto_tsquery('simple', %s)
+                        {"AND lower(coalesce(metadata->>'source_type', '')) = ANY(%s)" if source_types else ""}
+                        ORDER BY keyword_score DESC, id
+                        LIMIT %s
+                        """,
+                        [query, query, *([source_types] if source_types else []), fetch_limit],
+                    )
+                rows = cur.fetchall()
+
+        results = []
+        for content, metadata, keyword_score in rows:
+            meta = dict(metadata or {})
+            meta["keyword_score"] = float(keyword_score or 0.0)
+            meta["score"] = max(float(meta.get("score") or 0.0), float(keyword_score or 0.0))
+            results.append(Document(page_content=content, metadata=meta))
+        return results[:k]
 
 
 class VectorDbManager:

@@ -72,6 +72,26 @@ class ChatInterfaceTests(unittest.TestCase):
 
         self.assertEqual(intent, "appointment")
 
+    def test_prepare_visible_messages_hides_diagnostics_in_user_mode(self):
+        response_messages = [
+            {"role": "assistant", "content": "分析中", "metadata": {"node": "rewrite_query"}},
+            {"role": "assistant", "content": "这是最终回答"},
+        ]
+
+        visible = ChatInterface._prepare_visible_messages(response_messages, reveal_diagnostics=False)
+
+        self.assertEqual(visible, [{"role": "assistant", "content": "这是最终回答"}])
+
+    def test_prepare_visible_messages_shows_placeholder_when_only_diagnostics_exist(self):
+        response_messages = [
+            {"role": "assistant", "content": "调用工具中", "metadata": {"title": "tool"}},
+        ]
+
+        visible = ChatInterface._prepare_visible_messages(response_messages, reveal_diagnostics=False)
+
+        self.assertEqual(len(visible), 1)
+        self.assertIn("正在整理答案", visible[0]["content"])
+
 
 if __name__ == "__main__":
     unittest.main()

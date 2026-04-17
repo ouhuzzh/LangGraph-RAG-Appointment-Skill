@@ -25,6 +25,8 @@ RERANK_MODEL = os.environ.get("RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
 LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0"))
 ENABLE_RERANK = os.environ.get("ENABLE_RERANK", "true").lower() == "true"
 RERANK_FETCH_K = int(os.environ.get("RERANK_FETCH_K", "12"))
+ENABLE_HYBRID_RETRIEVAL = os.environ.get("ENABLE_HYBRID_RETRIEVAL", "true").lower() == "true"
+KEYWORD_FETCH_K = int(os.environ.get("KEYWORD_FETCH_K", "8"))
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "")

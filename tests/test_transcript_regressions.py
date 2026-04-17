@@ -3,7 +3,7 @@ import unittest
 
 sys.path.insert(0, r"D:\nageoffer\agentic-rag-for-dummies\project")
 
-from langchain_core.messages import HumanMessage  # noqa: E402
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage  # noqa: E402
 from rag_agent.nodes import intent_router, rewrite_query, recommend_department  # noqa: E402
 from rag_agent.schemas import IntentAnalysis, QueryAnalysis, DepartmentRecommendation  # noqa: E402
 
@@ -20,6 +20,17 @@ class FakeStructuredLLM:
 
     def invoke(self, messages):
         return self.responses.pop(0)
+
+
+class ExplodingStructuredLLM:
+    def with_config(self, **kwargs):
+        return self
+
+    def with_structured_output(self, schema):
+        return self
+
+    def invoke(self, messages):  # pragma: no cover - used to prove the call does not happen
+        raise AssertionError("LLM should not be invoked for this rule-covered case.")
 
 
 class TranscriptRegressionTests(unittest.TestCase):
@@ -41,6 +52,18 @@ class TranscriptRegressionTests(unittest.TestCase):
         self.assertEqual(result["intent"], "medical_rag")
         self.assertEqual(result["pending_clarification"], "")
 
+    def test_intent_router_short_circuits_clear_medical_question_before_llm(self):
+        state = {
+            "messages": [HumanMessage(content="高血压会引起头晕吗")],
+            "conversation_summary": "",
+            "pending_action_type": "",
+            "pending_candidates": [],
+        }
+
+        result = intent_router(state, ExplodingStructuredLLM())
+
+        self.assertEqual(result["intent"], "medical_rag")
+
     def test_rewrite_query_accepts_contextual_follow_up_without_extra_clarification(self):
         llm = FakeStructuredLLM(
             [
@@ -58,6 +81,33 @@ class TranscriptRegressionTests(unittest.TestCase):
         self.assertTrue(result["questionIsClear"])
         self.assertEqual(result["pending_clarification"], "")
         self.assertTrue(result["rewrittenQuestions"])
+
+    def test_rewrite_query_keeps_recent_history_instead_of_deleting_everything(self):
+        llm = FakeStructuredLLM(
+            [
+                QueryAnalysis(is_clear=True, questions=["高血压应该注意什么"], clarification_needed=""),
+            ]
+        )
+        state = {
+            "messages": [
+                SystemMessage(content="system", id="sys-1"),
+                HumanMessage(content="第一轮用户", id="h1"),
+                AIMessage(content="第一轮助手", id="a1"),
+                HumanMessage(content="第二轮用户", id="h2"),
+                AIMessage(content="第二轮助手", id="a2"),
+                HumanMessage(content="第三轮用户", id="h3"),
+                AIMessage(content="第三轮助手", id="a3"),
+                HumanMessage(content="那应该注意什么", id="h4"),
+            ],
+            "conversation_summary": "用户正在问高血压相关问题。",
+            "intent": "medical_rag",
+        }
+
+        result = rewrite_query(state, llm)
+
+        removed_ids = [message.id for message in result["messages"]]
+        self.assertEqual(removed_ids, ["h1", "a1"])
+        self.assertEqual(result["rewrittenQuestions"], ["高血压应该注意什么"])
 
     def test_recommend_department_defaults_to_emergency_when_high_risk_and_model_wants_clarification(self):
         llm = FakeStructuredLLM(

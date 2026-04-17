@@ -1,201 +1,308 @@
-import gradio as gr
-import config
+import html
+import os
 import time
+
+import gradio as gr
+
+import config
 from core.chat_interface import ChatInterface
 from core.document_manager import DocumentManager
 from core.rag_system import RAGSystem
-import os
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "..", "assets")
-APP_THEME = gr.themes.Soft()
+APP_THEME = gr.themes.Base()
 APP_CSS = """
 :root {
-  --app-bg: #f4f8f7;
-  --app-surface: #ffffff;
-  --app-surface-alt: #eef6f4;
-  --app-border: #cfe0db;
-  --app-primary: #0f766e;
-  --app-primary-strong: #0b5f59;
-  --app-text: #16324a;
-  --app-text-muted: #4a657d;
-  --app-danger: #b42318;
-  --app-warning: #b54708;
+  --page-bg: #f4f7f9;
+  --surface: #ffffff;
+  --surface-soft: #f8fafb;
+  --surface-hover: #f0f4f5;
+  --border: rgba(0, 0, 0, 0.06);
+  --border-strong: rgba(0, 0, 0, 0.10);
+  --text: #1a1d21;
+  --text-secondary: #4a5568;
+  --muted: #718096;
+  --primary: #0d9488;
+  --primary-strong: #0f766e;
+  --primary-light: rgba(13, 148, 136, 0.08);
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --radius-xl: 24px;
+  --radius-lg: 16px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
 }
 
+/* ── Page ── */
 .gradio-container {
-  background:
-    radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 28%),
-    linear-gradient(180deg, #f8fcfb 0%, var(--app-bg) 100%);
-  color: var(--app-text);
-  font-family: "Noto Sans SC", "Segoe UI", "PingFang SC", sans-serif;
+  background: var(--page-bg) !important;
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
-.gradio-container .block {
-  border: 1px solid rgba(207, 224, 219, 0.9);
-}
+.gradio-container,
+.gradio-container .prose,
+.gradio-container .prose p,
+.gradio-container p,
+.gradio-container span:not(.pill):not(.chip):not(.metric-label):not(.metric-value):not(.metric-note),
+.gradio-container label,
+.gradio-container li,
+.gradio-container div { color: var(--text-secondary); }
 
-.hero-card {
-  background: linear-gradient(135deg, rgba(15, 118, 110, 0.08), rgba(255, 255, 255, 0.95));
-  border: 1px solid var(--app-border);
-  border-radius: 22px;
-  padding: 22px 24px;
-  box-shadow: 0 18px 48px rgba(22, 50, 74, 0.08);
-  margin-bottom: 10px;
-}
+.gradio-container .prose h1,
+.gradio-container .prose h2,
+.gradio-container .prose h3,
+.gradio-container .prose h4,
+.gradio-container .prose strong { color: var(--text) !important; }
 
-.hero-card h1,
-.hero-card h2,
-.hero-card p,
-.hero-card li,
-.status-card h3,
-.status-card p,
-.status-card li,
-.chat-overview-card h3,
-.chat-overview-card p {
-  color: var(--app-text) !important;
-}
+.app-shell { max-width: 1280px; margin: 0 auto; padding: 0 8px; }
 
-.hero-eyebrow {
-  color: var(--app-primary-strong);
-  font-size: 0.86rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  margin-bottom: 8px;
-}
-
-.hero-card h1 {
-  margin: 0 0 8px;
-  font-size: 2rem;
-  line-height: 1.15;
-}
-
-.hero-card p {
-  margin: 0;
-  font-size: 1rem;
-  line-height: 1.7;
-  color: var(--app-text-muted) !important;
-}
-
-.chat-overview-card,
-.status-card {
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid var(--app-border);
-  border-radius: 18px;
-  padding: 16px 18px;
-  box-shadow: 0 12px 28px rgba(22, 50, 74, 0.06);
-}
-
-.chat-overview-card {
-  margin-bottom: 10px;
-}
-
-.chat-overview-card p,
-.status-card p {
-  margin: 0;
-  color: var(--app-text-muted) !important;
-  line-height: 1.65;
-}
-
-.status-card strong,
-.chat-overview-card strong,
-.hero-card strong {
-  color: var(--app-text) !important;
-}
-
-.compact-accordion {
-  border-radius: 18px !important;
+/* ── Hero ── */
+.hero-panel {
+  background: linear-gradient(135deg, #0f766e 0%, #0d9488 50%, #14b8a6 100%);
+  color: #fff;
+  border-radius: var(--radius-xl);
+  padding: 24px 32px;
+  margin-bottom: 16px;
+  position: relative;
   overflow: hidden;
 }
 
-.compact-accordion > button,
-.compact-accordion .label-wrap {
-  color: var(--app-text) !important;
-  font-weight: 700 !important;
+.hero-panel::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  right: -8%;
+  width: 260px;
+  height: 260px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 50%;
+  pointer-events: none;
 }
 
-.compact-accordion .label-wrap {
-  background: rgba(255, 255, 255, 0.92) !important;
+.hero-kicker {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.18);
+  backdrop-filter: blur(4px);
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: #fff;
 }
 
-#doc-management-tab .gr-textbox,
-.chat-status-box .gr-textbox {
-  background: rgba(255, 255, 255, 0.96) !important;
+.hero-panel h1 { margin: 10px 0 6px; font-size: 1.5rem; line-height: 1.25; font-weight: 800; color: #fff !important; }
+.hero-panel p { margin: 0; max-width: 640px; color: rgba(255,255,255,0.82); font-size: .88rem; line-height: 1.65; }
+
+/* ── Cards & Shells ── */
+.status-shell, .card-shell, .import-card, .doc-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
 
-.gradio-container .gr-button-primary,
-.gradio-container .gr-button-secondary,
-.gradio-container button {
-  border-radius: 999px !important;
-  font-weight: 700 !important;
+.status-shell { padding: 20px 24px; margin-bottom: 14px; }
+.status-shell h2 { margin: 0 0 10px; font-size: 1.15rem; font-weight: 700; color: var(--text) !important; }
+.status-shell p, .card-shell p, .import-card p, .doc-card p { margin: 0; color: var(--muted); line-height: 1.7; font-size: .88rem; }
+
+/* ── Pill Badges ── */
+.pill {
+  display: inline-flex; align-items: center;
+  padding: 4px 11px; margin-right: 6px;
+  border-radius: 999px; font-size: .73rem; font-weight: 600; letter-spacing: .02em;
+}
+.pill.ready, .pill.success { background: rgba(5,150,105,.10); color: #047857; }
+.pill.pending, .pill.loading { background: rgba(13,148,136,.10); color: #0f766e; }
+.pill.warning { background: rgba(217,119,6,.10); color: #b45309; }
+.pill.error { background: rgba(220,38,38,.10); color: #b91c1c; }
+
+/* ── Metrics ── */
+.metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.metric {
+  background: var(--surface-soft); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 14px 16px; transition: box-shadow .15s ease;
+}
+.metric:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+.metric-label { display:block; color: var(--muted); font-size: .73rem; margin-bottom: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.metric-value { display:block; color: var(--text); font-size: 1.15rem; font-weight: 800; }
+.metric-note  { display:block; color: var(--muted); font-size: .76rem; margin-top: 4px; line-height: 1.5; }
+
+.card-shell, .import-card, .doc-card { padding: 20px; }
+.card-shell h3, .import-card h3, .doc-card h3 { margin: 0 0 10px; color: var(--text) !important; font-size: 1rem; font-weight: 700; }
+
+/* ── Item Lists ── */
+.item-list { display:grid; gap:8px; }
+.item {
+  background: var(--surface-soft); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 12px 14px; transition: background .15s ease;
+}
+.item:hover { background: var(--surface-hover); }
+.item strong { color: var(--text) !important; font-size: .88rem; }
+.item span  { display:block; margin-top: 3px; color: var(--muted); line-height: 1.5; font-size: .84rem; }
+.chip-row { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.chip {
+  display:inline-flex; align-items:center; padding: 4px 10px;
+  border-radius: 999px; background: var(--primary-light);
+  color: var(--primary-strong); font-size: .73rem; font-weight: 600;
 }
 
-.gradio-container .gr-button-primary {
-  background: linear-gradient(135deg, var(--app-primary), #14b8a6) !important;
-  color: #ffffff !important;
-}
-
-.gradio-container .gr-button-secondary {
-  background: #e6f4f1 !important;
-  color: var(--app-primary-strong) !important;
-  border-color: rgba(15, 118, 110, 0.2) !important;
-}
-
-.gradio-container .gr-button-stop {
-  background: #fff1f0 !important;
-  color: var(--app-danger) !important;
-  border-color: rgba(180, 35, 24, 0.16) !important;
-}
-
-.gradio-container .gr-chatbot,
-.gradio-container .gr-chatbot .message-wrap,
-.gradio-container .gr-chatbot .bubble {
-  color: var(--app-text) !important;
-}
-
-.gradio-container .gr-chatbot {
-  background: rgba(255, 255, 255, 0.95) !important;
-  border: 1px solid var(--app-border) !important;
-  border-radius: 22px !important;
-  box-shadow: 0 16px 38px rgba(22, 50, 74, 0.07);
+/* ── Chatbot ── */
+.gradio-container .chatbot {
+  border-radius: var(--radius-lg) !important;
+  border: 1px solid var(--border) !important;
+  background: var(--surface) !important;
 }
 
 .gradio-container .gr-chatbot .user {
-  background: #e7f6f2 !important;
+  background: linear-gradient(135deg, #0f766e, #0d9488) !important;
+  color: #fff !important; border: none !important;
+  border-radius: var(--radius-md) var(--radius-md) 4px var(--radius-md) !important;
+  box-shadow: 0 2px 8px rgba(15,118,110,0.15) !important;
 }
+.gradio-container .gr-chatbot .user *,
+.gradio-container .gr-chatbot .user .md,
+.gradio-container .gr-chatbot .user .md p,
+.gradio-container .gr-chatbot .user .md strong,
+.gradio-container .gr-chatbot .user .md li,
+.gradio-container .gr-chatbot .user .md code { color: #fff !important; }
 
 .gradio-container .gr-chatbot .assistant {
-  background: #ffffff !important;
+  background: var(--surface-soft) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-md) var(--radius-md) var(--radius-md) 4px !important;
+  color: var(--text) !important;
 }
+.gradio-container .gr-chatbot .assistant *,
+.gradio-container .gr-chatbot .assistant .md,
+.gradio-container .gr-chatbot .assistant .md p,
+.gradio-container .gr-chatbot .assistant .md li,
+.gradio-container .gr-chatbot .assistant .md em,
+.gradio-container .gr-chatbot .assistant .md code { color: var(--text-secondary) !important; }
+.gradio-container .gr-chatbot .assistant .md strong,
+.gradio-container .gr-chatbot .assistant .md h1,
+.gradio-container .gr-chatbot .assistant .md h2,
+.gradio-container .gr-chatbot .assistant .md h3,
+.gradio-container .gr-chatbot .assistant .md h4 { color: var(--text) !important; }
+.gradio-container .gr-chatbot .assistant details,
+.gradio-container .gr-chatbot .assistant summary { color: var(--text-secondary) !important; }
+.gradio-container .gr-chatbot .assistant details * { color: var(--text-secondary) !important; }
+.gradio-container .gr-chatbot .assistant blockquote { color: var(--text-secondary) !important; border-left-color: var(--primary) !important; }
 
+/* ── Inputs ── */
 .gradio-container textarea,
 .gradio-container input,
-.gradio-container .wrap,
-.gradio-container .gr-textbox textarea {
-  color: var(--app-text) !important;
+.gradio-container .gr-textbox textarea,
+.gradio-container .gr-textbox input {
+  color: var(--text) !important; background: var(--surface) !important;
+  border: 1.5px solid var(--border-strong) !important;
+  border-radius: var(--radius-md) !important; font-size: .93rem !important;
 }
-
+.gradio-container textarea:focus,
+.gradio-container input:focus {
+  border-color: var(--primary) !important; outline: none !important;
+  box-shadow: 0 0 0 3px rgba(13,148,136,0.10) !important;
+}
 .gradio-container textarea::placeholder,
-.gradio-container input::placeholder {
-  color: #6c8397 !important;
+.gradio-container input::placeholder { color: #a0aec0 !important; }
+
+/* ── Buttons (global) ── */
+.gradio-container button { border-radius: var(--radius-md) !important; font-weight: 600 !important; transition: all .15s ease !important; }
+
+.gradio-container .gr-button-primary {
+  background: linear-gradient(135deg, #0f766e, #0d9488) !important;
+  color: #fff !important; border: none !important;
+  padding: 10px 28px !important; font-size: .93rem !important;
+  box-shadow: 0 2px 8px rgba(13,148,136,0.20) !important;
+}
+.gradio-container .gr-button-primary:hover { box-shadow: 0 4px 16px rgba(13,148,136,0.30) !important; }
+
+/* ── Chat Send / Stop Buttons ── */
+.gradio-container button.primary,
+.gradio-container button[variant="primary"] {
+  background: linear-gradient(135deg, #0f766e, #0d9488) !important;
+  color: #fff !important; border: none !important;
+  min-width: 88px !important; min-height: 46px !important;
+  font-size: .95rem !important; font-weight: 700 !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: 0 3px 12px rgba(13,148,136,0.24) !important;
+  cursor: pointer !important;
+  letter-spacing: .03em;
+}
+.gradio-container button.primary:hover,
+.gradio-container button[variant="primary"]:hover {
+  box-shadow: 0 5px 20px rgba(13,148,136,0.38) !important;
+  transform: translateY(-1px);
 }
 
-.support-note {
-  color: var(--app-text-muted) !important;
-  font-size: 0.96rem;
+.gradio-container .gr-button-secondary {
+  background: var(--surface) !important; color: var(--primary-strong) !important;
+  border: 1.5px solid rgba(13,148,136,.20) !important; padding: 10px 24px !important;
+}
+.gradio-container .gr-button-secondary:hover {
+  background: var(--primary-light) !important; border-color: rgba(13,148,136,.35) !important;
 }
 
-@media (max-width: 768px) {
-  .hero-card {
-    padding: 18px;
-    border-radius: 18px;
-  }
+.gradio-container .gr-button-stop,
+.gradio-container button.stop {
+  background: var(--surface) !important; color: var(--danger) !important;
+  border: 1.5px solid rgba(220,38,38,.18) !important;
+}
+.gradio-container .gr-button-stop:hover,
+.gradio-container button.stop:hover { background: rgba(220,38,38,.06) !important; }
 
-  .hero-card h1 {
-    font-size: 1.6rem;
-  }
+/* ── Accordion ── */
+.diagnostics-accordion { border-radius: var(--radius-md) !important; overflow: hidden; border: 1px solid var(--border) !important; }
+.diagnostics-accordion > button, .diagnostics-accordion .label-wrap { color: var(--text) !important; font-weight: 600 !important; }
+.diag-note { color: var(--muted) !important; line-height: 1.65; font-size: .86rem; }
+
+/* ── File Upload ── */
+.gradio-container .gr-file { border: 2px dashed rgba(0,0,0,0.10) !important; background: var(--surface-soft) !important; border-radius: var(--radius-md) !important; }
+.gradio-container .gr-file:hover { border-color: var(--primary) !important; }
+
+/* ── Dropdown / Checkbox ── */
+.gradio-container .gr-dropdown select,
+.gradio-container .gr-checkbox label { color: var(--text) !important; }
+
+/* ── Tabs ── */
+.gradio-container button[role="tab"] {
+  color: var(--muted) !important; border-bottom: 2px solid transparent !important;
+  font-weight: 600 !important; padding: 10px 20px !important; transition: all .2s ease !important;
+}
+.gradio-container button[role="tab"]:hover { color: var(--text) !important; }
+.gradio-container button[role="tab"][aria-selected="true"] { color: var(--primary-strong) !important; border-bottom: 2.5px solid var(--primary) !important; }
+
+/* ── Links ── */
+.gradio-container a { color: var(--primary) !important; }
+.gradio-container a:hover { color: var(--primary-strong) !important; }
+
+/* ── Scrollbar ── */
+.gr-chatbot::-webkit-scrollbar { width: 5px; }
+.gr-chatbot::-webkit-scrollbar-track { background: transparent; }
+.gr-chatbot::-webkit-scrollbar-thumb { background: rgba(0,0,0,.08); border-radius: 4px; }
+
+/* ── Quick-hints row ── */
+.quick-hints { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
+.quick-hints span {
+  padding: 7px 14px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  color: var(--text-secondary); font-size: .84rem; cursor: default; transition: all .15s ease;
+}
+.quick-hints span:hover { background: var(--primary-light); border-color: rgba(13,148,136,.25); color: var(--primary-strong); }
+
+/* ── Footer ── */
+footer { visibility: hidden; }
+
+@media (max-width: 980px) {
+  .hero-panel { padding: 20px; }
+  .hero-panel h1 { font-size: 1.25rem; }
+  .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 """
+
 
 def create_gradio_ui(rag_system=None, start_background_tasks=True):
     rag_system = rag_system or RAGSystem()
@@ -205,13 +312,21 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
     doc_manager = DocumentManager(rag_system)
     chat_interface = ChatInterface(rag_system)
 
-    def format_file_list():
-        files = doc_manager.get_markdown_files()
-        if not files:
-            return "当前知识库里还没有可用文档。"
-        return "\n".join([f"{f}" for f in files])
+    def _badge(status: str):
+        normalized = str(status or "").strip().lower()
+        tone = {
+            "ready": "ready",
+            "completed": "success",
+            "building": "loading",
+            "preparing": "loading",
+            "pending_rebuild": "pending",
+            "not_checked": "pending",
+            "no_documents": "warning",
+            "failed": "error",
+        }.get(normalized, "pending")
+        return f'<span class="pill {tone}">{html.escape(normalized.replace("_", " ").title())}</span>'
 
-    def format_system_status():
+    def _format_system_status():
         system_status = rag_system.get_system_status()
         step_order = ["database_check", "model_init", "graph_compile", "knowledge_base_bootstrap"]
         step_labels = {
@@ -220,10 +335,7 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
             "graph_compile": "代理图构建",
             "knowledge_base_bootstrap": "知识库补建",
         }
-        lines = [
-            f"系统状态：{system_status['state']}",
-            system_status["message"],
-        ]
+        lines = [f"系统状态：{system_status['state']}", system_status["message"]]
         if system_status.get("last_error"):
             lines.append(f"最近错误：{system_status['last_error']}")
         for step_key in step_order:
@@ -234,7 +346,7 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
             lines.append(f"- {step_labels[step_key]}: {step['state']} - {step.get('message', '')}{elapsed}")
         return "\n".join(lines)
 
-    def format_knowledge_base_status():
+    def _format_knowledge_status():
         knowledge_status = rag_system.get_knowledge_base_status()
         stats = knowledge_status["stats"]
         lines = [
@@ -251,111 +363,185 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
             lines.append(f"最近错误：{knowledge_status['last_error']}")
         return "\n".join(lines)
 
-    def format_recent_import_tasks():
-        knowledge_status = rag_system.get_knowledge_base_status()
-        recent_imports = knowledge_status["stats"].get("recent_imports") or []
-        if not recent_imports:
-            return "暂无导入任务记录。"
-
-        lines = []
-        for item in recent_imports[:6]:
-            lines.extend(
-                [
-                    f"[{item.get('timestamp', '-')}] {item.get('label', item.get('source', 'manual_upload'))}",
-                    (
-                        f"status={item.get('status', 'completed')} duration={item.get('duration_ms', 0)} ms "
-                        f"written={item.get('written', 0)} skipped={item.get('skipped', 0)} failed={item.get('failed', 0)} "
-                        f"index_added={item.get('index_added', 0)}"
-                    ),
-                ]
-            )
-            if item.get("downloaded") is not None:
-                lines.append(f"downloaded={item.get('downloaded', 0)}")
-            if item.get("conversion_details"):
-                lines.append(f"conversion: {' | '.join(item['conversion_details'][:2])}")
-            if item.get("failure_details"):
-                lines.append(f"failures: {' | '.join(item['failure_details'][:2])}")
-            if item.get("note"):
-                lines.append(f"note: {item['note']}")
-            lines.append("")
-        return "\n".join(lines).strip()
-
-    def format_chat_overview():
+    def _format_chat_status_panel():
         system_status = rag_system.get_system_status()
         knowledge_status = rag_system.get_knowledge_base_status()
-        if system_status["state"] == "ready":
-            readiness = "系统已就绪，可以直接提问、预约或取消预约。"
-        elif system_status["state"] == "failed":
-            readiness = f"系统初始化失败：{system_status.get('last_error', '未知错误')}"
-        else:
-            readiness = f"系统正在准备中：{system_status['message']}"
-
-        knowledge_hint = {
-            "ready": "知识库已可检索，医学问题会优先结合导入资料回答。",
-            "building": "知识库正在后台补建，预约/取消不受影响。",
-            "pending_rebuild": "知识库正在等待补建，部分资料问答可能暂时不完整。",
-            "no_documents": "当前还没有导入资料，医学问答会提示你先导入文档。",
-            "failed": "知识库补建失败，医学资料问答暂时受影响。",
+        stats = knowledge_status["stats"]
+        title = "现在可以直接开始咨询" if system_status["state"] == "ready" else "正在为你准备医疗助手"
+        if system_status["state"] == "failed":
+            title = "当前系统需要先处理一下异常"
+        intro = {
+            "ready": "你可以直接问症状、就诊建议、预约挂号或取消预约。",
+            "failed": system_status.get("last_error") or "初始化出现异常，请稍后再试。",
+        }.get(system_status["state"], system_status["message"])
+        kb_note = {
+            "ready": "资料库已经可检索，医学问题会优先结合导入资料回答。",
+            "building": "资料库正在后台整理，预约/取消不受影响。",
+            "pending_rebuild": "有资料还没整理完，系统会继续补建。",
+            "no_documents": "当前还没有导入资料，医学资料问答建议先去 Documents 导入内容。",
+            "failed": "资料库补建失败，文档型问答会受影响。",
         }.get(knowledge_status["status"], knowledge_status["message"])
-
         return f"""
-<div class="chat-overview-card">
-  <h3>当前会话</h3>
-  <p><strong>{readiness}</strong></p>
-  <p>{knowledge_hint}</p>
-  <p>我会尽量记住这轮会话里的最近话题、推荐科室、预约上下文和待确认操作。</p>
+<div class="status-shell">
+  <h2>{html.escape(title)}</h2>
+  {_badge(system_status['state'])}{_badge(knowledge_status['status'])}
+  <p style="margin-top:12px;">{html.escape(intro)}</p>
+  <p style="margin-top:8px;">{html.escape(kb_note)}</p>
+  <div class="metric-grid">
+    <div class="metric"><span class="metric-label">知识库资料</span><span class="metric-value">{stats.get('documents', 0)}</span><span class="metric-note">已登记文档</span></div>
+    <div class="metric"><span class="metric-label">可检索片段</span><span class="metric-value">{stats.get('child_chunks', 0)}</span><span class="metric-note">用于回答的内容块</span></div>
+    <div class="metric"><span class="metric-label">最近补建</span><span class="metric-value">{html.escape(knowledge_status['status'])}</span><span class="metric-note">{html.escape(stats.get('last_bootstrap_result') or '暂无新的补建记录')}</span></div>
+    <div class="metric"><span class="metric-label">当前会话</span><span class="metric-value">强记忆</span><span class="metric-note">会尽量保留最近话题、科室建议和预约状态</span></div>
+  </div>
 </div>
 """.strip()
 
+    def _format_docs_status_panel():
+        knowledge_status = rag_system.get_knowledge_base_status()
+        stats = knowledge_status["stats"]
+        note = {
+            "ready": "资料已经整理完成，可以继续追加新资料或查看最近导入记录。",
+            "building": "系统正在后台整理资料，界面会自动刷新状态。",
+            "pending_rebuild": "检测到有资料尚未完成索引，系统会继续补建。",
+            "no_documents": "现在还是空知识库，适合先导入一批官方资料做基础底座。",
+            "failed": "资料整理失败了，建议查看最近任务记录和高级诊断。",
+        }.get(knowledge_status["status"], knowledge_status["message"])
+        return f"""
+<div class="status-shell">
+  <h2>把资料导进来，也要让状态一眼能看懂</h2>
+  {_badge(knowledge_status['status'])}
+  <p style="margin-top:12px;">{html.escape(note)}</p>
+  <div class="metric-grid">
+    <div class="metric"><span class="metric-label">本地 Markdown</span><span class="metric-value">{stats.get('local_markdown_files', 0)}</span><span class="metric-note">已经落在本地目录里的资料</span></div>
+    <div class="metric"><span class="metric-label">数据库文档</span><span class="metric-value">{stats.get('documents', 0)}</span><span class="metric-note">已经登记进知识库</span></div>
+    <div class="metric"><span class="metric-label">父块 / 子块</span><span class="metric-value">{stats.get('parent_chunks', 0)} / {stats.get('child_chunks', 0)}</span><span class="metric-note">索引结构</span></div>
+    <div class="metric"><span class="metric-label">最近任务数</span><span class="metric-value">{len(stats.get('recent_imports') or [])}</span><span class="metric-note">包含导入和补建记录</span></div>
+  </div>
+</div>
+""".strip()
+
+    def _format_recent_imports():
+        recent_imports = rag_system.get_knowledge_base_status()["stats"].get("recent_imports") or []
+        if not recent_imports:
+            return """
+<div class="import-card">
+  <h3>最近任务</h3>
+  <p>还没有导入任务记录。第一次导入后，这里会直接告诉你写入了多少、跳过了多少、哪里失败了。</p>
+</div>
+""".strip()
+        items = []
+        for item in recent_imports[:6]:
+            bits = [f"写入 {item.get('written', 0)}", f"跳过 {item.get('skipped', 0)}", f"失败 {item.get('failed', 0)}", f"索引新增 {item.get('index_added', 0)}"]
+            if item.get("downloaded") is not None:
+                bits.insert(0, f"下载 {item.get('downloaded', 0)}")
+            extra = ""
+            if item.get("failure_details"):
+                extra += f"<span>问题摘要：{html.escape(' | '.join(item['failure_details'][:2]))}</span>"
+            if item.get("note"):
+                extra += f"<span>{html.escape(item['note'])}</span>"
+            items.append(
+                f"""
+<div class="item">
+  <strong>{html.escape(item.get('label', item.get('source', 'manual_upload')))}</strong>
+  <span>{html.escape(item.get('timestamp', '-'))}</span>
+  <div class="chip-row">
+    {_badge(item.get('status', 'completed'))}
+    <span class="chip">{html.escape(' · '.join(bits))}</span>
+    <span class="chip">{html.escape(str(item.get('duration_ms', 0)))} ms</span>
+  </div>
+  {extra}
+</div>
+""".strip()
+            )
+        return f"""
+<div class="import-card">
+  <h3>最近任务</h3>
+  <p>这里会保留最近的导入和补建结果，方便你确认系统有没有真的把资料整理好。</p>
+  <div class="item-list">{''.join(items)}</div>
+</div>
+""".strip()
+
+    def _format_files():
+        files = doc_manager.get_markdown_files()
+        if not files:
+            return """
+<div class="doc-card">
+  <h3>当前资料</h3>
+  <p>现在还没有可用资料。你可以上传 PDF / Markdown，或者直接导入官方来源。</p>
+</div>
+""".strip()
+        items = []
+        for name in files[:12]:
+            extension = os.path.splitext(name)[1].lower().lstrip(".") or "md"
+            items.append(
+                f"""
+<div class="item">
+  <strong>{html.escape(name)}</strong>
+  <div class="chip-row">
+    <span class="chip">{extension.upper()}</span>
+    <span class="chip">已纳入知识库</span>
+  </div>
+</div>
+""".strip()
+            )
+        overflow = f"<p style='margin-top:10px;'>还有 {len(files) - 12} 份资料未展开显示。</p>" if len(files) > 12 else ""
+        return f"""
+<div class="doc-card">
+  <h3>当前资料</h3>
+  <p>知识库里一共整理了 <strong>{len(files)}</strong> 份本地 Markdown 资料。</p>
+  <div class="item-list">{''.join(items)}</div>
+  {overflow}
+</div>
+""".strip()
+
+    def _format_debug_snapshot():
+        return "### 系统诊断\n```text\n" + _format_system_status() + "\n```\n\n### 知识库诊断\n```text\n" + _format_knowledge_status() + "\n```"
+
     def refresh_status_panel():
         return (
-            format_system_status(),
-            format_knowledge_base_status(),
-            format_recent_import_tasks(),
-            format_chat_overview(),
-            format_system_status(),
-            format_knowledge_base_status(),
-            format_file_list(),
+            _format_chat_status_panel(),
+            _format_docs_status_panel(),
+            _format_recent_imports(),
+            _format_files(),
+            _format_debug_snapshot(),
+            _format_debug_snapshot(),
         )
 
     def upload_handler(files, progress=gr.Progress()):
         if not files:
-            system_status, knowledge_status, import_tasks, chat_overview, _, _, file_list_value = refresh_status_panel()
-            return None, file_list_value, system_status, knowledge_status, import_tasks, chat_overview, system_status, knowledge_status
+            return (None,) + refresh_status_panel()
 
         started_at = time.perf_counter()
         report = doc_manager.add_documents_with_report(
             files,
-            progress_callback=lambda p, desc: progress(p, desc=desc)
+            progress_callback=lambda p, desc: progress(p, desc=desc),
         )
 
         rag_system.refresh_knowledge_base_status()
         rag_system.record_import_event(
             {
                 "source": "manual_upload",
-                "label": "Manual Upload",
+                "label": "手动上传",
                 "status": "completed" if report["skipped"] == 0 else "completed_with_skips",
                 "written": report["added"],
                 "skipped": report["skipped"],
                 "failed": 0,
                 "downloaded": report["processed"],
                 "duration_ms": round((time.perf_counter() - started_at) * 1000, 2),
-                "note": "Uploaded PDF/Markdown files from the local workspace.",
+                "note": "来自本地工作区的 PDF / Markdown 上传。",
                 "index_added": report["added"],
                 "failure_details": report["skipped_details"],
             }
         )
         rag_system.start_knowledge_base_bootstrap()
         gr.Info(f"已处理 {report['processed']} 个文件：新增 {report['added']}，跳过 {report['skipped']}。")
-        system_status, knowledge_status, import_tasks, chat_overview, chat_system_status, chat_knowledge_status, file_list_value = refresh_status_panel()
-        return None, file_list_value, system_status, knowledge_status, import_tasks, chat_overview, chat_system_status, chat_knowledge_status
+        return (None,) + refresh_status_panel()
 
     def clear_handler():
         doc_manager.clear_all()
         rag_system.refresh_knowledge_base_status()
         gr.Info("已清空知识库文档。")
-        system_status, knowledge_status, import_tasks, chat_overview, chat_system_status, chat_knowledge_status, file_list_value = refresh_status_panel()
-        return file_list_value, system_status, knowledge_status, import_tasks, chat_overview, chat_system_status, chat_knowledge_status
+        return refresh_status_panel()
 
     def official_import_handler(source, limit, overwrite):
         started_at = time.perf_counter()
@@ -371,9 +557,9 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
             {
                 "source": source,
                 "label": {
-                    "medlineplus": "MedlinePlus Import",
-                    "nhc": "NHC PDF Import",
-                    "who": "WHO Fact Sheet Import",
+                    "medlineplus": "MedlinePlus 导入",
+                    "nhc": "国家卫健委导入",
+                    "who": "WHO 导入",
                 }.get(source, source),
                 "status": "completed" if result.failed == 0 else "completed_with_failures",
                 "downloaded": result.downloaded,
@@ -385,189 +571,153 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
                 "index_skipped": index_result["skipped"],
                 "conversion_details": list(result.conversion_details),
                 "failure_details": list(result.failure_details),
-                "note": f"Origin: {result.discovered_url}",
+                "note": f"来源地址：{result.discovered_url}",
             }
         )
         gr.Info(
             f"官方导入完成：来源 {source}，写入 {result.written}，跳过 {result.skipped}，失败 {result.failed}，索引新增 {index_result['added']}。"
         )
-        system_status, knowledge_status, import_tasks, chat_overview, chat_system_status, chat_knowledge_status, file_list_value = refresh_status_panel()
         summary = (
-            f"Source: {source}\n"
-            f"Downloaded: {result.downloaded}\n"
-            f"Written: {result.written}\n"
-            f"Skipped: {result.skipped}\n"
-            f"Failed: {result.failed}\n"
-            f"Index processed: {index_result['processed']}\n"
-            f"Index added: {index_result['added']}\n"
-            f"Index skipped: {index_result['skipped']}\n"
-            f"Manifest/Origin: {result.discovered_url}\n"
-            f"Duration: {round((time.perf_counter() - started_at) * 1000, 2)} ms"
+            f"来源：{source}\n"
+            f"下载：{result.downloaded}\n"
+            f"写入：{result.written}\n"
+            f"跳过：{result.skipped}\n"
+            f"失败：{result.failed}\n"
+            f"索引处理：{index_result['processed']}\n"
+            f"索引新增：{index_result['added']}\n"
+            f"索引跳过：{index_result['skipped']}\n"
+            f"入口：{result.discovered_url}\n"
+            f"耗时：{round((time.perf_counter() - started_at) * 1000, 2)} ms"
         )
         if result.conversion_details:
-            summary += "\nConversion details:\n- " + "\n- ".join(result.conversion_details[:3])
+            summary += "\n转换详情：\n- " + "\n- ".join(result.conversion_details[:3])
         if result.failure_details:
-            summary += "\nFailure details:\n- " + "\n- ".join(result.failure_details[:3])
-        return summary, file_list_value, system_status, knowledge_status, import_tasks, chat_overview, chat_system_status, chat_knowledge_status
+            summary += "\n失败详情：\n- " + "\n- ".join(result.failure_details[:3])
+        return (summary,) + refresh_status_panel()
 
     def chat_handler(msg, hist):
-        for chunk in chat_interface.chat(msg, hist):
+        for chunk in chat_interface.chat(msg, hist, reveal_diagnostics=False):
             yield chunk
 
     def clear_chat_handler():
         chat_interface.clear_session()
 
-    with gr.Blocks(title="Agentic RAG", theme=APP_THEME, css=APP_CSS) as demo:
-
-        with gr.Tab("Documents", elem_id="doc-management-tab"):
-            gr.Markdown(
-                """
-<div class="hero-card">
-  <div class="hero-eyebrow">Knowledge Base</div>
-  <h1>整理你的医学资料</h1>
-  <p>上传 PDF 或 Markdown，或直接导入官方来源。系统会自动索引并保留最近的导入任务记录，方便你随时查看结果。</p>
+    with gr.Blocks(title="宁和医疗助手", theme=APP_THEME, css=APP_CSS, fill_height=True) as demo:
+        with gr.Column(elem_classes=["app-shell"]):
+            with gr.Tab("Chat"):
+                gr.HTML(
+                    """
+<div class="hero-panel">
+  <div class="hero-kicker">Medical Assistant</div>
+  <h1>宁和医疗助手</h1>
+  <p>问症状、查建议、预约挂号，直接输入即可开始对话。</p>
 </div>
 """.strip()
-            )
-            docs_system_status = gr.Textbox(
-                value=format_system_status(),
-                label="System Status",
-                interactive=False,
-                lines=5,
-                elem_classes=["chat-status-box"],
-            )
-            docs_knowledge_status = gr.Textbox(
-                value=format_knowledge_base_status(),
-                label="Knowledge Base Status",
-                interactive=False,
-                lines=7,
-                elem_classes=["chat-status-box"],
-            )
-            docs_import_tasks = gr.Textbox(
-                value=format_recent_import_tasks(),
-                label="Recent Import Tasks",
-                interactive=False,
-                lines=10,
-                elem_classes=["chat-status-box"],
-            )
-            gr.Markdown("## Add New Documents")
-            gr.Markdown('<p class="support-note">上传 PDF 或 Markdown。遇到同名文件时系统会明确提示，而不是静默覆盖。</p>')
-
-            files_input = gr.File(
-                label="Drop PDF or Markdown files here",
-                file_count="multiple",
-                type="filepath",
-                height=200,
-                show_label=False
-            )
-            
-            add_btn = gr.Button("Add Documents", variant="primary", size="md")
-
-            gr.Markdown("## Import Official Medical Sources")
-            with gr.Row():
-                official_source = gr.Dropdown(
-                    choices=[
-                        ("MedlinePlus", "medlineplus"),
-                        ("国家卫健委", "nhc"),
-                        ("WHO Fact Sheets", "who"),
-                    ],
-                    value="medlineplus",
-                    label="Official Source",
                 )
-                official_limit = gr.Number(value=5, precision=0, minimum=1, maximum=100, label="Limit")
-                official_overwrite = gr.Checkbox(value=False, label="Overwrite Existing Markdown")
-            official_import_btn = gr.Button("Import Official Docs", variant="secondary", size="md")
-            official_import_result = gr.Textbox(
-                value="",
-                label="Official Import Result",
-                interactive=False,
-                lines=8,
-            )
-            
-            gr.Markdown("## Current Documents in the Knowledge Base")
-            file_list = gr.Textbox(
-                value=format_file_list(),
-                interactive=False,
-                lines=7,
-                max_lines=10,
-                elem_id="file-list-box",
-                show_label=False
-            )
-
-            with gr.Row():
-                refresh_btn = gr.Button("Refresh", size="md")
-                clear_btn = gr.Button("Clear All", variant="stop", size="md")
-
-        with gr.Tab("Chat"):
-            gr.Markdown(
-                """
-<div class="hero-card">
-  <div class="hero-eyebrow">Medical Assistant</div>
-  <h1>更轻一点，也更像在对话</h1>
-  <p>我会尽量直接回答常见医学问题；只有在预约、取消或分诊必须补关键信息时，才会继续追问。</p>
+                chat_status_panel = gr.HTML(value=_format_chat_status_panel())
+                chatbot = gr.Chatbot(
+                    height=620,
+                    show_label=False,
+                    avatar_images=(None, os.path.join(ASSETS_DIR, "chatbot_avatar.png")),
+                    placeholder="<strong>直接输入你的问题就可以。</strong><br><em>比如：高血压要注意什么、咳嗽挂什么科、帮我预约明天下午呼吸内科。</em>",
+                    layout="bubble",
+                )
+                chatbot.clear(clear_chat_handler)
+                gr.ChatInterface(
+                    fn=chat_handler,
+                    chatbot=chatbot,
+                    textbox=gr.Textbox(
+                        placeholder="输入症状、医学问题或挂号需求 …",
+                        lines=1,
+                        max_lines=4,
+                        show_label=False,
+                        autofocus=True,
+                    ),
+                    submit_btn="发送",
+                    stop_btn="停止",
+                )
+                gr.HTML(
+                    """
+<div class="quick-hints">
+  <span>高血压要注意什么？</span>
+  <span>咳嗽挂什么科？</span>
+  <span>帮我预约明天下午呼吸内科</span>
+  <span>取消刚才的预约</span>
 </div>
 """.strip()
-            )
-            chat_overview = gr.Markdown(value=format_chat_overview())
-            with gr.Accordion("查看系统详情", open=False, elem_classes=["compact-accordion"]):
-                chat_system_status = gr.Textbox(
-                    value=format_system_status(),
-                    label="System Status",
-                    interactive=False,
-                    lines=5,
-                    elem_classes=["chat-status-box"],
                 )
-                chat_knowledge_status = gr.Textbox(
-                    value=format_knowledge_base_status(),
-                    label="Knowledge Base Status",
-                    interactive=False,
-                    lines=7,
-                    elem_classes=["chat-status-box"],
-                )
-            chatbot = gr.Chatbot(
-                height=720,
-                placeholder="<strong>可以直接问医学问题、预约挂号或取消预约</strong><br><em>我会尽量记住这轮会话里的上下文，并把回答说得更清楚。</em>",
-                show_label=False,
-                avatar_images=(None, os.path.join(ASSETS_DIR, "chatbot_avatar.png")),
-                layout="bubble"
-            )
-            chatbot.clear(clear_chat_handler)
 
-            gr.ChatInterface(fn=chat_handler, chatbot=chatbot)
+                with gr.Accordion("高级诊断", open=False, elem_classes=["diagnostics-accordion"]):
+                    chat_debug_panel = gr.Markdown(value=_format_debug_snapshot())
+
+            with gr.Tab("Documents"):
+                gr.HTML(
+                    """
+<div class="hero-panel">
+  <div class="hero-kicker">Knowledge Base</div>
+  <h1>知识库管理</h1>
+  <p>上传本地资料、导入官方来源，确认资料是否已整理进知识库。</p>
+</div>
+""".strip()
+                )
+                docs_status_panel = gr.HTML(value=_format_docs_status_panel())
+                with gr.Row(equal_height=True):
+                    with gr.Column(scale=5):
+                        with gr.Group(elem_classes=["card-shell"]):
+                            gr.Markdown("### 上传你自己的资料")
+                            gr.Markdown('<p class="diag-note">支持 PDF 和 Markdown。同名文件不会被静默覆盖，系统会明确告诉你是新增还是跳过。</p>')
+                            files_input = gr.File(
+                                label="选择 PDF / Markdown",
+                                file_count="multiple",
+                                type="filepath",
+                                height=180,
+                            )
+                            add_btn = gr.Button("添加到知识库", variant="primary")
+
+                        with gr.Group(elem_classes=["card-shell"]):
+                            gr.Markdown("### 一键导入官方资料")
+                            gr.Markdown('<p class="diag-note">适合先快速搭一个可靠底座，再逐步补自己的资料。</p>')
+                            with gr.Row():
+                                official_source = gr.Dropdown(
+                                    choices=[
+                                        ("MedlinePlus", "medlineplus"),
+                                        ("国家卫健委", "nhc"),
+                                        ("WHO Fact Sheets", "who"),
+                                    ],
+                                    value="medlineplus",
+                                    label="官方来源",
+                                )
+                                official_limit = gr.Number(value=5, precision=0, minimum=1, maximum=100, label="数量")
+                            official_overwrite = gr.Checkbox(value=False, label="覆盖已存在的本地 Markdown")
+                            official_import_btn = gr.Button("导入官方资料", variant="secondary")
+                            official_import_result = gr.Textbox(value="", label="导入结果", interactive=False, lines=9)
+                    with gr.Column(scale=7):
+                        docs_import_tasks = gr.HTML(value=_format_recent_imports())
+                        file_list = gr.HTML(value=_format_files())
+                        with gr.Row():
+                            refresh_btn = gr.Button("刷新状态", variant="secondary")
+                            clear_btn = gr.Button("清空知识库", variant="stop")
+
+                with gr.Accordion("高级诊断", open=False, elem_classes=["diagnostics-accordion"]):
+                    docs_debug_panel = gr.Markdown(value=_format_debug_snapshot())
 
         add_btn.click(
             upload_handler,
             [files_input],
-            [files_input, file_list, docs_system_status, docs_knowledge_status, docs_import_tasks, chat_overview, chat_system_status, chat_knowledge_status],
+            [files_input, chat_status_panel, docs_status_panel, docs_import_tasks, file_list, chat_debug_panel, docs_debug_panel],
             show_progress="corner",
         )
         official_import_btn.click(
             official_import_handler,
             [official_source, official_limit, official_overwrite],
-            [official_import_result, file_list, docs_system_status, docs_knowledge_status, docs_import_tasks, chat_overview, chat_system_status, chat_knowledge_status],
+            [official_import_result, chat_status_panel, docs_status_panel, docs_import_tasks, file_list, chat_debug_panel, docs_debug_panel],
             show_progress="corner",
         )
-        refresh_btn.click(
-            refresh_status_panel,
-            None,
-            [docs_system_status, docs_knowledge_status, docs_import_tasks, chat_overview, chat_system_status, chat_knowledge_status, file_list],
-        )
-        clear_btn.click(
-            clear_handler,
-            None,
-            [file_list, docs_system_status, docs_knowledge_status, docs_import_tasks, chat_overview, chat_system_status, chat_knowledge_status],
-        )
+        refresh_btn.click(refresh_status_panel, None, [chat_status_panel, docs_status_panel, docs_import_tasks, file_list, chat_debug_panel, docs_debug_panel])
+        clear_btn.click(clear_handler, None, [chat_status_panel, docs_status_panel, docs_import_tasks, file_list, chat_debug_panel, docs_debug_panel])
 
-        demo.load(
-            refresh_status_panel,
-            None,
-            [docs_system_status, docs_knowledge_status, docs_import_tasks, chat_overview, chat_system_status, chat_knowledge_status, file_list],
-        )
+        demo.load(refresh_status_panel, None, [chat_status_panel, docs_status_panel, docs_import_tasks, file_list, chat_debug_panel, docs_debug_panel])
         status_timer = gr.Timer(config.STATUS_REFRESH_SECONDS)
-        status_timer.tick(
-            refresh_status_panel,
-            None,
-            [docs_system_status, docs_knowledge_status, docs_import_tasks, chat_overview, chat_system_status, chat_knowledge_status, file_list],
-        )
+        status_timer.tick(refresh_status_panel, None, [chat_status_panel, docs_status_panel, docs_import_tasks, file_list, chat_debug_panel, docs_debug_panel])
 
     return demo

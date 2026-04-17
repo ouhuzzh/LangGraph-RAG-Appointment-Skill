@@ -120,6 +120,8 @@ def _normalize_time_slot(raw_value: str) -> str:
     normalized = (raw_value or "").strip().lower()
     if not normalized:
         return ""
+    if normalized in {"morning", "afternoon", "evening"}:
+        return normalized
     context_evening = ["晚上", "傍晚", "evening", "night", "晚间", "今晚"]
     context_afternoon = ["下午", "afternoon", "午后", "中午", "中午后"]
     context_morning = ["上午", "早上", "早晨", "morning", "清晨"]
@@ -275,7 +277,7 @@ def _pick_candidate_from_text(user_query: str, pending_candidates: list[dict]) -
 
 def _should_use_last_appointment(user_query: str) -> bool:
     normalized = (user_query or "").strip().lower()
-    hints = ("刚刚", "刚才", "上一个", "上一条", "那个预约", "这个预约", "这条预约")
+    hints = ("最近的", "上次", "刚刚", "刚才", "上一个", "上一条", "那个预约", "这条预约")
     return any(token in normalized for token in hints)
 
 
@@ -284,6 +286,17 @@ def _looks_like_medical_follow_up(user_query: str, conversation_summary: str) ->
     if not normalized or not conversation_summary.strip():
         return False
     return any(token in normalized for token in _MEDICAL_FOLLOW_UP_HINTS)
+
+
+def _build_history_reset_messages(messages, keep_recent: int = 5):
+    non_system_messages = [m for m in messages if not isinstance(m, SystemMessage)]
+    keep_ids = {getattr(m, "id", None) for m in non_system_messages[-keep_recent:]}
+    delete_messages = []
+    for message in non_system_messages:
+        message_id = getattr(message, "id", None)
+        if message_id and message_id not in keep_ids:
+            delete_messages.append(RemoveMessage(id=message_id))
+    return delete_messages
 
 
 def _looks_like_appointment_update(user_query: str) -> bool:
@@ -477,6 +490,18 @@ def intent_router(state: State, llm):
             "pending_candidates": state.get("pending_candidates", []),
         }
 
+    if _looks_like_medical_knowledge_question(user_query) or _looks_like_medical_follow_up(user_query, state.get("conversation_summary", "")):
+        return {
+            "intent": "medical_rag",
+            "risk_level": risk_level,
+            "pending_clarification": "",
+            "clarification_target": "",
+            "recommended_department": state.get("recommended_department", ""),
+            "appointment_context": state.get("appointment_context", {}),
+            "last_appointment_no": state.get("last_appointment_no", ""),
+            **_reset_pending_action_if_needed(state),
+        }
+
     llm_with_structure = llm.with_config(temperature=0.1).with_structured_output(IntentAnalysis)
     response = llm_with_structure.invoke(
         [
@@ -507,18 +532,6 @@ def intent_router(state: State, llm):
             **pending_updates,
         }
 
-    if _looks_like_medical_knowledge_question(user_query) or _looks_like_medical_follow_up(user_query, state.get("conversation_summary", "")):
-        return {
-            "intent": "medical_rag",
-            "risk_level": risk_level,
-            "pending_clarification": "",
-            "clarification_target": "",
-            "recommended_department": state.get("recommended_department", ""),
-            "appointment_context": state.get("appointment_context", {}),
-            "last_appointment_no": state.get("last_appointment_no", ""),
-            **_reset_pending_action_if_needed(state),
-        }
-
     clarification = response.clarification_needed if response.clarification_needed and len(response.clarification_needed.strip()) > 5 else "可以再具体描述一下你的问题吗？"
     return {
         "intent": "clarification",
@@ -544,7 +557,7 @@ def rewrite_query(state: State, llm):
     response = llm_with_structure.invoke([SystemMessage(content=get_rewrite_query_prompt()), HumanMessage(content=context_section)])
 
     if response.questions and response.is_clear:
-        delete_all = [RemoveMessage(id=m.id) for m in state["messages"] if not isinstance(m, SystemMessage)]
+        delete_all = _build_history_reset_messages(state["messages"])
         return {
             "questionIsClear": True,
             "messages": delete_all,
@@ -555,7 +568,7 @@ def rewrite_query(state: State, llm):
         }
 
     if _looks_like_department_question(user_query):
-        delete_all = [RemoveMessage(id=m.id) for m in state["messages"] if not isinstance(m, SystemMessage)]
+        delete_all = _build_history_reset_messages(state["messages"])
         return {
             "questionIsClear": True,
             "messages": delete_all,
@@ -566,7 +579,7 @@ def rewrite_query(state: State, llm):
         }
 
     if state.get("intent") == "medical_rag" and _looks_like_medical_knowledge_question(user_query):
-        delete_all = [RemoveMessage(id=m.id) for m in state["messages"] if not isinstance(m, SystemMessage)]
+        delete_all = _build_history_reset_messages(state["messages"])
         fallback_query = response.questions[0] if response.questions else user_query
         return {
             "questionIsClear": True,
@@ -578,8 +591,20 @@ def rewrite_query(state: State, llm):
         }
 
     if state.get("intent") == "medical_rag" and _looks_like_medical_follow_up(user_query, conversation_summary):
-        delete_all = [RemoveMessage(id=m.id) for m in state["messages"] if not isinstance(m, SystemMessage)]
+        delete_all = _build_history_reset_messages(state["messages"])
         fallback_query = response.questions[0] if response.questions else f"{conversation_summary}\nFollow-up: {user_query}"
+        return {
+            "questionIsClear": True,
+            "messages": delete_all,
+            "originalQuery": user_query,
+            "rewrittenQuestions": [fallback_query],
+            "pending_clarification": "",
+            "clarification_target": "",
+        }
+
+    if state.get("intent") == "medical_rag" and state.get("pending_clarification"):
+        delete_all = _build_history_reset_messages(state["messages"])
+        fallback_query = response.questions[0] if response.questions else (f"{conversation_summary}\nQuestion: {user_query}" if conversation_summary else user_query)
         return {
             "questionIsClear": True,
             "messages": delete_all,

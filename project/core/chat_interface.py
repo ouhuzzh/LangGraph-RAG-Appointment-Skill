@@ -3,6 +3,7 @@ import re
 
 import config
 from langchain_core.messages import HumanMessage, AIMessage, AIMessageChunk, ToolMessage, SystemMessage
+from rag_agent.tools import reset_retrieval_context, set_retrieval_context
 
 SILENT_NODES = {"rewrite_query", "intent_router"}
 SYSTEM_NODES = {"summarize_history", "rewrite_query"}
@@ -140,6 +141,18 @@ class ChatInterface:
         return ""
 
     @staticmethod
+    def _prepare_visible_messages(response_messages, reveal_diagnostics=False):
+        if reveal_diagnostics:
+            return response_messages
+
+        visible_messages = [message for message in response_messages if "metadata" not in message]
+        if visible_messages:
+            return visible_messages
+        if response_messages:
+            return [make_message("正在整理答案，请稍候。")]
+        return []
+
+    @staticmethod
     def _looks_like_department_question(query: str) -> bool:
         normalized = (query or "").strip().lower()
         patterns = [
@@ -250,7 +263,7 @@ class ChatInterface:
 
         return [SystemMessage(content="Conversation state context:\n" + "\n".join(parts))]
 
-    def chat(self, message, history):
+    def chat(self, message, history, reveal_diagnostics=False):
         """Generator that streams Gradio chat message dicts."""
         if not self.rag_system.agent_graph:
             readiness_getter = getattr(self.rag_system, "get_readiness_message", None)
@@ -284,6 +297,7 @@ class ChatInterface:
             return
 
         try:
+            retrieval_context_token = set_retrieval_context(thread_id=thread_id, original_query=user_message)
             if current_state.next:
                 self.rag_system.agent_graph.update_state(graph_config, {"messages": [HumanMessage(content=user_message)], "thread_id": thread_id})
                 stream_input = None
@@ -326,7 +340,7 @@ class ChatInterface:
                 if isinstance(chunk, AIMessageChunk) and chunk.content and node not in SILENT_NODES and node not in SYSTEM_NODES:
                     self._handle_llm_token(chunk, node, response_messages)
 
-                yield response_messages
+                yield self._prepare_visible_messages(response_messages, reveal_diagnostics=reveal_diagnostics)
 
             final_assistant = self._extract_final_assistant_text(response_messages)
             clarification_text = self._extract_clarification_text(response_messages)
@@ -337,7 +351,7 @@ class ChatInterface:
                 if final_from_state:
                     response_messages.append(make_message(final_from_state))
                     final_assistant = final_from_state
-                    yield response_messages
+                    yield self._prepare_visible_messages(response_messages, reveal_diagnostics=reveal_diagnostics)
             if final_assistant:
                 recent_count = self.rag_system.session_memory.append_exchange(thread_id, user_message, final_assistant)
                 if recent_count >= config.SUMMARY_REFRESH_THRESHOLD:
@@ -412,6 +426,8 @@ class ChatInterface:
 
         except Exception as e:
             yield f"❌ Error: {str(e)}"
+        finally:
+            reset_retrieval_context(locals().get("retrieval_context_token"))
 
     def clear_session(self):
         self.rag_system.reset_thread()

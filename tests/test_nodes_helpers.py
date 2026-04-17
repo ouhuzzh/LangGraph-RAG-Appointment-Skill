@@ -9,6 +9,7 @@ from rag_agent.nodes import (  # noqa: E402
     _normalize_time_slot,
     _is_explicit_confirmation,
     _pick_candidate_from_text,
+    _should_use_last_appointment,
 )
 
 
@@ -29,6 +30,7 @@ class NodesHelperTests(unittest.TestCase):
     def test_normalize_time_slot_supports_noon_and_embedded_phrase(self):
         self.assertEqual(_normalize_time_slot("中午12点"), "afternoon")
         self.assertEqual(_normalize_time_slot("周三上午"), "morning")
+        self.assertEqual(_normalize_time_slot("morning"), "morning")
 
     def test_explicit_confirmation_is_strict(self):
         self.assertTrue(_is_explicit_confirmation("确认预约", "appointment"))
@@ -42,6 +44,11 @@ class NodesHelperTests(unittest.TestCase):
         ]
         self.assertEqual(_pick_candidate_from_text("帮我取消 APT222BBB", candidates), candidates[1])
         self.assertEqual(_pick_candidate_from_text("取消第 1 个", candidates), candidates[0])
+
+    def test_should_use_last_appointment_requires_explicit_recent_reference(self):
+        self.assertTrue(_should_use_last_appointment("帮我取消最近的那个预约"))
+        self.assertTrue(_should_use_last_appointment("取消上次那个"))
+        self.assertFalse(_should_use_last_appointment("帮我取消预约"))
 
 
 if __name__ == "__main__":

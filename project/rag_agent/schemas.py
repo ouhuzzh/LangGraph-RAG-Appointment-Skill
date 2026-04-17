@@ -62,8 +62,13 @@ class AppointmentActionCall(BaseModel):
         description="Either ask for missing booking information or prepare a booking preview for confirmation."
     )
     department: str = Field(description="Department name if available, otherwise empty string.")
-    date: str = Field(description="Appointment date phrase or ISO date string if available, otherwise empty string.")
-    time_slot: str = Field(description="Preferred time slot if available, otherwise empty string.")
+    date: str = Field(
+        description="Preferred appointment date in YYYY-MM-DD format when known, otherwise empty string.",
+        pattern=r"^$|^\d{4}-\d{2}-\d{2}$",
+    )
+    time_slot: Literal["", "morning", "afternoon", "evening"] = Field(
+        description="Preferred standardized time slot when known, otherwise empty string."
+    )
     doctor_name: str = Field(description="Doctor name if explicitly requested, otherwise empty string.")
     clarification: str = Field(description="Short clarification question when action is clarify, otherwise empty string.")
 
@@ -74,5 +79,8 @@ class CancelActionCall(BaseModel):
     )
     appointment_no: str = Field(description="Appointment number if available, otherwise empty string.")
     department: str = Field(description="Department name if available, otherwise empty string.")
-    date: str = Field(description="Appointment date phrase or ISO date string if available, otherwise empty string.")
+    date: str = Field(
+        description="Appointment date in YYYY-MM-DD format when known, otherwise empty string.",
+        pattern=r"^$|^\d{4}-\d{2}-\d{2}$",
+    )
     clarification: str = Field(description="Short clarification question when action is clarify, otherwise empty string.")
