@@ -324,7 +324,8 @@ class NhcPdfWhitelistImporter:
                 body_markdown, conversion_result = self._convert_pdf_bytes_to_markdown(pdf_bytes, stem)
                 detail = (
                     f"{entry.get('title', stem)} | method={conversion_result.method_used} "
-                    f"chars={conversion_result.extracted_char_count}"
+                    f"chars={conversion_result.extracted_char_count} "
+                    f"scan_like={'yes' if conversion_result.scan_like else 'no'}"
                 )
                 if conversion_result.warnings:
                     detail += f" | warnings={' ; '.join(conversion_result.warnings[:2])}"

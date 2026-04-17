@@ -23,7 +23,7 @@ class FakeNhcImporter(NhcPdfWhitelistImporter):
     def _convert_pdf_bytes_to_markdown(self, pdf_bytes: bytes, stem: str):
         return (
             "第一段内容\n\n第二段内容",
-            SimpleNamespace(method_used="plain_text_fallback", extracted_char_count=12, warnings=["fallback-used"]),
+            SimpleNamespace(method_used="plain_text_fallback", extracted_char_count=12, scan_like=False, warnings=["fallback-used"]),
         )
 
 

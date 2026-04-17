@@ -33,6 +33,7 @@ class PdfConversionResult:
     output_path: Path
     method_used: str
     extracted_char_count: int
+    scan_like: bool = False
     warnings: list[str] = field(default_factory=list)
 
 
@@ -65,6 +66,24 @@ def _extract_plain_text_markdown(doc) -> str:
     return _clean_markdown_text("\n\n".join(page_sections))
 
 
+def _is_scan_like_document(doc, *, sparse_text_threshold=24) -> bool:
+    total_pages = 0
+    scan_like_pages = 0
+    for page in doc:
+        total_pages += 1
+        try:
+            plain_text = _sanitize_text(page.get_text("text")).strip()
+        except Exception:
+            plain_text = ""
+        try:
+            images = page.get_images(full=True) if hasattr(page, "get_images") else []
+        except Exception:
+            images = []
+        if images and len(plain_text) < sparse_text_threshold:
+            scan_like_pages += 1
+    return total_pages > 0 and scan_like_pages >= max(1, total_pages // 2)
+
+
 def _extract_ocr_markdown(doc) -> tuple[str, list[str]]:
     warnings = []
     languages = ("chi_sim+eng", "eng", "chi_sim")
@@ -92,6 +111,9 @@ def pdf_to_markdown(pdf_path, output_dir, *, min_chars=80):
     doc = pymupdf.open(pdf_path)
     warnings = []
     try:
+        scan_like = _is_scan_like_document(doc)
+        if scan_like:
+            warnings.append("Detected scan-like PDF pages; OCR fallback will be prioritized if direct extraction is weak.")
         try:
             captured_stdout = io.StringIO()
             captured_stderr = io.StringIO()
@@ -119,23 +141,40 @@ def pdf_to_markdown(pdf_path, output_dir, *, min_chars=80):
         method_used = "pymupdf4llm"
         if len(md_cleaned.strip()) < min_chars:
             warnings.append("Primary PDF layout extraction produced limited text; trying plain-text fallback.")
-            plain_text_markdown = _extract_plain_text_markdown(doc)
-            if len(plain_text_markdown.strip()) >= len(md_cleaned.strip()):
-                md_cleaned = plain_text_markdown
-                method_used = "plain_text_fallback"
-            if len(md_cleaned.strip()) < min_chars:
-                warnings.append("Plain-text fallback still produced limited text; trying OCR fallback.")
+            if scan_like:
+                warnings.append("Scan-like PDF detected; trying OCR fallback before plain-text fallback.")
                 ocr_markdown, ocr_warnings = _extract_ocr_markdown(doc)
                 warnings.extend(ocr_warnings)
                 if len(ocr_markdown.strip()) >= len(md_cleaned.strip()):
                     md_cleaned = ocr_markdown
                     method_used = "ocr_fallback"
+                if len(md_cleaned.strip()) < min_chars:
+                    warnings.append("OCR fallback still produced limited text; trying plain-text fallback.")
+                    plain_text_markdown = _extract_plain_text_markdown(doc)
+                    if len(plain_text_markdown.strip()) >= len(md_cleaned.strip()):
+                        md_cleaned = plain_text_markdown
+                        method_used = "plain_text_fallback"
+            else:
+                plain_text_markdown = _extract_plain_text_markdown(doc)
+                if len(plain_text_markdown.strip()) >= len(md_cleaned.strip()):
+                    md_cleaned = plain_text_markdown
+                    method_used = "plain_text_fallback"
+                if len(md_cleaned.strip()) < min_chars:
+                    warnings.append("Plain-text fallback still produced limited text; trying OCR fallback.")
+                    ocr_markdown, ocr_warnings = _extract_ocr_markdown(doc)
+                    warnings.extend(ocr_warnings)
+                    if len(ocr_markdown.strip()) >= len(md_cleaned.strip()):
+                        md_cleaned = ocr_markdown
+                        method_used = "ocr_fallback"
+        if scan_like and len(md_cleaned.strip()) < min_chars:
+            warnings.append("This PDF still looks like a scan and OCR did not recover enough text. Installing OCR language data may improve extraction.")
         output_path = (Path(output_dir) / Path(doc.name).stem).with_suffix(".md")
         output_path.write_text(md_cleaned, encoding="utf-8")
         return PdfConversionResult(
             output_path=output_path,
             method_used=method_used,
             extracted_char_count=len(md_cleaned.strip()),
+            scan_like=scan_like,
             warnings=warnings,
         )
     finally:
