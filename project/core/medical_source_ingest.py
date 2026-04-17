@@ -25,6 +25,14 @@ def _collapse_text(value: str) -> str:
     return "\n\n".join(filtered)
 
 
+def _extract_first_match(text: str, patterns: list[str]) -> str:
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
 class _SimpleHtmlToMarkdownParser(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -301,6 +309,92 @@ class NhcPdfWhitelistImporter:
                 written += 1
             except Exception as exc:
                 print(f"Failed to import NHC document '{entry.get('title', stem)}': {exc}")
+                failed += 1
+
+        return MedicalImportResult(
+            downloaded=len(entries),
+            written=written,
+            skipped=skipped,
+            output_dir=output_path,
+            discovered_url=str(self.manifest_path),
+            failed=failed,
+        )
+
+
+class WhoHtmlWhitelistImporter:
+    def __init__(self, session=None, manifest_path: str | Path | None = None):
+        self.session = session or requests.Session()
+        self.manifest_path = Path(manifest_path) if manifest_path else Path(__file__).with_name("manifests") / "who_whitelist.json"
+
+    def load_manifest(self) -> list[dict]:
+        data = json.loads(self.manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(data, list):
+            raise ValueError("WHO whitelist manifest must be a list.")
+        return data
+
+    def _download_html(self, entry: dict) -> str:
+        url = entry["url"]
+        response = self.session.get(url, timeout=60)
+        response.raise_for_status()
+        return response.text
+
+    def _extract_article_html(self, html_text: str) -> str:
+        article_html = _extract_first_match(
+            html_text,
+            [
+                r"<article[^>]*>(.*?)</article>",
+                r"<main[^>]*>(.*?)</main>",
+            ],
+        )
+        if not article_html:
+            raise ValueError("Could not locate WHO article content.")
+        return article_html
+
+    def _render_entry_markdown(self, entry: dict, body_markdown: str) -> str:
+        metadata_lines = [
+            "Source: World Health Organization",
+            f"Original URL: {entry['url']}",
+        ]
+        if entry.get("document_type"):
+            metadata_lines.append(f"Document type: {entry['document_type']}")
+        if entry.get("tags"):
+            metadata_lines.append(f"Tags: {', '.join(entry['tags'])}")
+
+        sections = [
+            f"# {entry['title']}",
+            "\n".join(metadata_lines),
+            "## Content",
+            _collapse_text(body_markdown),
+        ]
+        return "\n\n".join(section for section in sections if section.strip()) + "\n"
+
+    def import_whitelist(self, output_dir: str | Path, limit: int | None = None, overwrite: bool = False) -> MedicalImportResult:
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        entries = self.load_manifest()
+        if limit is not None:
+            entries = entries[:limit]
+
+        written = 0
+        skipped = 0
+        failed = 0
+        for entry in entries:
+            stem = entry.get("id") or f"who-{_slugify(entry['title'])}"
+            markdown_path = output_path / f"{stem}.md"
+            if markdown_path.exists() and not overwrite:
+                skipped += 1
+                continue
+            try:
+                html_text = self._download_html(entry)
+                article_html = self._extract_article_html(html_text)
+                body_markdown = html_to_markdown(article_html)
+                if not body_markdown:
+                    raise ValueError("WHO article content was empty after HTML conversion.")
+                markdown_path.write_text(self._render_entry_markdown(entry, body_markdown), encoding="utf-8")
+                written += 1
+            except Exception as exc:
+                print(f"Failed to import WHO document '{entry.get('title', stem)}': {exc}")
                 failed += 1
 
         return MedicalImportResult(

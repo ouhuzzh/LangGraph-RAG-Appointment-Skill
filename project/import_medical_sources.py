@@ -6,13 +6,13 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import config
 from core.document_manager import DocumentManager
-from core.medical_source_ingest import MedlinePlusXmlImporter, NhcPdfWhitelistImporter
+from core.medical_source_ingest import MedlinePlusXmlImporter, NhcPdfWhitelistImporter, WhoHtmlWhitelistImporter
 from core.rag_system import RAGSystem
 
 
 def build_parser():
     parser = argparse.ArgumentParser(description="Import official medical documents into the local knowledge base.")
-    parser.add_argument("--source", default="medlineplus", choices=["medlineplus", "nhc"], help="Official source to import.")
+    parser.add_argument("--source", default="medlineplus", choices=["medlineplus", "nhc", "who"], help="Official source to import.")
     parser.add_argument("--limit", type=int, default=50, help="Maximum number of documents to import.")
     parser.add_argument("--output-dir", default=config.MARKDOWN_DIR, help="Directory to write Markdown documents into.")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing Markdown documents.")
@@ -34,6 +34,13 @@ def main():
         )
     elif args.source == "nhc":
         importer = NhcPdfWhitelistImporter(manifest_path=args.manifest or None)
+        result = importer.import_whitelist(
+            output_dir=args.output_dir,
+            limit=args.limit,
+            overwrite=args.overwrite,
+        )
+    elif args.source == "who":
+        importer = WhoHtmlWhitelistImporter(manifest_path=args.manifest or None)
         result = importer.import_whitelist(
             output_dir=args.output_dir,
             limit=args.limit,
