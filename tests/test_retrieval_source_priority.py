@@ -97,6 +97,28 @@ class RetrievalSourcePriorityTests(unittest.TestCase):
             [["patient_education"], ["public_health"], ["clinical_guideline"]],
         )
 
+    def test_query_type_can_prioritize_public_health_first(self):
+        collection = FakeCollection(docs_by_source={})
+        tool_factory = ToolFactory(collection)
+
+        tool_factory._layered_similarity_search("如何预防流感传播", limit=2, score_threshold=0.7)
+
+        self.assertEqual(
+            [call["source_types"] for call in collection.calls[:3]],
+            [["public_health"], ["patient_education"], ["clinical_guideline"]],
+        )
+
+    def test_query_type_can_prioritize_clinical_guideline_first(self):
+        collection = FakeCollection(docs_by_source={})
+        tool_factory = ToolFactory(collection)
+
+        tool_factory._layered_similarity_search("高血压诊疗指南 第十版 剂量标准", limit=2, score_threshold=0.7)
+
+        self.assertEqual(
+            [call["source_types"] for call in collection.calls[:3]],
+            [["clinical_guideline"], ["patient_education"], ["public_health"]],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

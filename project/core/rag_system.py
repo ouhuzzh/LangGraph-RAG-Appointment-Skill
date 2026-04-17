@@ -47,6 +47,7 @@ class RAGSystem:
                 "parent_chunks": 0,
                 "child_chunks": 0,
                 "last_bootstrap_result": "",
+                "recent_imports": [],
             },
         }
 
@@ -99,7 +100,14 @@ class RAGSystem:
         if last_error is not None:
             self._knowledge_base_status["last_error"] = last_error
         if stats:
+            if "recent_imports" not in stats:
+                stats["recent_imports"] = list(self._knowledge_base_status["stats"].get("recent_imports", []))
             self._knowledge_base_status["stats"].update(stats)
+
+    def record_import_event(self, event: dict):
+        history = list(self._knowledge_base_status["stats"].get("recent_imports", []))
+        history.insert(0, dict(event))
+        self._knowledge_base_status["stats"]["recent_imports"] = history[:8]
 
     def refresh_knowledge_base_status(self):
         from core.document_manager import DocumentManager
@@ -111,6 +119,7 @@ class RAGSystem:
             **local_stats,
             **db_stats,
             "last_bootstrap_result": self._knowledge_base_status["stats"].get("last_bootstrap_result", ""),
+            "recent_imports": list(self._knowledge_base_status["stats"].get("recent_imports", [])),
         }
 
         current_status = self._knowledge_base_status["status"]

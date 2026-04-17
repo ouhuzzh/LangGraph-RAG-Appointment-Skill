@@ -57,6 +57,14 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
         ]
         if stats.get("last_bootstrap_result"):
             lines.append(f"最近补建结果：{stats['last_bootstrap_result']}")
+        recent_imports = stats.get("recent_imports") or []
+        if recent_imports:
+            lines.append("最近导入记录：")
+            for item in recent_imports[:5]:
+                lines.append(
+                    f"- {item.get('source', 'manual')} | written={item.get('written', 0)} "
+                    f"skipped={item.get('skipped', 0)} failed={item.get('failed', 0)}"
+                )
         if knowledge_status.get("last_error"):
             lines.append(f"最近错误：{knowledge_status['last_error']}")
         return "\n".join(lines)
@@ -81,6 +89,14 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
         )
 
         rag_system.refresh_knowledge_base_status()
+        rag_system.record_import_event(
+            {
+                "source": "manual_upload",
+                "written": added,
+                "skipped": skipped,
+                "failed": 0,
+            }
+        )
         rag_system.start_knowledge_base_bootstrap()
         gr.Info(f"✅ Added: {added} | Skipped: {skipped}")
         system_status, knowledge_status, chat_system_status, chat_knowledge_status, file_list_value = refresh_status_panel()
@@ -102,6 +118,14 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
         )
         rag_system.refresh_knowledge_base_status()
         rag_system.start_knowledge_base_bootstrap()
+        rag_system.record_import_event(
+            {
+                "source": source,
+                "written": result.written,
+                "skipped": result.skipped,
+                "failed": result.failed,
+            }
+        )
         gr.Info(
             f"官方导入完成：source={source} downloaded={result.downloaded} written={result.written} "
             f"skipped={result.skipped} failed={result.failed} | "

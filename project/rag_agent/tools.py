@@ -10,7 +10,21 @@ _SOURCE_TYPE_PRIORITY = {
     "clinical_guideline": 2,
     "research_article": 3,
 }
-_LAYERED_SOURCE_TYPES = ["patient_education", "public_health", "clinical_guideline"]
+_DEFAULT_LAYERED_SOURCE_TYPES = ["patient_education", "public_health", "clinical_guideline"]
+_QUERY_TYPE_KEYWORDS = {
+    "public_health": (
+        "预防", "风险", "流行", "发病率", "传播", "疫苗", "筛查", "risk", "prevention",
+        "incidence", "prevalence", "outbreak", "vaccine", "screening", "public health",
+    ),
+    "clinical_guideline": (
+        "指南", "诊疗方案", "规范", "标准", "共识", "第十版", "剂量", "用法", "首选药",
+        "protocol", "guideline", "criteria", "dose", "dosing", "first-line", "recommendation",
+    ),
+    "patient_education": (
+        "是什么", "怎么办", "会不会", "症状", "表现", "原因", "怎么治疗", "怎么缓解", "严重吗",
+        "what is", "symptom", "symptoms", "what should", "how to", "can it", "is it serious",
+    ),
+}
 
 
 class ToolFactory:
@@ -29,6 +43,19 @@ class ToolFactory:
             return (priority, -score)
 
         return sorted(results, key=sort_key)
+
+    @staticmethod
+    def _preferred_source_layers(query: str) -> List[str]:
+        normalized = (query or "").strip().lower()
+        matches = {source_type: 0 for source_type in _DEFAULT_LAYERED_SOURCE_TYPES}
+        for source_type, keywords in _QUERY_TYPE_KEYWORDS.items():
+            matches[source_type] = sum(1 for keyword in keywords if keyword in normalized)
+
+        if matches["clinical_guideline"] > max(matches["patient_education"], matches["public_health"]):
+            return ["clinical_guideline", "patient_education", "public_health"]
+        if matches["public_health"] > max(matches["patient_education"], matches["clinical_guideline"]):
+            return ["public_health", "patient_education", "clinical_guideline"]
+        return list(_DEFAULT_LAYERED_SOURCE_TYPES)
 
     @staticmethod
     def _dedupe_docs(results: List[Document]) -> List[Document]:
@@ -69,7 +96,8 @@ class ToolFactory:
     def _layered_similarity_search(self, query: str, limit: int, score_threshold: float) -> List[Document]:
         per_tier_limit = max(limit, 3)
         layered_results = []
-        for source_type in _LAYERED_SOURCE_TYPES:
+        source_layers = self._preferred_source_layers(query)
+        for source_type in source_layers:
             tier_results = self._similarity_search_with_optional_filters(
                 query,
                 limit=per_tier_limit,
