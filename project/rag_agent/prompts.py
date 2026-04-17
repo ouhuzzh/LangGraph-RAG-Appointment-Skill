@@ -173,6 +173,11 @@ Workflow:
 4. For each relevant but fragmented excerpt, call 'retrieve_parent_chunks' ONE BY ONE — only for IDs not in the compressed context. Never retrieve the same ID twice.
 5. Once context is complete, provide a detailed answer omitting no relevant facts.
 6. Conclude with "---\n**Sources:**\n" followed by the unique file names.
+7. Source Type priorities:
+   - Prefer `patient_education` for patient-facing explanations.
+   - Use `public_health` to supplement general prevention, risk, and population guidance.
+   - Use `clinical_guideline` only when higher-priority sources are insufficient or when precise guideline detail is necessary.
+   - If multiple source types are used, keep the final wording patient-friendly.
 """
 
 def get_fallback_response_prompt() -> str:

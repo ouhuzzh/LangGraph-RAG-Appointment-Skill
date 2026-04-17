@@ -63,6 +63,9 @@ class PgVectorCollection:
 
         return reranked or candidates[:top_n]
 
+    def rerank_candidates(self, query, candidates, top_n):
+        return self._rerank_documents(query, candidates, top_n)
+
     def _get_document_id(self, cur, metadata, cache=None):
         source_name = metadata.get("source", "unknown.pdf")
         document_no = source_name.rsplit(".", 1)[0]
@@ -143,23 +146,31 @@ class PgVectorCollection:
                     )
             conn.commit()
 
-    def similarity_search(self, query, k=4, score_threshold=None):
+    def similarity_search(self, query, k=4, score_threshold=None, source_types=None, rerank=True):
         query_embedding = self._embeddings.embed_query(query)
         fetch_limit = max(config.RERANK_FETCH_K, k)
+        source_types = [str(item).strip().lower() for item in (source_types or []) if str(item).strip()]
+        where_clauses = []
+        params = []
+        if source_types:
+            where_clauses.append("lower(coalesce(metadata->>'source_type', '')) = ANY(%s)")
+            params.append(source_types)
+        where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """
+                    f"""
                     SELECT
                         content,
                         metadata,
                         1 - (embedding <=> CAST(%s AS vector)) AS score
                     FROM child_chunks
+                    {where_sql}
                     ORDER BY embedding <=> CAST(%s AS vector)
                     LIMIT %s
                     """,
-                    (_vector_literal(query_embedding), _vector_literal(query_embedding), fetch_limit),
+                    [_vector_literal(query_embedding), *params, _vector_literal(query_embedding), fetch_limit],
                 )
                 rows = cur.fetchall()
 
@@ -171,6 +182,9 @@ class PgVectorCollection:
             meta = dict(metadata or {})
             meta["score"] = score_value
             results.append(Document(page_content=content, metadata=meta))
+
+        if not rerank:
+            return results[:k]
 
         reranked = self._rerank_documents(query, results, k)
         return reranked[:k]
