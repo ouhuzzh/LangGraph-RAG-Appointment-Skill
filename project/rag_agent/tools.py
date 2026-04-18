@@ -1,5 +1,6 @@
 from contextvars import ContextVar
 from typing import List
+import re
 
 import config
 from langchain_core.tools import tool
@@ -14,9 +15,13 @@ _SOURCE_TYPE_PRIORITY = {
     "research_article": 3,
 }
 _DEFAULT_LAYERED_SOURCE_TYPES = ["patient_education", "public_health", "clinical_guideline"]
-_NO_EVIDENCE_RESPONSE = "NO_EVIDENCE: 知识库中暂无相关信息，请直接说明未找到相关证据，不要补全答案。"
+_NO_EVIDENCE_RESPONSE = "NO_EVIDENCE: 知识库中暂无相关信息或足够相关证据。若问题属于医学问题，可给出通用医学信息回答，但必须说明这次回答未充分基于知识库检索结果。"
 _RRF_K = 60
 _RETRIEVAL_CONTEXT = ContextVar("retrieval_context", default={})
+_QUERY_STOPWORDS = {
+    "什么", "怎么", "如何", "一下", "一下子", "请问", "这个", "那个", "情况", "问题", "还要", "需要",
+    "应该", "一般", "现在", "最近", "一下吧", "一个", "哪些", "可以", "是不是",
+}
 _QUERY_TYPE_KEYWORDS = {
     "public_health": (
         "预防", "风险", "流行", "发病率", "传播", "疫苗", "筛查", "risk", "prevention",
@@ -63,6 +68,153 @@ def _confidence_bucket(results: List[Document]) -> str:
     if score >= 0.72:
         return "medium"
     return "low"
+
+
+def _append_once(text: str, addition: str) -> str:
+    addition = str(addition or "").strip()
+    if not addition:
+        return text
+    if addition in text:
+        return text
+    return f"{text.rstrip()}\n\n{addition}".strip()
+
+
+def _normalize_text(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+
+def _query_keywords(query: str) -> set[str]:
+    normalized = _normalize_text(query)
+    tokens = set(re.findall(r"[\u4e00-\u9fff]{1,8}|[a-zA-Z][a-zA-Z0-9_-]+", normalized))
+    return {token for token in tokens if token not in _QUERY_STOPWORDS and len(token) > 1}
+
+
+def _lexical_overlap_score(query: str, doc: Document) -> float:
+    query_terms = _query_keywords(query)
+    if not query_terms:
+        return 0.0
+    haystack = _normalize_text(doc.page_content + " " + str(doc.metadata or {}))
+    hits = sum(1 for term in query_terms if term in haystack)
+    return hits / max(len(query_terms), 1)
+
+
+def plan_queries(query: str, topic_focus: str = "", recent_context: str = "") -> list[str]:
+    base_query = str(query or "").strip()
+    if not base_query:
+        return []
+    planned = [base_query]
+    normalized = _normalize_text(base_query)
+    if topic_focus and topic_focus.strip() and topic_focus.strip() not in base_query:
+        planned.append(f"{topic_focus.strip()} {base_query}".strip())
+    if recent_context.strip() and any(token in normalized for token in ("那", "这个", "这种情况", "这会", "还要", "要紧吗")):
+        planned.append(f"{recent_context.strip()} {base_query}".strip())
+    if any(keyword in normalized for keyword in _QUERY_TYPE_KEYWORDS["clinical_guideline"]):
+        planned.append(f"{base_query} 指南 诊疗方案")
+    elif any(keyword in normalized for keyword in _QUERY_TYPE_KEYWORDS["public_health"]):
+        planned.append(f"{base_query} 预防 风险 传播")
+    else:
+        planned.append(f"{base_query} 症状 治疗 注意事项")
+
+    deduped = []
+    seen = set()
+    for item in planned:
+        text = re.sub(r"\s+", " ", item).strip()
+        key = text.lower()
+        if not text or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(text)
+    return deduped[:4]
+
+
+def grade_documents(query: str, docs: List[Document]) -> List[Document]:
+    graded = []
+    for doc in docs or []:
+        metadata = doc.metadata or {}
+        score = float(metadata.get("rerank_score") or metadata.get("fusion_score") or metadata.get("score") or 0.0)
+        overlap = _lexical_overlap_score(query, doc)
+        if score >= 0.86 or overlap >= 0.55:
+            grade = "high"
+            keep = True
+        elif score >= 0.74 or overlap >= 0.3:
+            grade = "medium"
+            keep = True
+        else:
+            grade = "low"
+            keep = score >= 0.7 and overlap >= 0.12
+        metadata["relevance_grade"] = grade
+        metadata["lexical_overlap"] = round(overlap, 4)
+        metadata["keep"] = bool(keep)
+        doc.metadata = metadata
+        if keep:
+            graded.append(doc)
+    return graded
+
+
+def check_sufficiency(query: str, docs: List[Document]) -> dict:
+    if not docs:
+        return {"is_sufficient": False, "reason": "no_relevant_documents", "retry_query": f"{query} 医学资料"}
+    top_score = float((docs[0].metadata or {}).get("rerank_score") or (docs[0].metadata or {}).get("fusion_score") or (docs[0].metadata or {}).get("score") or 0.0)
+    high_grade_count = sum(1 for doc in docs if (doc.metadata or {}).get("relevance_grade") == "high")
+    if high_grade_count >= 1 and top_score >= 0.84:
+        return {"is_sufficient": True, "reason": "direct_evidence", "retry_query": ""}
+    if len(docs) >= 2 and top_score >= 0.76:
+        return {"is_sufficient": True, "reason": "limited_but_usable", "retry_query": ""}
+    query_terms = list(_query_keywords(query))
+    retry_terms = [term for term in query_terms[:4] if len(term) > 1]
+    retry_query = " ".join(retry_terms) if retry_terms else f"{query} 医疗 指南"
+    return {"is_sufficient": False, "reason": "weak_or_sparse_evidence", "retry_query": retry_query}
+
+
+def ground_answer(answer: str, docs: List[Document], *, question: str = "", medical_mode: bool = False, high_risk: bool = False) -> dict:
+    text = str(answer or "").strip()
+    if not docs:
+        if not medical_mode:
+            return {
+                "grounded": True,
+                "revised_answer": text,
+                "note": "no_evidence_non_medical",
+            }
+        revised = text
+        if "回答模式：" not in revised and "通用医学信息回答" not in revised:
+            revised = f"回答模式：通用医学信息回答（本次未充分基于知识库检索结果）\n\n{revised}".strip()
+        revised = _append_once(
+            revised,
+            "提醒：以上内容仅供一般医学信息参考，当前回答未充分基于知识库检索结果，不能替代专业医生面对面诊断。",
+        )
+        if high_risk:
+            revised = _append_once(
+                revised,
+                "如果症状严重、持续加重，或涉及用药、急症、呼吸困难、胸痛等情况，请尽快线下就医或急诊评估。",
+            )
+        else:
+            revised = _append_once(
+                revised,
+                "如果症状持续加重，或涉及用药调整、急症判断，请及时就医。",
+            )
+        return {
+            "grounded": False,
+            "revised_answer": revised,
+            "note": "medical_generic_fallback",
+        }
+    confidence = _confidence_bucket(docs)
+    if confidence in {"no_evidence", "low"}:
+        if not medical_mode:
+            return {"grounded": True, "revised_answer": text, "note": "low_confidence_non_medical"}
+        revised = text
+        if "回答模式：" not in revised and "通用医学信息回答" not in revised and "非知识库增强" not in revised:
+            revised = f"回答模式：通用医学信息回答（知识库证据有限）\n\n{revised}".strip()
+        revised = _append_once(
+            revised,
+            "提醒：以上内容仅供一般医学信息参考，当前知识库证据有限，不能替代专业医生面对面诊断。",
+        )
+        if high_risk:
+            revised = _append_once(
+                revised,
+                "如果症状严重、持续加重，或涉及用药、剂量、急症判断，请尽快线下就医或急诊评估。",
+            )
+        return {"grounded": False, "revised_answer": revised, "note": "low_confidence_guardrail"}
+    return {"grounded": True, "revised_answer": text, "note": "grounded"}
 
 
 class ToolFactory:
@@ -245,7 +397,18 @@ class ToolFactory:
     def search_documents(self, query: str, limit: int = 4, score_threshold: float = 0.7) -> List[Document]:
         return self._layered_similarity_search(query, limit=limit, score_threshold=score_threshold)
 
-    def _log_retrieval(self, query: str, limit: int, results: List[Document]):
+    def _log_retrieval(
+        self,
+        query: str,
+        limit: int,
+        results: List[Document],
+        *,
+        query_plan: list[str] | None = None,
+        graded_doc_count: int = 0,
+        sufficiency_result: str = "",
+        retry_count: int = 0,
+        final_confidence_bucket: str = "",
+    ):
         logger = getattr(self.collection, "log_retrieval", None)
         if not callable(logger):
             return
@@ -258,6 +421,11 @@ class ToolFactory:
             top_k=limit,
             result_count=len(results),
             selected_parent_ids=[doc.metadata.get("parent_id") for doc in results if (doc.metadata or {}).get("parent_id")],
+            query_plan=query_plan or [query],
+            graded_doc_count=graded_doc_count,
+            sufficiency_result=sufficiency_result,
+            retry_count=retry_count,
+            final_confidence_bucket=final_confidence_bucket,
         )
     
     def _search_child_chunks(self, query: str, limit: int) -> str:
@@ -268,12 +436,40 @@ class ToolFactory:
             limit: Maximum number of results to return
         """
         try:
-            results = self._layered_similarity_search(query, limit=limit, score_threshold=0.7)
-            self._log_retrieval(query, limit, results)
+            query_plan = [query]
+            initial_results = self._layered_similarity_search(query, limit=limit, score_threshold=0.7)
+            results = grade_documents(query, initial_results)
+            sufficiency = check_sufficiency(query, results)
+            retry_count = 0
+            if not sufficiency["is_sufficient"] and sufficiency.get("retry_query"):
+                retry_query = sufficiency["retry_query"]
+                if _normalize_text(retry_query) != _normalize_text(query):
+                    query_plan.append(retry_query)
+                    retry_count = 1
+                    retry_results = grade_documents(
+                        retry_query,
+                        self._layered_similarity_search(retry_query, limit=limit, score_threshold=0.65),
+                    )
+                    results = self._sort_docs_by_source_priority(
+                        self._dedupe_docs(results + retry_results),
+                        preferred_layers=self._preferred_source_layers(query),
+                    )[:limit]
+                    sufficiency = check_sufficiency(query, results)
+
+            confidence_bucket = _confidence_bucket(results)
+            self._log_retrieval(
+                query,
+                limit,
+                results,
+                query_plan=query_plan,
+                graded_doc_count=len(results),
+                sufficiency_result=sufficiency["reason"],
+                retry_count=retry_count,
+                final_confidence_bucket=confidence_bucket,
+            )
             if not results:
                 return _NO_EVIDENCE_RESPONSE
 
-            confidence_bucket = _confidence_bucket(results)
             formatted_results = []
             for doc in results:
                 metadata = doc.metadata or {}
@@ -286,6 +482,7 @@ class ToolFactory:
                     f"Published At: {metadata.get('published_at', '')}\n"
                     f"Freshness Bucket: {metadata.get('freshness_bucket', '')}\n"
                     f"Score: {float(metadata.get('rerank_score') or metadata.get('fusion_score') or metadata.get('score') or 0.0):.4f}\n"
+                    f"Relevance Grade: {metadata.get('relevance_grade', '')}\n"
                     f"Confidence Bucket: {confidence_bucket}\n"
                     f"Content: {doc.page_content.strip()}"
                 )
@@ -351,5 +548,5 @@ class ToolFactory:
         """Create and return the list of tools."""
         search_tool = tool("search_child_chunks")(self._search_child_chunks)
         retrieve_tool = tool("retrieve_parent_chunks")(self._retrieve_parent_chunks)
-        
+
         return [search_tool, retrieve_tool]

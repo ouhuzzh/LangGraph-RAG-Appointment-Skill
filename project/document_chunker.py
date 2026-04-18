@@ -165,8 +165,24 @@ class DocumentChuncker:
     def __create_child_chunks(self, all_parent_pairs, all_child_chunks, parent_chunks, doc_path, base_metadata):
         for i, p_chunk in enumerate(parent_chunks):
             parent_id = f"{doc_path.stem}_parent_{i}"
+            section_title = (
+                p_chunk.metadata.get("H3")
+                or p_chunk.metadata.get("H2")
+                or p_chunk.metadata.get("H1")
+                or base_metadata.get("title")
+                or doc_path.stem
+            )
             p_chunk.metadata.update(base_metadata)
-            p_chunk.metadata.update({"source": doc_path.name, "parent_id": parent_id})
+            p_chunk.metadata.update(
+                {
+                    "source": doc_path.name,
+                    "parent_id": parent_id,
+                    "section_title": section_title,
+                    "document_topic": base_metadata.get("title") or doc_path.stem,
+                    "intended_audience": base_metadata.get("source_type") or base_metadata.get("audience") or "general",
+                    "source_version": base_metadata.get("version") or base_metadata.get("published_at") or "",
+                }
+            )
             
             all_parent_pairs.append((parent_id, p_chunk))
             all_child_chunks.extend(self.__child_splitter.split_documents([p_chunk]))

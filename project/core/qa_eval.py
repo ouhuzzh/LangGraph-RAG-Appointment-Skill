@@ -126,6 +126,9 @@ class RetrievalEvalResult:
     retrieval_score: float
     answer_score: Optional[float]
     overall_score: float
+    retrieval_relevance_hit: bool
+    evidence_sufficient: bool
+    grounding_violation_detected: bool
     top_source_type: str
     top_source: str
     matched_retrieval_keywords: List[str]
@@ -203,6 +206,9 @@ def _group_summary(results: list[RetrievalEvalResult], attr_name: str) -> dict:
             "avg_tone_score": round(sum(tone_scored) / len(tone_scored), 4) if tone_scored else None,
             "pass_rate_085": round(sum(1 for entry in items if entry.overall_score >= 0.85) / len(items), 4),
             "route_hit_rate": round(sum(1 for entry in items if entry.route_hit) / len(items), 4),
+            "retrieval_relevance_hit_rate": round(sum(1 for entry in items if entry.retrieval_relevance_hit) / len(items), 4),
+            "evidence_sufficiency_pass_rate": round(sum(1 for entry in items if entry.evidence_sufficient) / len(items), 4),
+            "grounding_violation_rate": round(sum(1 for entry in items if entry.grounding_violation_detected) / len(items), 4),
         }
     return summary
 
@@ -254,6 +260,7 @@ class RetrievalQualityEvaluator:
                 "no_evidence_answer_detected": False,
                 "safety_score": None,
                 "tone_score": None,
+                "grounding_violation_detected": False,
             }
 
         answer_text = answer_text.strip()
@@ -266,6 +273,7 @@ class RetrievalQualityEvaluator:
         patient_friendly_detected = patient_friendly_hits > 0 and jargon_hits < 2
         no_evidence_answer_detected = any(token in answer_text for token in NO_EVIDENCE_PATTERNS)
 
+        forbidden_hit = False
         components = []
         if sample.expected_answer_keywords:
             coverage = len(matched_keywords) / len(sample.expected_answer_keywords)
@@ -295,6 +303,8 @@ class RetrievalQualityEvaluator:
         if sample.must_not_clarify:
             components.append((0.05, 0.0 if clarification_detected else 1.0))
 
+        grounding_violation_detected = forbidden_hit or (sample.expected_no_evidence and not no_evidence_answer_detected)
+
         return {
             "answer_score": _weighted_score(components),
             "matched_answer_keywords": matched_keywords,
@@ -306,6 +316,7 @@ class RetrievalQualityEvaluator:
             "no_evidence_answer_detected": no_evidence_answer_detected,
             "safety_score": round(safety_score, 4) if safety_score is not None else None,
             "tone_score": tone_score,
+            "grounding_violation_detected": grounding_violation_detected,
         }
 
     def evaluate_sample(self, sample: QAEvalSample, answer_text: str | None = None) -> RetrievalEvalResult:
@@ -375,6 +386,13 @@ class RetrievalQualityEvaluator:
             keyword_coverage = len(matched_retrieval_keywords) / len(sample.expected_retrieval_keywords)
             retrieval_components.append((0.35, keyword_coverage))
         retrieval_score = _weighted_score(retrieval_components)
+        retrieval_relevance_hit = (sample.expected_no_evidence and no_evidence_detected) or (
+            (not sample.expected_source_type or source_type_hit)
+            and (not sample.expected_retrieval_keywords or bool(matched_retrieval_keywords))
+        )
+        evidence_sufficient = no_evidence_detected if sample.expected_no_evidence else (
+            confidence_bucket in {"high", "medium"} or retrieval_score >= 0.7
+        )
         route_hit = not sample.expected_primary_intent or route_result.get("primary_intent") == sample.expected_primary_intent
         secondary_route_hit = not sample.expected_secondary_intent or route_result.get("secondary_intent") == sample.expected_secondary_intent
 
@@ -399,6 +417,9 @@ class RetrievalQualityEvaluator:
             retrieval_score=retrieval_score,
             answer_score=answer_score,
             overall_score=overall_score,
+            retrieval_relevance_hit=retrieval_relevance_hit,
+            evidence_sufficient=evidence_sufficient,
+            grounding_violation_detected=answer_metrics["grounding_violation_detected"],
             top_source_type=top_source_type,
             top_source=top_source,
             matched_retrieval_keywords=matched_retrieval_keywords,
@@ -464,6 +485,9 @@ class RetrievalQualityEvaluator:
             "clarification_rate": round(sum(1 for item in results if item.clarification_detected) / len(results), 4),
             "no_evidence_rate": round(len(no_evidence_items) / len(results), 4),
             "source_type_hit_rate": round(sum(1 for item in results if item.source_type_hit) / len(results), 4),
+            "retrieval_relevance_hit_rate": round(sum(1 for item in results if item.retrieval_relevance_hit) / len(results), 4),
+            "evidence_sufficiency_pass_rate": round(sum(1 for item in results if item.evidence_sufficient) / len(results), 4),
+            "grounding_violation_rate": round(sum(1 for item in results if item.grounding_violation_detected) / len(results), 4),
             "route_hit_rate": round(sum(1 for item in results if item.route_hit) / len(results), 4),
             "secondary_route_hit_rate": round(sum(1 for item in results if item.secondary_route_hit) / len(results), 4),
             "compound_request_handling_rate": round(

@@ -117,6 +117,53 @@ class SchemaManager:
                 """,
             ],
         ),
+        (
+            "005_appointment_skill_and_retrieval_quality",
+            "Persist appointment skill logs and richer retrieval quality metadata.",
+            [
+                """
+                ALTER TABLE retrieval_logs
+                ADD COLUMN IF NOT EXISTS query_plan JSONB NOT NULL DEFAULT '[]'::jsonb
+                """,
+                """
+                ALTER TABLE retrieval_logs
+                ADD COLUMN IF NOT EXISTS graded_doc_count INTEGER NOT NULL DEFAULT 0
+                """,
+                """
+                ALTER TABLE retrieval_logs
+                ADD COLUMN IF NOT EXISTS sufficiency_result VARCHAR(64)
+                """,
+                """
+                ALTER TABLE retrieval_logs
+                ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0
+                """,
+                """
+                ALTER TABLE retrieval_logs
+                ADD COLUMN IF NOT EXISTS final_confidence_bucket VARCHAR(32)
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS appointment_skill_logs (
+                    id                      BIGSERIAL PRIMARY KEY,
+                    thread_id               VARCHAR(128),
+                    skill_mode              VARCHAR(64) NOT NULL DEFAULT '',
+                    request_type            VARCHAR(64) NOT NULL DEFAULT '',
+                    selected_candidate_count INTEGER NOT NULL DEFAULT 0,
+                    required_confirmation   BOOLEAN NOT NULL DEFAULT FALSE,
+                    final_action            VARCHAR(64) NOT NULL DEFAULT '',
+                    extra_metadata          JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    created_at              TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_appointment_skill_logs_created_at
+                ON appointment_skill_logs(created_at DESC)
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_appointment_skill_logs_thread_id
+                ON appointment_skill_logs(thread_id)
+                """,
+            ],
+        ),
     ]
 
     def __init__(self, conninfo: str):
@@ -189,7 +236,9 @@ class SchemaManager:
                           'idx_documents_source_name',
                           'idx_import_task_logs_created_at',
                           'idx_route_logs_created_at',
-                          'idx_route_logs_thread_id'
+                          'idx_route_logs_thread_id',
+                          'idx_appointment_skill_logs_created_at',
+                          'idx_appointment_skill_logs_thread_id'
                       )
                     """
                 )

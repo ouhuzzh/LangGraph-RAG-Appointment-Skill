@@ -79,13 +79,28 @@ class FakeRagSystem:
 
 
 class ChatInterfaceTests(unittest.TestCase):
-    def test_chat_returns_friendly_message_when_knowledge_base_is_empty(self):
-        interface = ChatInterface(FakeRagSystem())
+    def test_chat_allows_medical_question_to_continue_when_knowledge_base_is_empty(self):
+        interface = ChatInterface(
+            FakeRagSystem(
+                has_documents=False,
+                final_values={
+                    "intent": "medical_rag",
+                    "messages": [
+                        AIMessage(
+                            content=(
+                                "回答模式：通用医学信息回答（本次未充分基于知识库检索结果）\n\n"
+                                "感冒发烧时可以先注意休息、补充水分。"
+                            )
+                        )
+                    ],
+                },
+            )
+        )
 
-        responses = list(interface.chat("高血压是什么", []))
+        responses = list(interface.chat("感冒发烧怎么办？", []))
 
         self.assertEqual(len(responses), 1)
-        self.assertIn("知识库里还没有可检索文档", responses[0])
+        self.assertIn("通用医学信息回答", responses[0][0]["content"])
 
     def test_chat_does_not_block_appointment_when_knowledge_base_is_empty(self):
         interface = ChatInterface(

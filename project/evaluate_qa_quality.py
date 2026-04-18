@@ -5,6 +5,8 @@ from pathlib import Path
 
 import config
 from core.qa_eval import RetrievalQualityEvaluator, load_qa_samples
+from db.appointment_skill_log_store import AppointmentSkillLogStore
+from db.route_log_store import RouteLogStore
 from db.vector_db_manager import VectorDbManager
 
 
@@ -39,6 +41,13 @@ def _print_text_report(report: dict):
     print(f"- compound_request_handling_rate: {summary.get('compound_request_handling_rate')}")
     print(f"- patient_friendly_rate: {summary.get('patient_friendly_rate')}")
     print(f"- no_evidence_answer_rate: {summary.get('no_evidence_answer_rate')}")
+    print(f"- retrieval_relevance_hit_rate: {summary.get('retrieval_relevance_hit_rate')}")
+    print(f"- evidence_sufficiency_pass_rate: {summary.get('evidence_sufficiency_pass_rate')}")
+    print(f"- grounding_violation_rate: {summary.get('grounding_violation_rate')}")
+    if summary.get("appointment_skill_metrics"):
+        print(f"- appointment_skill_metrics: {summary['appointment_skill_metrics']}")
+    if summary.get("route_log_metrics"):
+        print(f"- route_log_metrics: {summary['route_log_metrics']}")
     print("")
     for item in report["results"]:
         print(f"[{item['sample_id']}] {item['question']}")
@@ -65,6 +74,7 @@ def _print_text_report(report: dict):
             )
             print(f"  clarification_detected={item['clarification_detected']}")
             print(f"  patient_friendly_detected={item['patient_friendly_detected']} safety_score={item['safety_score']} tone_score={item['tone_score']}")
+            print(f"  grounding_violation_detected={item['grounding_violation_detected']}")
         print("")
     print("Grouped Summary")
     for group_name, values in report["summary"].get("by_category", {}).items():
@@ -100,6 +110,9 @@ def _render_markdown_report(report: dict) -> str:
         f"- Compound request handling rate: {summary.get('compound_request_handling_rate')}",
         f"- Patient-friendly rate: {summary.get('patient_friendly_rate')}",
         f"- No-evidence answer rate: {summary.get('no_evidence_answer_rate')}",
+        f"- Retrieval relevance hit rate: {summary.get('retrieval_relevance_hit_rate')}",
+        f"- Evidence sufficiency pass rate: {summary.get('evidence_sufficiency_pass_rate')}",
+        f"- Grounding violation rate: {summary.get('grounding_violation_rate')}",
     ]
     if summary.get("avg_answer_score") is not None:
         lines.append(f"- Average answer score: {summary['avg_answer_score']}")
@@ -107,6 +120,30 @@ def _render_markdown_report(report: dict) -> str:
         lines.append(f"- Average safety score: {summary['avg_safety_score']}")
     if summary.get("avg_tone_score") is not None:
         lines.append(f"- Average tone score: {summary['avg_tone_score']}")
+    if summary.get("appointment_skill_metrics"):
+        lines.extend(
+            [
+                "",
+                "## Appointment Skill Metrics",
+                "",
+                f"- Sample count: {summary['appointment_skill_metrics'].get('sample_count')}",
+                f"- Required confirmation rate: {summary['appointment_skill_metrics'].get('required_confirmation_rate')}",
+                f"- Candidate exposure rate: {summary['appointment_skill_metrics'].get('candidate_exposure_rate')}",
+                f"- Final action distribution: {summary['appointment_skill_metrics'].get('final_action_distribution')}",
+            ]
+        )
+    if summary.get("route_log_metrics"):
+        lines.extend(
+            [
+                "",
+                "## Route Log Metrics",
+                "",
+                f"- Sample count: {summary['route_log_metrics'].get('sample_count')}",
+                f"- Compound request rate: {summary['route_log_metrics'].get('compound_request_rate')}",
+                f"- Pending resume rate: {summary['route_log_metrics'].get('pending_resume_rate')}",
+                f"- Deferred question rate: {summary['route_log_metrics'].get('deferred_question_rate')}",
+            ]
+        )
 
     def append_group(title: str, payload: dict):
         if not payload:
@@ -144,6 +181,9 @@ def _render_markdown_report(report: dict) -> str:
                 f"- Route: {item['route_primary_intent']} / {item['route_secondary_intent'] or 'n/a'} ({item['route_decision_source']})",
                 f"- Route reason: {item['route_reason']}",
                 f"- Confidence bucket: {item['confidence_bucket']}",
+                f"- Retrieval relevance hit: {item['retrieval_relevance_hit']}",
+                f"- Evidence sufficient: {item['evidence_sufficient']}",
+                f"- Grounding violation detected: {item['grounding_violation_detected']}",
                 f"- Top source: {item['top_source_type'] or 'n/a'} / {item['top_source'] or 'n/a'}",
                 f"- Clarification detected: {item['clarification_detected']}",
                 f"- Patient friendly detected: {item['patient_friendly_detected']}",
@@ -169,6 +209,19 @@ def _render_markdown_report(report: dict) -> str:
             )
         lines.append("")
     return "\n".join(lines)
+
+
+def _safe_operational_metrics() -> dict:
+    metrics = {}
+    try:
+        metrics["route_log_metrics"] = RouteLogStore().summarize_recent(limit=200)
+    except Exception:
+        metrics["route_log_metrics"] = None
+    try:
+        metrics["appointment_skill_metrics"] = AppointmentSkillLogStore().summarize_recent(limit=200)
+    except Exception:
+        metrics["appointment_skill_metrics"] = None
+    return metrics
 
 
 def main(argv=None):
@@ -200,6 +253,10 @@ def main(argv=None):
         score_threshold=args.score_threshold,
     )
     report = evaluator.evaluate_samples(samples, answer_provider=lambda sample: answer_map.get(sample.sample_id))
+    operational_metrics = _safe_operational_metrics()
+    for key, value in operational_metrics.items():
+        if value:
+            report["summary"][key] = value
 
     if args.json:
         rendered = json.dumps(report, ensure_ascii=False, indent=2)

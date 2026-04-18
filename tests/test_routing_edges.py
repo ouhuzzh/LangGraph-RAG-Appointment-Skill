@@ -4,7 +4,7 @@ import unittest
 sys.path.insert(0, r"D:\nageoffer\agentic-rag-for-dummies\project")
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage  # noqa: E402
-from rag_agent.edges import route_after_action, route_after_orchestrator_call, route_after_prepare_secondary_turn, route_after_rewrite  # noqa: E402
+from rag_agent.edges import route_after_action, route_after_orchestrator_call, route_after_prepare_secondary_turn, route_after_query_plan, route_after_rewrite  # noqa: E402
 from rag_agent.nodes import analyze_turn, prepare_secondary_turn  # noqa: E402
 
 
@@ -67,9 +67,20 @@ class RoutingEdgeTests(unittest.TestCase):
         self.assertEqual(result["deferred_user_question"], "流感怎么预防？")
 
     def test_route_after_rewrite_passes_recent_context_to_agent_subgraph(self):
-        sends = route_after_rewrite(
+        self.assertEqual(
+            route_after_rewrite(
+                {
+                    "questionIsClear": True,
+                    "conversation_summary": "用户在咨询高血压。",
+                    "recent_context": "User: 高血压会头晕吗\nAssistant: 有时会。",
+                    "rewrittenQuestions": ["高血压应该注意什么"],
+                }
+            ),
+            "plan_retrieval_queries",
+        )
+
+        sends = route_after_query_plan(
             {
-                "questionIsClear": True,
                 "conversation_summary": "用户在咨询高血压。",
                 "recent_context": "User: 高血压会头晕吗\nAssistant: 有时会。",
                 "rewrittenQuestions": ["高血压应该注意什么"],

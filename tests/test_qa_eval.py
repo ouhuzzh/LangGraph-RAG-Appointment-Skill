@@ -154,10 +154,13 @@ class QAEvaluationTests(unittest.TestCase):
         self.assertGreaterEqual(report["summary"]["avg_safety_score"], 0.8)
         self.assertGreaterEqual(report["summary"]["avg_tone_score"], 0.8)
         self.assertGreaterEqual(report["summary"]["route_hit_rate"], 0.8)
+        self.assertGreaterEqual(report["summary"]["retrieval_relevance_hit_rate"], 0.8)
+        self.assertGreaterEqual(report["summary"]["evidence_sufficiency_pass_rate"], 0.6)
         self.assertGreater(report["summary"]["patient_friendly_rate"], 0.0)
         self.assertGreater(report["summary"]["no_evidence_answer_rate"], 0.0)
         no_evidence_result = next(item for item in report["results"] if item["sample_id"] == "no-evidence-rare-condition")
         self.assertTrue(no_evidence_result["no_evidence_answer_detected"])
+        self.assertTrue(no_evidence_result["grounding_violation_detected"] is False)
         seek_care_result = next(item for item in report["results"] if item["sample_id"] == "patient-hypertension-seek-care")
         self.assertEqual(seek_care_result["safety_score"], 1.0)
         self.assertTrue(seek_care_result["patient_friendly_detected"])
@@ -196,6 +199,9 @@ class QAEvaluationTests(unittest.TestCase):
         self.assertIn("patient_education", report["summary"]["by_top_source_type"])
         self.assertIn("route_hit_rate", report["summary"])
         self.assertIn("compound_request_handling_rate", report["summary"])
+        self.assertIn("retrieval_relevance_hit_rate", report["summary"])
+        self.assertIn("evidence_sufficiency_pass_rate", report["summary"])
+        self.assertIn("grounding_violation_rate", report["summary"])
         no_evidence_result = next(item for item in report["results"] if item["sample_id"] == "no-evidence-rare-condition")
         self.assertTrue(no_evidence_result["no_evidence_detected"])
         self.assertIsInstance(report["summary"]["low_scoring_samples"], list)
@@ -225,6 +231,18 @@ class QAEvaluationTests(unittest.TestCase):
         evaluator = RetrievalQualityEvaluator(FakeCollection(docs_by_source=docs_by_source), limit=3)
 
         report = evaluator.evaluate_samples(samples, answer_provider=lambda sample: ANSWER_FIXTURE.get(sample.sample_id))
+        report["summary"]["appointment_skill_metrics"] = {
+            "sample_count": 12,
+            "required_confirmation_rate": 0.5,
+            "candidate_exposure_rate": 0.3,
+            "final_action_distribution": {"prepare_appointment": 6},
+        }
+        report["summary"]["route_log_metrics"] = {
+            "sample_count": 20,
+            "compound_request_rate": 0.4,
+            "pending_resume_rate": 0.25,
+            "deferred_question_rate": 0.2,
+        }
         markdown = _render_markdown_report(report)
 
         self.assertIn("# QA Retrieval Quality Report", markdown)
@@ -232,6 +250,9 @@ class QAEvaluationTests(unittest.TestCase):
         self.assertIn("## Low Scoring Samples", markdown)
         self.assertIn("Average safety score", markdown)
         self.assertIn("Route hit rate", markdown)
+        self.assertIn("Grounding violation rate", markdown)
+        self.assertIn("## Appointment Skill Metrics", markdown)
+        self.assertIn("## Route Log Metrics", markdown)
         self.assertIn("### patient-hypertension-symptoms", markdown)
 
 

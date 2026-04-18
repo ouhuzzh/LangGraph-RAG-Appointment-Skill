@@ -13,6 +13,18 @@ def _vector_literal(values):
     return "[" + ",".join(f"{float(v):.8f}" for v in values) + "]"
 
 
+def _build_embedding_text(doc):
+    metadata = dict(doc.metadata or {})
+    context_parts = []
+    for key in ("section_title", "document_topic", "intended_audience", "source_version", "source_type", "title"):
+        value = str(metadata.get(key) or "").strip()
+        if value:
+            context_parts.append(f"{key}: {value}")
+    if context_parts:
+        return "\n".join(context_parts) + "\n\n" + doc.page_content
+    return doc.page_content
+
+
 class PgVectorCollection:
     def __init__(self, conninfo: str, embeddings: Embeddings):
         self._conninfo = conninfo
@@ -67,16 +79,31 @@ class PgVectorCollection:
     def rerank_candidates(self, query, candidates, top_n):
         return self._rerank_documents(query, candidates, top_n)
 
-    def log_retrieval(self, thread_id=None, query_text="", rewritten_query="", retrieval_mode="", top_k=None, result_count=0, selected_parent_ids=None):
+    def log_retrieval(
+        self,
+        thread_id=None,
+        query_text="",
+        rewritten_query="",
+        retrieval_mode="",
+        top_k=None,
+        result_count=0,
+        selected_parent_ids=None,
+        query_plan=None,
+        graded_doc_count=0,
+        sufficiency_result="",
+        retry_count=0,
+        final_confidence_bucket="",
+    ):
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
                     INSERT INTO retrieval_logs (
                         thread_id, query_text, rewritten_query, retrieval_mode,
-                        top_k, result_count, selected_parent_ids
+                        top_k, result_count, selected_parent_ids,
+                        query_plan, graded_doc_count, sufficiency_result, retry_count, final_confidence_bucket
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s)
                     """,
                     (
                         thread_id,
@@ -86,6 +113,11 @@ class PgVectorCollection:
                         top_k,
                         result_count,
                         json.dumps(selected_parent_ids or [], ensure_ascii=False),
+                        json.dumps(query_plan or [], ensure_ascii=False),
+                        graded_doc_count,
+                        sufficiency_result or None,
+                        retry_count,
+                        final_confidence_bucket or None,
                     ),
                 )
             conn.commit()
@@ -128,7 +160,7 @@ class PgVectorCollection:
         if not documents:
             return
 
-        texts = [doc.page_content for doc in documents]
+        texts = [_build_embedding_text(doc) for doc in documents]
         embeddings = self._embeddings.embed_documents(texts)
         document_cache = {}
 

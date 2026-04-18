@@ -4,40 +4,59 @@ from langgraph.types import Send
 from .graph_state import State, AgentState
 from config import MAX_ITERATIONS, MAX_TOOL_CALLS
 
-def route_after_intent(state: State) -> Literal["rewrite_query", "recommend_department", "handle_appointment", "handle_cancel_appointment", "request_clarification", "__end__"]:
+def route_after_intent(state: State) -> Literal["rewrite_query", "recommend_department", "handle_appointment_skill", "request_clarification", "__end__"]:
     intent = state.get("intent", "")
     if intent == "greeting":
         return "__end__"
     if intent == "triage":
         return "recommend_department"
     if intent == "appointment":
-        return "handle_appointment"
+        return "handle_appointment_skill"
     if intent == "cancel_appointment":
-        return "handle_cancel_appointment"
+        return "handle_appointment_skill"
     if intent == "clarification":
         return "request_clarification"
     return "rewrite_query"
 
 
-def route_after_rewrite(state: State) -> Literal["request_clarification", "agent"]:
+def route_after_rewrite(state: State) -> Literal["request_clarification", "plan_retrieval_queries"]:
     if not state.get("questionIsClear", False):
         return "request_clarification"
-    else:
-        summary = state.get("conversation_summary", "")
-        recent_context = state.get("recent_context", "")
-        topic_focus = state.get("topic_focus", "")
-        return [
-                Send("agent", {"question": query, "question_index": idx, "messages": [], "context_summary": summary, "recent_context": recent_context, "topic_focus": topic_focus})
-                for idx, query in enumerate(state["rewrittenQuestions"])
-            ]
+    return "plan_retrieval_queries"
 
 
-def route_after_clarification(state: State) -> Literal["intent_router", "rewrite_query", "recommend_department", "handle_appointment", "handle_cancel_appointment"]:
+def route_after_query_plan(state: State):
+    summary = state.get("conversation_summary", "")
+    recent_context = state.get("recent_context", "")
+    topic_focus = state.get("topic_focus", "")
+    planned_queries = state.get("planned_queries") or state.get("rewrittenQuestions") or []
+    if isinstance(planned_queries, str):
+        planned_queries = [planned_queries]
+    return [
+        Send(
+            "agent",
+            {
+                "question": query,
+                "question_index": idx,
+                "query_plan": list(planned_queries),
+                "messages": [],
+                "context_summary": summary,
+                "recent_context": recent_context,
+                "topic_focus": topic_focus,
+            },
+        )
+        for idx, query in enumerate(planned_queries)
+    ]
+
+
+def route_after_clarification(state: State) -> Literal["intent_router", "rewrite_query", "recommend_department", "handle_appointment_skill", "handle_appointment", "handle_cancel_appointment"]:
     target = state.get("clarification_target", "") or "intent_router"
     if target == "rewrite_query":
         return "rewrite_query"
     if target == "recommend_department":
         return "recommend_department"
+    if target == "handle_appointment_skill":
+        return "handle_appointment_skill"
     if target == "handle_appointment":
         return "handle_appointment"
     if target == "handle_cancel_appointment":

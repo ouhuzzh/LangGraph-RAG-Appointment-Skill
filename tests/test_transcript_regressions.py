@@ -93,6 +93,32 @@ class TranscriptRegressionTests(unittest.TestCase):
 
         self.assertEqual(result["intent"], "medical_rag")
 
+    def test_intent_router_treats_general_emotional_chat_as_answerable(self):
+        state = {
+            "messages": [HumanMessage(content="我今天有点烦")],
+            "conversation_summary": "",
+            "pending_action_type": "",
+            "pending_candidates": [],
+        }
+
+        result = intent_router(state, ExplodingStructuredLLM())
+
+        self.assertEqual(result["intent"], "medical_rag")
+        self.assertEqual(result["route_reason"], "general_conversation_rule")
+
+    def test_intent_router_treats_non_medical_general_question_as_answerable(self):
+        state = {
+            "messages": [HumanMessage(content="帮我介绍一下东京有什么好玩的")],
+            "conversation_summary": "",
+            "pending_action_type": "",
+            "pending_candidates": [],
+        }
+
+        result = intent_router(state, ExplodingStructuredLLM())
+
+        self.assertEqual(result["intent"], "medical_rag")
+        self.assertEqual(result["route_reason"], "general_conversation_rule")
+
     def test_intent_router_prefers_cancel_flow_for_explicit_cancel_then_medical_question(self):
         state = {
             "messages": [HumanMessage(content="取消刚才那个预约，然后我这个咳嗽还要看吗")],
@@ -105,6 +131,19 @@ class TranscriptRegressionTests(unittest.TestCase):
         result = intent_router(state, ExplodingStructuredLLM())
 
         self.assertEqual(result["intent"], "cancel_appointment")
+
+    def test_intent_router_short_clarifies_vague_medication_dosing_question(self):
+        state = {
+            "messages": [HumanMessage(content="这个药我一天吃几片")],
+            "conversation_summary": "",
+            "pending_action_type": "",
+            "pending_candidates": [],
+        }
+
+        result = intent_router(state, ExplodingStructuredLLM())
+
+        self.assertEqual(result["intent"], "clarification")
+        self.assertIn("药名", result["pending_clarification"])
 
     def test_intent_router_routes_pending_clarification_back_to_original_target(self):
         state = {
@@ -140,6 +179,20 @@ class TranscriptRegressionTests(unittest.TestCase):
         self.assertEqual(result["pending_clarification"], "")
         self.assertTrue(result["rewrittenQuestions"])
         self.assertIn("糖尿病", result["recent_context"] or state["conversation_summary"])
+
+    def test_rewrite_query_keeps_general_non_medical_question_clear(self):
+        llm = FakeStructuredLLM([])
+        state = {
+            "messages": [HumanMessage(content="帮我介绍一下东京有什么好玩的")],
+            "conversation_summary": "",
+            "intent": "medical_rag",
+        }
+
+        result = rewrite_query(state, llm)
+
+        self.assertTrue(result["questionIsClear"])
+        self.assertEqual(result["rewrittenQuestions"], ["帮我介绍一下东京有什么好玩的"])
+        self.assertEqual(result["pending_clarification"], "")
 
     def test_rewrite_query_keeps_recent_history_instead_of_deleting_everything(self):
         llm = FakeStructuredLLM(

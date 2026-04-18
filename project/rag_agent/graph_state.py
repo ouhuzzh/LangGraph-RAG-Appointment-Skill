@@ -23,6 +23,7 @@ class State(MessagesState):
     secondary_intent: str = ""
     primary_user_query: str = ""
     secondary_user_query: str = ""
+    planned_queries: List[str] = []
     decision_source: str = ""
     route_reason: str = ""
     last_route_reason: str = ""
@@ -33,6 +34,12 @@ class State(MessagesState):
     deferred_user_question: str = ""
     recommended_department: str = ""
     appointment_context: Dict[str, str] = {}
+    appointment_skill_mode: str = ""
+    appointment_candidates: List[dict] = []
+    selected_doctor: str = ""
+    selected_schedule_id: str = ""
+    deferred_confirmation_action: str = ""
+    skill_last_prompt: str = ""
     last_appointment_no: str = ""
     pending_action_type: str = ""
     pending_action_payload: Dict[str, str] = {}
@@ -45,6 +52,7 @@ class AgentState(MessagesState):
     """State for individual agent subgraph"""
     question: str = ""
     question_index: int = 0
+    query_plan: List[str] = []
     context_summary: str = ""
     recent_context: str = ""
     topic_focus: str = ""

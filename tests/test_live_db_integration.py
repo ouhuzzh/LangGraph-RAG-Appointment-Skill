@@ -15,6 +15,7 @@ import config  # noqa: E402
 from core.document_manager import DocumentManager  # noqa: E402
 from core.qa_eval import RetrievalQualityEvaluator, load_qa_samples  # noqa: E402
 from core.rag_system import RAGSystem  # noqa: E402
+from db.appointment_skill_log_store import AppointmentSkillLogStore  # noqa: E402
 from db.document_ids import build_document_no  # noqa: E402
 from db.import_task_store import ImportTaskStore  # noqa: E402
 from db.route_log_store import RouteLogStore  # noqa: E402
@@ -87,6 +88,7 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
         cls.summary_store = SummaryStore()
         cls.import_task_store = ImportTaskStore()
         cls.route_log_store = RouteLogStore()
+        cls.appointment_skill_log_store = AppointmentSkillLogStore()
         cls.appointment_service = AppointmentService()
         cls.vector_db = VectorDbManager()
 
@@ -107,6 +109,8 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
             self._cleanup_retrieval_logs(self.retrieval_log_thread_id)
         if hasattr(self, "route_log_thread_id"):
             self._cleanup_route_logs(self.route_log_thread_id)
+        if hasattr(self, "appointment_skill_thread_id"):
+            self._cleanup_appointment_skill_logs(self.appointment_skill_thread_id)
         if hasattr(self, "quota_restore"):
             self._restore_schedule_quota(*self.quota_restore)
 
@@ -166,6 +170,18 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
         ) as conn:
             with conn.cursor() as cur:
                 cur.execute("delete from route_logs where thread_id = %s", (thread_id,))
+            conn.commit()
+
+    def _cleanup_appointment_skill_logs(self, thread_id: str):
+        with psycopg.connect(
+            host=config.POSTGRES_HOST,
+            port=config.POSTGRES_PORT,
+            dbname=config.POSTGRES_DB,
+            user=config.POSTGRES_USER,
+            password=config.POSTGRES_PASSWORD,
+        ) as conn:
+            with conn.cursor() as cur:
+                cur.execute("delete from appointment_skill_logs where thread_id = %s", (thread_id,))
             conn.commit()
 
     def _set_schedule_quota(self, schedule_id: int, quota: int):
@@ -326,10 +342,12 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
         self.assertIn("idx_child_chunks_embedding_cosine", schema_status["indexes"])
         self.assertIn("idx_import_task_logs_created_at", schema_status["indexes"])
         self.assertIn("idx_route_logs_created_at", schema_status["indexes"])
+        self.assertIn("idx_appointment_skill_logs_created_at", schema_status["indexes"])
         self.assertIn("001_summary_dedup_and_indexes", schema_status["versions"])
         self.assertIn("002_child_chunks_vector_index", schema_status["versions"])
         self.assertIn("003_import_task_logs", schema_status["versions"])
         self.assertIn("004_route_logs", schema_status["versions"])
+        self.assertIn("005_appointment_skill_and_retrieval_quality", schema_status["versions"])
 
     def test_import_task_store_round_trip(self):
         self.vector_db.create_collection(config.CHILD_COLLECTION)
@@ -406,6 +424,26 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
         self.assertIn("medical_rag", report["summary"]["secondary_intent_distribution"])
         self.assertIn("rule", report["summary"]["decision_source_distribution"])
         self.assertIn("events", report)
+
+    def test_appointment_skill_log_store_round_trip(self):
+        self.vector_db.create_collection(config.CHILD_COLLECTION)
+        self.appointment_skill_thread_id = f"live-skill-{uuid.uuid4().hex[:10]}"
+        self.appointment_skill_log_store.save_log(
+            {
+                "thread_id": self.appointment_skill_thread_id,
+                "skill_mode": "discover_doctor",
+                "request_type": "discover_doctor",
+                "selected_candidate_count": 2,
+                "required_confirmation": False,
+                "final_action": "discover_doctor",
+                "extra_metadata": {"department": "呼吸内科"},
+            }
+        )
+
+        summary = self.appointment_skill_log_store.summarize_recent(limit=20)
+
+        self.assertGreaterEqual(summary["sample_count"], 1)
+        self.assertIn("discover_doctor", summary["final_action_distribution"])
 
     def test_auto_index_single_markdown_with_fake_embeddings(self):
         unique_marker = f"livefollowup{uuid.uuid4().hex[:8]}"
@@ -515,7 +553,8 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    select query_text, rewritten_query, retrieval_mode, result_count, selected_parent_ids
+                    select query_text, rewritten_query, retrieval_mode, result_count, selected_parent_ids,
+                           query_plan, graded_doc_count, sufficiency_result, retry_count, final_confidence_bucket
                     from retrieval_logs
                     where thread_id = %s
                     order by id desc
@@ -531,6 +570,11 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
         self.assertIn("layered", row[2])
         self.assertGreaterEqual(row[3], 1)
         self.assertTrue(row[4])
+        self.assertTrue(row[5])
+        self.assertGreaterEqual(row[6], 1)
+        self.assertTrue(row[7])
+        self.assertGreaterEqual(row[8], 0)
+        self.assertIn(row[9], ("high", "medium", "low", "no_evidence"))
 
 
 if __name__ == "__main__":

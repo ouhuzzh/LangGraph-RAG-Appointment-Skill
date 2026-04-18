@@ -3,6 +3,7 @@ import uuid
 from typing import Literal, Set
 from datetime import date, timedelta
 from langchain_core.messages import SystemMessage, HumanMessage, RemoveMessage, AIMessage, ToolMessage
+from langchain_core.documents import Document
 from langgraph.types import Command
 from .graph_state import State, AgentState
 from .schemas import (
@@ -11,10 +12,16 @@ from .schemas import (
     DepartmentRecommendation,
     AppointmentActionCall,
     CancelActionCall,
+    AppointmentSkillRequest,
+    RetrievalQueryPlan,
+    GroundedAnswerCheck,
 )
 from .prompts import *
 from utils import estimate_context_tokens
 from config import BASE_TOKEN_THRESHOLD, TOKEN_GROWTH_FACTOR, HIGH_RISK_KEYWORDS
+from db.appointment_skill_log_store import AppointmentSkillLogStore
+from services.appointment_skill import AppointmentSkill
+from rag_agent.tools import plan_queries, ground_answer
 
 _TIME_RE = re.compile(r"(\d{1,2})[:：点时]")
 _YEAR_DATE_RE = re.compile(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]?")
@@ -53,6 +60,7 @@ _MEDICAL_QUESTION_PATTERNS = (
     "是什么", "怎么回事", "为什么", "原因", "症状", "表现", "怎么办", "如何", "怎么处理",
     "怎么缓解", "严重吗", "会不会", "会引起", "会导致", "能不能", "可以吗", "要不要",
     "是否", "注意事项", "治疗", "预防", "要紧吗", "还要看吗", "哪些人", "什么人", "什么时候", "是不是",
+    "几片", "几粒", "几次", "剂量", "怎么吃", "怎么服用", "一天吃", "一天用", "多久吃一次", "多久用一次",
     "means", "what is", "why", "how to", "symptoms",
     "treatment", "can ", "could ", "does ", "is it",
 )
@@ -67,6 +75,22 @@ _DEPARTMENT_HINTS = (
 )
 _TOPIC_STOP_WORDS = ("一下", "一下子", "这个", "那个", "这种情况", "怎么", "怎么办", "需要", "是否", "一般")
 _ANY_DOCTOR_HINTS = ("任一", "任何医生", "随便医生", "都可以", "任选", "任意医生", "任一可用医生")
+_DOCTOR_DISCOVERY_HINTS = ("有哪些医生", "哪个医生", "医生有号", "谁有号", "查医生", "医生排班", "专家", "号源")
+_APPOINTMENT_LIST_HINTS = ("我的预约", "有哪些预约", "查预约", "看看预约", "预约列表")
+_RESCHEDULE_HINTS = ("改约", "改到", "换到", "换成", "改成", "挪到")
+_GENERAL_CHAT_HINTS = (
+    "我今天有点烦", "有点烦", "心情不好", "不开心", "有点累", "有点焦虑", "想聊聊", "聊聊",
+    "谢谢你", "谢谢", "晚安", "早安", "中午好", "晚上好",
+)
+_NON_MEDICAL_TOPIC_HINTS = (
+    "东京", "旅游", "景点", "好玩", "美食", "电影", "书", "天气", "旅行", "推荐一下", "介绍一下",
+    "有什么好玩的", "周末去哪", "想放松", "可以聊聊天吗",
+)
+_MEDICATION_RISK_HINTS = (
+    "一天吃几片", "一次吃几片", "一天几次", "一次几次", "剂量", "毫克", "mg", "用量", "服用",
+    "怎么吃", "多久吃一次", "多久用一次", "bid", "tid", "qd",
+)
+_APPOINTMENT_SKILL_LOG_STORE = None
 
 
 def _clear_pending_action_state() -> dict:
@@ -76,6 +100,13 @@ def _clear_pending_action_state() -> dict:
         "pending_confirmation_id": "",
         "pending_candidates": [],
     }
+
+
+def _get_appointment_skill_log_store():
+    global _APPOINTMENT_SKILL_LOG_STORE
+    if _APPOINTMENT_SKILL_LOG_STORE is None:
+        _APPOINTMENT_SKILL_LOG_STORE = AppointmentSkillLogStore()
+    return _APPOINTMENT_SKILL_LOG_STORE
 
 
 def _reset_pending_action_if_needed(state: State) -> dict:
@@ -126,6 +157,69 @@ def _looks_like_medical_knowledge_question(query: str) -> bool:
     has_disease_suffix = bool(re.search(r"(综合征|感染|病|炎|癌|瘤)", normalized))
     has_question_pattern = any(pattern in normalized for pattern in _MEDICAL_QUESTION_PATTERNS) or normalized.endswith("?") or normalized.endswith("？") or normalized.endswith("吗")
     return (has_medical_term or has_disease_suffix) and has_question_pattern
+
+
+def _looks_like_medication_risk_query(query: str) -> bool:
+    normalized = (query or "").strip().lower()
+    return any(token in normalized for token in _MEDICATION_RISK_HINTS)
+
+
+def _looks_like_medical_request(query: str, *, conversation_summary: str = "", recent_context: str = "", topic_focus: str = "") -> bool:
+    normalized = (query or "").strip().lower()
+    if not normalized:
+        return False
+    if _looks_like_department_question(query):
+        return True
+    if _looks_like_medical_knowledge_question(query) or _looks_like_medication_risk_query(query):
+        return True
+    if any(keyword.lower() in normalized for keyword in HIGH_RISK_KEYWORDS):
+        return True
+    if any(term in normalized for term in _MEDICAL_TERMS):
+        return True
+    context_text = "\n".join(part for part in (conversation_summary, recent_context, topic_focus) if str(part or "").strip())
+    if any(token in normalized for token in _MEDICAL_FOLLOW_UP_HINTS) and _context_has_medical_signal(context_text):
+        return True
+    return False
+
+
+def _looks_like_general_non_medical_query(query: str) -> bool:
+    normalized = (query or "").strip().lower()
+    if not normalized:
+        return False
+    if _looks_like_greeting(query):
+        return True
+    if _looks_like_medical_request(query) or _looks_like_explicit_appointment_intent(query) or _looks_like_explicit_cancel_intent(query):
+        return False
+    if any(token in normalized for token in _GENERAL_CHAT_HINTS):
+        return True
+    if any(token in normalized for token in _NON_MEDICAL_TOPIC_HINTS):
+        return True
+    if len(normalized) <= 20 and any(token in normalized for token in ("烦", "累", "无聊", "难过", "开心", "聊", "心情")):
+        return True
+    return False
+
+
+def _needs_strict_medical_safety(query: str, risk_level: str = "normal") -> bool:
+    return risk_level == "high" or _looks_like_medication_risk_query(query)
+
+
+def _needs_medication_detail_clarification(query: str) -> bool:
+    normalized = (query or "").strip().lower()
+    vague_reference = any(token in normalized for token in ("这个药", "这药", "这种药", "它"))
+    return vague_reference and _looks_like_medication_risk_query(query)
+
+
+def _build_medical_fallback_notice(*, risk_level: str = "normal", confidence_bucket: str = "no_evidence") -> str:
+    mode_label = "回答模式：通用医学信息回答（本次未充分基于知识库检索结果）" if confidence_bucket == "no_evidence" else "回答模式：通用医学信息回答（知识库证据有限）"
+    notice = (
+        f"{mode_label}\n\n"
+        "提醒：以上内容仅供一般医学信息参考，当前回答未充分基于知识库检索结果，不能替代专业医生面对面诊断。"
+    )
+    if risk_level == "high":
+        notice += "\n如症状严重、持续加重，或出现胸痛、呼吸困难、意识异常等情况，请尽快线下就医或急诊评估。"
+    else:
+        notice += "\n如症状持续加重，或涉及用药、剂量、急症判断，请及时就医。"
+    return notice
 
 
 def _normalize_time_slot(raw_value: str) -> str:
@@ -301,7 +395,7 @@ def _is_explicit_confirmation(user_query: str, pending_action_type: str) -> bool
     normalized = (user_query or "").strip().lower()
     if not normalized:
         return False
-    if pending_action_type == "appointment":
+    if pending_action_type in {"appointment", "reschedule_appointment"}:
         return any(word in normalized for word in _APPOINTMENT_CONFIRM_WORDS)
     if pending_action_type == "cancel_appointment":
         return any(word in normalized for word in _CANCEL_CONFIRM_WORDS)
@@ -389,6 +483,23 @@ def _looks_like_explicit_appointment_intent(user_query: str) -> bool:
     return explicit_cue or scheduling_cue or entity_cue
 
 
+def _looks_like_appointment_discovery_query(user_query: str) -> bool:
+    normalized = (user_query or "").strip().lower()
+    if not normalized:
+        return False
+    if _looks_like_department_question(user_query):
+        return False
+    if any(token in normalized for token in _APPOINTMENT_LIST_HINTS):
+        return True
+    if any(token in normalized for token in _DOCTOR_DISCOVERY_HINTS):
+        return True
+    if "有哪些科室" in normalized or "什么科室" in normalized:
+        return True
+    if "有号吗" in normalized and ("医生" in normalized or any(dep in normalized for dep in _DEPARTMENT_HINTS)):
+        return True
+    return False
+
+
 def _looks_like_explicit_cancel_intent(user_query: str) -> bool:
     normalized = (user_query or "").strip().lower()
     if not normalized or not any(keyword in normalized for keyword in _CANCEL_KEYWORDS):
@@ -425,6 +536,8 @@ def _looks_like_clarification_response(user_query: str) -> bool:
 def _intent_for_clarification_target(target: str, current_intent: str) -> str:
     if target == "recommend_department":
         return "triage"
+    if target == "handle_appointment_skill":
+        return current_intent or "appointment"
     if target == "handle_appointment":
         return "appointment"
     if target == "handle_cancel_appointment":
@@ -439,6 +552,8 @@ def _classify_query_by_rules(user_query: str, *, conversation_summary: str = "",
         return "greeting", "greeting_rule"
     if _looks_like_explicit_cancel_intent(user_query):
         return "cancel_appointment", "explicit_cancel_rule"
+    if _looks_like_appointment_discovery_query(user_query):
+        return "appointment", "appointment_discovery_rule"
     if _looks_like_explicit_appointment_intent(user_query):
         return "appointment", "explicit_appointment_rule"
     if _looks_like_department_question(user_query):
@@ -449,6 +564,8 @@ def _classify_query_by_rules(user_query: str, *, conversation_summary: str = "",
         recent_context,
     ):
         return "medical_rag", "medical_question_rule"
+    if _looks_like_general_non_medical_query(user_query):
+        return "medical_rag", "general_conversation_rule"
     return "", "rule_inconclusive"
 
 
@@ -659,6 +776,17 @@ def _format_cancel_preview(payload: dict) -> str:
     )
 
 
+def _format_reschedule_confirmation_preview(payload: dict) -> str:
+    previous_doctor = payload.get("previous_doctor_name") or "未指定"
+    next_doctor = payload.get("doctor_name") or "未指定"
+    return (
+        "我已整理好改约信息，请回复 **确认预约** 来正式提交改约：\n\n"
+        f"- 原预约：**{payload['previous_department']}**，**{payload['previous_date']}**，**{payload['previous_time_slot']}**，医生：**{previous_doctor}**\n"
+        f"- 新预约：**{payload['department']}**，**{payload['date']}**，**{payload['time_slot']}**，医生：**{next_doctor}**\n\n"
+        "如果你想再换一个日期、时段或医生，直接告诉我新的要求即可。"
+    )
+
+
 def summarize_history(state: State, llm):
     existing_summary = state.get("conversation_summary", "")
     if len(state["messages"]) < 4:
@@ -706,6 +834,31 @@ def intent_router(state: State, llm):
     secondary_user_query = state.get("secondary_user_query", "")
     decision_source = state.get("decision_source", "")
     route_reason = state.get("route_reason", "")
+
+    if _needs_medication_detail_clarification(primary_user_query):
+        clarification = "请先告诉我药名、规格或包装上写的剂量信息，我才能更安全地帮你判断怎么用。"
+        return {
+            "intent": "clarification",
+            "primary_intent": "clarification",
+            "secondary_intent": "",
+            "primary_user_query": primary_user_query,
+            "secondary_user_query": "",
+            "decision_source": "rule",
+            "route_reason": "medication_dose_needs_details",
+            "last_route_reason": "medication_dose_needs_details",
+            "risk_level": "high",
+            "pending_clarification": clarification,
+            "clarification_target": "intent_router",
+            "recent_context": recent_context,
+            "topic_focus": topic_focus or _extract_topic_focus(primary_user_query, topic_focus),
+            "deferred_user_question": "",
+            "clarification_attempts": 1,
+            "recommended_department": state.get("recommended_department", ""),
+            "appointment_context": state.get("appointment_context", {}),
+            "last_appointment_no": state.get("last_appointment_no", ""),
+            **_reset_pending_action_if_needed(state),
+            "messages": [AIMessage(content=clarification)],
+        }
 
     if primary_intent == "greeting":
         greeting_response = "你好！我是你的医疗助手，可以帮你：\n- 🏥 推荐就诊科室\n- 📅 预约挂号\n- ❌ 取消预约\n- 💊 解答医疗健康问题\n\n请问有什么可以帮你的？"
@@ -824,7 +977,10 @@ def intent_router(state: State, llm):
 
     clarification_attempts = int(state.get("clarification_attempts") or 0) + 1
     if clarification_attempts > 1:
-        fallback_answer = "我先给你一个保守建议：如果你有持续不适、症状加重，建议尽快线下就医；如果你愿意，也可以再补充一句最困扰你的症状，我会继续帮你缩小范围。"
+        if _looks_like_medical_request(user_query, conversation_summary=state.get("conversation_summary", ""), recent_context=recent_context, topic_focus=topic_focus):
+            fallback_answer = "我先给你一个保守建议：如果你有持续不适、症状加重，建议尽快线下就医；如果你愿意，也可以再补充一句最困扰你的症状，我会继续帮你缩小范围。"
+        else:
+            fallback_answer = "我先按你现在这句话理解来继续帮你，不再追问太多。如果你愿意，也可以再补充一点背景，我会回答得更贴合。"
         return {
             "intent": "medical_rag",
             "primary_intent": "medical_rag",
@@ -879,6 +1035,20 @@ def rewrite_query(state: State, llm):
     recent_context = state.get("recent_context") or _build_recent_context(state.get("messages", []))
     user_query = state.get("primary_user_query") or str(last_message.content).strip()
     topic_focus = state.get("topic_focus", "")
+
+    if state.get("intent") == "medical_rag" and _looks_like_general_non_medical_query(user_query):
+        delete_all = _build_history_reset_messages(state["messages"])
+        return {
+            "questionIsClear": True,
+            "messages": delete_all,
+            "originalQuery": user_query,
+            "rewrittenQuestions": [user_query],
+            "recent_context": recent_context,
+            "topic_focus": topic_focus,
+            "pending_clarification": "",
+            "clarification_target": "",
+            "clarification_attempts": 0,
+        }
 
     context_parts = []
     if conversation_summary.strip():
@@ -993,6 +1163,46 @@ def rewrite_query(state: State, llm):
     }
 
 
+def plan_retrieval_queries(state: State, llm):
+    rewritten = [item for item in (state.get("rewrittenQuestions") or []) if str(item).strip()]
+    original_query = state.get("originalQuery") or state.get("primary_user_query") or ""
+    recent_context = state.get("recent_context", "")
+    topic_focus = state.get("topic_focus", "")
+    base_query = rewritten[0] if rewritten else original_query
+    fallback_plan = plan_queries(base_query, topic_focus=topic_focus, recent_context=recent_context)
+
+    if not base_query:
+        return {"planned_queries": fallback_plan}
+
+    try:
+        planner = llm.with_config(temperature=0.1).with_structured_output(RetrievalQueryPlan)
+        response = planner.invoke(
+            [
+                SystemMessage(content=get_retrieval_query_plan_prompt()),
+                HumanMessage(
+                    content=(
+                        f"Original query:\n{original_query}\n\n"
+                        f"Rewritten query:\n{base_query}\n\n"
+                        f"Recent context:\n{recent_context}\n\n"
+                        f"Topic focus:\n{topic_focus}"
+                    )
+                ),
+            ]
+        )
+        planned = []
+        seen = set()
+        for item in (response.queries or []) + fallback_plan:
+            text = re.sub(r"\s+", " ", str(item or "").strip())
+            key = text.lower()
+            if not text or key in seen:
+                continue
+            seen.add(key)
+            planned.append(text)
+        return {"planned_queries": planned[:4] or fallback_plan}
+    except Exception:
+        return {"planned_queries": fallback_plan}
+
+
 def recommend_department(state: State, llm):
     last_message = state["messages"][-1]
     user_query = state.get("primary_user_query") or str(last_message.content).strip()
@@ -1061,7 +1271,7 @@ def recommend_department(state: State, llm):
     }
 
 
-def handle_appointment(state: State, llm, appointment_service):
+def _handle_appointment_legacy(state: State, llm, appointment_service):
     last_message = state["messages"][-1]
     user_query = state.get("primary_user_query") or str(last_message.content).strip()
     appointment_context = dict(state.get("appointment_context") or {})
@@ -1268,7 +1478,7 @@ def handle_appointment(state: State, llm, appointment_service):
     }
 
 
-def handle_cancel_appointment(state: State, llm, appointment_service):
+def _handle_cancel_appointment_legacy(state: State, llm, appointment_service):
     last_message = state["messages"][-1]
     user_query = state.get("primary_user_query") or str(last_message.content).strip()
     appointment_context = dict(state.get("appointment_context") or {})
@@ -1435,6 +1645,619 @@ def handle_cancel_appointment(state: State, llm, appointment_service):
         "messages": [AIMessage(content=_format_cancel_preview(preview_payload))],
     }
 
+
+def _log_appointment_skill_event(
+    state: State,
+    *,
+    skill_mode: str,
+    request_type: str,
+    selected_candidate_count: int = 0,
+    required_confirmation: bool = False,
+    final_action: str = "",
+    extra_metadata: dict | None = None,
+):
+    try:
+        _get_appointment_skill_log_store().save_log(
+            {
+                "thread_id": state.get("thread_id") or "",
+                "skill_mode": skill_mode,
+                "request_type": request_type,
+                "selected_candidate_count": selected_candidate_count,
+                "required_confirmation": required_confirmation,
+                "final_action": final_action,
+                "extra_metadata": extra_metadata or {},
+            }
+        )
+    except Exception:
+        pass
+
+
+def _invoke_appointment_skill_request(llm, state: State, user_query: str) -> dict:
+    appointment_context = dict(state.get("appointment_context") or {})
+    llm_with_tools = llm.with_config(temperature=0.1).bind_tools([AppointmentSkillRequest])
+    response = llm_with_tools.invoke(
+        [
+            SystemMessage(content=get_appointment_skill_prompt()),
+            HumanMessage(
+                content=(
+                    f"Conversation summary:\n{state.get('conversation_summary', '')}\n\n"
+                    f"Current intent:\n{state.get('intent') or state.get('primary_intent', '')}\n\n"
+                    f"Recommended department:\n{state.get('recommended_department', '')}\n\n"
+                    f"Existing appointment context:\n{appointment_context}\n\n"
+                    f"Pending action type:\n{state.get('pending_action_type', '')}\n\n"
+                    f"Last appointment number:\n{state.get('last_appointment_no', '')}\n\n"
+                    f"User query:\n{user_query}"
+                )
+            ),
+        ]
+    )
+    skill_call = _parse_tool_call(response, "AppointmentSkillRequest")
+    if skill_call:
+        return skill_call
+
+    legacy_booking = _parse_tool_call(response, "AppointmentActionCall")
+    if legacy_booking:
+        return {
+            "action": "clarify" if legacy_booking.get("action") == "clarify" else "prepare_appointment",
+            "department": legacy_booking.get("department", ""),
+            "date": legacy_booking.get("date", ""),
+            "time_slot": legacy_booking.get("time_slot", ""),
+            "doctor_name": legacy_booking.get("doctor_name", ""),
+            "clarification": legacy_booking.get("clarification", ""),
+        }
+
+    legacy_cancel = _parse_tool_call(response, "CancelActionCall")
+    if legacy_cancel:
+        return {
+            "action": "clarify" if legacy_cancel.get("action") == "clarify" else "prepare_cancellation",
+            "appointment_no": legacy_cancel.get("appointment_no", ""),
+            "department": legacy_cancel.get("department", ""),
+            "date": legacy_cancel.get("date", ""),
+            "clarification": legacy_cancel.get("clarification", ""),
+        }
+
+    return {}
+
+
+def _base_skill_state_update(
+    state: State,
+    *,
+    intent: str,
+    skill_mode: str,
+    topic_focus: str = "",
+    appointment_context: dict | None = None,
+    candidates: list[dict] | None = None,
+    skill_last_prompt: str = "",
+) -> dict:
+    return {
+        "intent": intent,
+        "appointment_skill_mode": skill_mode,
+        "topic_focus": topic_focus or state.get("topic_focus", ""),
+        "appointment_context": appointment_context if appointment_context is not None else dict(state.get("appointment_context") or {}),
+        "appointment_candidates": list(candidates or []),
+        "skill_last_prompt": skill_last_prompt or "",
+    }
+
+
+def handle_appointment_skill(state: State, llm, appointment_service):
+    last_message = state["messages"][-1]
+    user_query = state.get("primary_user_query") or str(last_message.content).strip()
+    appointment_context = dict(state.get("appointment_context") or {})
+    pending_action_type = state.get("pending_action_type", "")
+    pending_payload = _sanitize_pending_payload(state.get("pending_action_payload"))
+    pending_candidates = state.get("pending_candidates", []) or []
+    active_intent = state.get("intent") or state.get("primary_intent") or "appointment"
+    skill = AppointmentSkill(appointment_service)
+
+    if pending_action_type == "appointment":
+        if _is_abort_request(user_query):
+            _log_appointment_skill_event(state, skill_mode="action", request_type="abort_booking", final_action="abort")
+            return {
+                **_base_skill_state_update(state, intent="appointment", skill_mode="idle", topic_focus=appointment_context.get("department", state.get("topic_focus", "")), appointment_context=appointment_context),
+                "pending_clarification": "",
+                "clarification_target": "",
+                "clarification_attempts": 0,
+                **_clear_pending_action_state(),
+                "messages": [AIMessage(content="好的，这次预约我先不提交了。你如果想改时间、科室或重新预约，直接告诉我即可。")],
+            }
+        if _is_explicit_confirmation(user_query, "appointment"):
+            booking = skill.confirm_appointment(state["thread_id"], pending_payload)
+            merged_context = _build_appointment_context(appointment_context, pending_payload)
+            _log_appointment_skill_event(state, skill_mode="action", request_type="confirm_appointment", required_confirmation=True, final_action="confirm_appointment")
+            if not booking:
+                answer = (
+                    f"刚刚确认时，**{pending_payload['department']}** 在 {pending_payload['date']} "
+                    f"{pending_payload['time_slot']} 的号源已经不可用了。你可以换个日期、时段，或让我继续帮你改约。"
+                )
+                return {
+                    **_base_skill_state_update(state, intent="appointment", skill_mode="planning", topic_focus=merged_context.get("department", state.get("topic_focus", "")), appointment_context=merged_context),
+                    "pending_clarification": "",
+                    "clarification_target": "",
+                    "clarification_attempts": 0,
+                    **_clear_pending_action_state(),
+                    "messages": [AIMessage(content=answer)],
+                }
+            answer = (
+                f"已为你预约成功：\n\n"
+                f"- 科室：**{booking['department']}**\n"
+                f"- 日期：**{booking['date']}**\n"
+                f"- 时段：**{booking['time_slot']}**\n"
+                f"- 医生：**{booking['doctor_name']}**\n"
+                f"- 预约号：**{booking['appointment_no']}**"
+            )
+            return {
+                **_base_skill_state_update(state, intent="appointment", skill_mode="completed", topic_focus=merged_context.get("department", state.get("topic_focus", "")), appointment_context=merged_context),
+                "pending_clarification": "",
+                "clarification_target": "",
+                "clarification_attempts": 0,
+                "last_appointment_no": booking["appointment_no"],
+                **_clear_pending_action_state(),
+                "messages": [AIMessage(content=answer)],
+            }
+        if not _looks_like_appointment_discovery_query(user_query):
+            return {
+                **_base_skill_state_update(
+                    state,
+                    intent="appointment",
+                    skill_mode="prepare_appointment",
+                    topic_focus=appointment_context.get("department", state.get("topic_focus", "")),
+                    appointment_context=appointment_context,
+                ),
+                "pending_clarification": "",
+                "clarification_target": "",
+                "clarification_attempts": 0,
+                **_build_pending_confirmation("appointment", pending_payload),
+                "messages": [AIMessage(content="如果你确认这条预约，请直接回复 **确认预约**；如果想改时间、医生或科室，也可以直接告诉我。")],
+            }
+
+    if pending_action_type == "cancel_appointment":
+        if _is_abort_request(user_query):
+            _log_appointment_skill_event(state, skill_mode="action", request_type="abort_cancellation", final_action="abort")
+            return {
+                **_base_skill_state_update(state, intent="cancel_appointment", skill_mode="idle"),
+                "pending_clarification": "",
+                "clarification_target": "",
+                "clarification_attempts": 0,
+                **_clear_pending_action_state(),
+                "messages": [AIMessage(content="好的，这次取消我先不提交了。如果你想取消其他预约，直接告诉我预约号或条件即可。")],
+            }
+        if _is_explicit_confirmation(user_query, "cancel_appointment"):
+            cancelled = skill.confirm_cancellation(state["thread_id"], pending_payload)
+            _log_appointment_skill_event(state, skill_mode="action", request_type="confirm_cancellation", required_confirmation=True, final_action="confirm_cancellation")
+            if not cancelled:
+                return {
+                    **_base_skill_state_update(state, intent="cancel_appointment", skill_mode="planning"),
+                    "pending_clarification": "",
+                    "clarification_target": "",
+                    "clarification_attempts": 0,
+                    **_clear_pending_action_state(),
+                    "messages": [AIMessage(content="这条预约当前无法取消，可能已经被处理过了。你可以再给我新的预约号或条件。")],
+                }
+            answer = (
+                f"已为你取消预约：\n\n"
+                f"- 预约号：**{cancelled['appointment_no']}**\n"
+                f"- 日期：**{cancelled['date']}**\n"
+                f"- 时段：**{cancelled['time_slot']}**"
+            )
+            return {
+                **_base_skill_state_update(state, intent="cancel_appointment", skill_mode="completed"),
+                "pending_clarification": "",
+                "clarification_target": "",
+                "clarification_attempts": 0,
+                "last_appointment_no": "",
+                **_clear_pending_action_state(),
+                "messages": [AIMessage(content=answer)],
+            }
+        if not _should_use_last_appointment(user_query):
+            return {
+                **_base_skill_state_update(state, intent="cancel_appointment", skill_mode="prepare_cancellation"),
+                "pending_clarification": "",
+                "clarification_target": "",
+                "clarification_attempts": 0,
+                **_build_pending_confirmation("cancel_appointment", pending_payload),
+                "messages": [AIMessage(content="如果你确认取消这条预约，请直接回复 **确认取消**；如果想取消别的预约，也可以直接告诉我预约号或说“第 1 个 / 第 2 个”。")],
+            }
+
+    if pending_action_type == "reschedule_appointment":
+        if _is_abort_request(user_query):
+            _log_appointment_skill_event(state, skill_mode="action", request_type="abort_reschedule", final_action="abort")
+            return {
+                **_base_skill_state_update(state, intent="appointment", skill_mode="idle", topic_focus=appointment_context.get("department", state.get("topic_focus", "")), appointment_context=appointment_context),
+                "pending_clarification": "",
+                "clarification_target": "",
+                "clarification_attempts": 0,
+                **_clear_pending_action_state(),
+                "messages": [AIMessage(content="好的，这次改约我先不提交了。你如果想继续改时间、时段或医生，直接告诉我即可。")],
+            }
+        if _is_explicit_confirmation(user_query, "reschedule_appointment"):
+            rescheduled = skill.confirm_reschedule(state["thread_id"], pending_payload)
+            _log_appointment_skill_event(state, skill_mode="action", request_type="confirm_reschedule", required_confirmation=True, final_action="confirm_reschedule")
+            if not rescheduled:
+                return {
+                    **_base_skill_state_update(state, intent="appointment", skill_mode="planning", topic_focus=appointment_context.get("department", state.get("topic_focus", "")), appointment_context=appointment_context),
+                    "pending_clarification": "",
+                    "clarification_target": "",
+                    "clarification_attempts": 0,
+                    **_clear_pending_action_state(),
+                    "messages": [AIMessage(content="刚刚确认改约时，新时段已经不可用了。你可以换一个日期、时段，或者让我重新帮你找可改约的医生。")],
+                }
+            return {
+                **_base_skill_state_update(state, intent="appointment", skill_mode="completed", topic_focus=rescheduled.get("department", state.get("topic_focus", "")), appointment_context=_build_appointment_context(appointment_context, {"department": rescheduled.get("department", ""), "date": rescheduled.get("date", ""), "time_slot": rescheduled.get("time_slot", ""), "doctor_name": rescheduled.get("doctor_name", "")})),
+                "pending_clarification": "",
+                "clarification_target": "",
+                "clarification_attempts": 0,
+                "last_appointment_no": rescheduled["appointment_no"],
+                **_clear_pending_action_state(),
+                "messages": [
+                    AIMessage(
+                        content=(
+                            "已为你改约成功：\n\n"
+                            f"- 预约号：**{rescheduled['appointment_no']}**\n"
+                            f"- 原预约：**{rescheduled['previous_department']}**，**{rescheduled['previous_date']}**，**{rescheduled['previous_time_slot']}**\n"
+                            f"- 新预约：**{rescheduled['department']}**，**{rescheduled['date']}**，**{rescheduled['time_slot']}**\n"
+                            f"- 医生：**{rescheduled['doctor_name']}**"
+                        )
+                    )
+                ],
+            }
+        return {
+            **_base_skill_state_update(state, intent="appointment", skill_mode="prepare_reschedule", topic_focus=appointment_context.get("department", state.get("topic_focus", "")), appointment_context=appointment_context),
+            "pending_clarification": "",
+            "clarification_target": "",
+            "clarification_attempts": 0,
+            **_build_pending_confirmation("reschedule_appointment", pending_payload),
+            "messages": [AIMessage(content="如果你确认这次改约，请直接回复 **确认预约**；如果想换成别的日期、时段或医生，也可以直接告诉我。")],
+        }
+
+    if pending_candidates and active_intent == "cancel_appointment":
+        selected = _pick_candidate_from_text(user_query, pending_candidates)
+        if selected:
+            preview_payload = {
+                "appointment_id": str(selected["appointment_id"]),
+                "appointment_no": selected["appointment_no"],
+                "department": selected["department"],
+                "date": selected["appointment_date"].isoformat(),
+                "time_slot": selected["time_slot"],
+                "doctor_name": selected.get("doctor_name") or "",
+                "action": "cancel",
+            }
+            _log_appointment_skill_event(state, skill_mode="planning", request_type="select_cancellation_candidate", selected_candidate_count=len(pending_candidates), required_confirmation=True, final_action="prepare_cancellation")
+            return {
+                **_base_skill_state_update(state, intent="cancel_appointment", skill_mode="planning", candidates=[], skill_last_prompt=_format_cancel_preview(preview_payload)),
+                "pending_clarification": "",
+                "clarification_target": "",
+                "clarification_attempts": 0,
+                **_build_pending_confirmation("cancel_appointment", preview_payload),
+                "messages": [AIMessage(content=_format_cancel_preview(preview_payload))],
+            }
+        return {
+            **_base_skill_state_update(state, intent="cancel_appointment", skill_mode="list_my_appointments", candidates=pending_candidates),
+            "pending_clarification": "",
+            "clarification_target": "",
+            "clarification_attempts": 0,
+            "pending_candidates": pending_candidates,
+            "messages": [AIMessage(content="我还没确定你要取消哪一条。你可以直接回复预约号，或者说“第 1 个 / 第 2 个”。")],
+        }
+
+    call_args = _invoke_appointment_skill_request(llm, state, user_query)
+    department = (call_args.get("department") or "").strip() or state.get("recommended_department", "") or appointment_context.get("department", "")
+    normalized_date = _normalize_date(call_args.get("date") or appointment_context.get("date", "") or user_query)
+    time_slot = _normalize_time_slot(call_args.get("time_slot") or appointment_context.get("time_slot", "") or user_query)
+    appointment_no = (call_args.get("appointment_no") or "").strip()
+    doctor_name = (
+        (call_args.get("doctor_name") or "").strip()
+        or _pick_doctor_name_from_text(user_query, appointment_context.get("available_doctors") or [])
+        or appointment_context.get("doctor_name", "")
+    )
+    skill_action = (call_args.get("action") or "").strip() or ("prepare_cancellation" if active_intent == "cancel_appointment" else "prepare_appointment")
+    wants_any_doctor = _wants_any_available_doctor(user_query)
+    merged_context = _build_appointment_context(
+        appointment_context,
+        {"department": department, "date": normalized_date, "time_slot": time_slot, "doctor_name": doctor_name},
+    )
+
+    if skill_action == "clarify":
+        clarification = (call_args.get("clarification") or "").strip() or "你可以再补充一下要处理的预约信息。"
+        _log_appointment_skill_event(state, skill_mode="clarify", request_type=active_intent, final_action="clarify")
+        return {
+            **_base_skill_state_update(state, intent=active_intent, skill_mode="clarify", topic_focus=department or state.get("topic_focus", ""), appointment_context=merged_context, skill_last_prompt=clarification),
+            "pending_clarification": clarification,
+            "clarification_target": "handle_appointment_skill",
+            "clarification_attempts": int(state.get("clarification_attempts") or 0) + 1,
+            **_clear_pending_action_state(),
+            "messages": [AIMessage(content=clarification)],
+        }
+
+    if skill_action == "discover_department":
+        message = skill.discover_departments(department or user_query)
+        _log_appointment_skill_event(state, skill_mode="discovery", request_type="discover_department", final_action="discover_department")
+        return {
+            **_base_skill_state_update(state, intent="appointment", skill_mode="discover_department", appointment_context=merged_context, skill_last_prompt=message),
+            "pending_clarification": "",
+            "clarification_target": "",
+            "clarification_attempts": 0,
+            **_clear_pending_action_state(),
+            "messages": [AIMessage(content=message)],
+        }
+
+    if skill_action == "list_my_appointments" or (active_intent == "cancel_appointment" and not appointment_no and not department and not normalized_date):
+        message, appointments = skill.list_my_appointments(state["thread_id"])
+        _log_appointment_skill_event(state, skill_mode="discovery", request_type="list_my_appointments", selected_candidate_count=len(appointments), final_action="list_my_appointments")
+        return {
+            **_base_skill_state_update(state, intent=active_intent, skill_mode="list_my_appointments", candidates=appointments, skill_last_prompt=message),
+            "pending_clarification": message if active_intent == "cancel_appointment" and appointments else "",
+            "clarification_target": "handle_appointment_skill" if active_intent == "cancel_appointment" and appointments else "",
+            "clarification_attempts": int(state.get("clarification_attempts") or 0) + (1 if active_intent == "cancel_appointment" and appointments else 0),
+            "pending_candidates": appointments[:8] if active_intent == "cancel_appointment" else [],
+            "messages": [AIMessage(content=message)],
+        }
+
+    if skill_action == "discover_doctor":
+        if not department:
+            clarification = "你想先看哪个科室的医生？如果还不确定，我也可以先根据症状帮你推荐科室。"
+            return {
+                **_base_skill_state_update(state, intent="appointment", skill_mode="clarify", appointment_context=merged_context, skill_last_prompt=clarification),
+                "pending_clarification": clarification,
+                "clarification_target": "handle_appointment_skill",
+                "clarification_attempts": int(state.get("clarification_attempts") or 0) + 1,
+                "messages": [AIMessage(content=clarification)],
+            }
+        schedule_date_value = date.fromisoformat(normalized_date) if normalized_date and time_slot else None
+        message, doctor_options = skill.discover_doctors(department, schedule_date=schedule_date_value, time_slot=time_slot)
+        _log_appointment_skill_event(state, skill_mode="discovery", request_type="discover_doctor", selected_candidate_count=len(doctor_options), final_action="discover_doctor")
+        return {
+            **_base_skill_state_update(state, intent="appointment", skill_mode="discover_doctor", topic_focus=department, appointment_context=_build_appointment_context(merged_context, {"available_doctors": doctor_options}), candidates=doctor_options, skill_last_prompt=message),
+            "pending_clarification": "",
+            "clarification_target": "",
+            "clarification_attempts": 0,
+            **_clear_pending_action_state(),
+            "messages": [AIMessage(content=message)],
+        }
+
+    if skill_action == "discover_availability":
+        if doctor_name:
+            schedule_date_value = date.fromisoformat(normalized_date) if normalized_date else None
+            message, availability = skill.discover_doctor_availability(
+                doctor_name,
+                department=department,
+                schedule_date=schedule_date_value,
+                time_slot=time_slot,
+            )
+            _log_appointment_skill_event(state, skill_mode="discovery", request_type="discover_availability", selected_candidate_count=len(availability), final_action="discover_doctor_availability")
+            return {
+                **_base_skill_state_update(state, intent="appointment", skill_mode="discover_availability", topic_focus=department or doctor_name, appointment_context=_build_appointment_context(merged_context, {"available_doctors": availability}), candidates=availability, skill_last_prompt=message),
+                "pending_clarification": "",
+                "clarification_target": "",
+                "clarification_attempts": 0,
+                **_clear_pending_action_state(),
+                "messages": [AIMessage(content=message)],
+            }
+        if department:
+            message, upcoming = skill.discover_department_availability(department)
+            _log_appointment_skill_event(state, skill_mode="discovery", request_type="discover_availability", selected_candidate_count=len(upcoming), final_action="discover_department_availability")
+            return {
+                **_base_skill_state_update(state, intent="appointment", skill_mode="discover_availability", topic_focus=department, appointment_context=_build_appointment_context(merged_context, {"available_doctors": upcoming}), candidates=upcoming, skill_last_prompt=message),
+                "pending_clarification": "",
+                "clarification_target": "",
+                "clarification_attempts": 0,
+                **_clear_pending_action_state(),
+                "messages": [AIMessage(content=message)],
+            }
+
+    if skill_action == "prepare_reschedule" or any(token in (user_query or "").lower() for token in _RESCHEDULE_HINTS):
+        current_items = appointment_service.find_candidate_appointments(
+            thread_id=state["thread_id"],
+            appointment_no=appointment_no or (state.get("last_appointment_no", "") if _should_use_last_appointment(user_query) else "") or None,
+            department=department or None,
+            schedule_date=date.fromisoformat(normalized_date) if normalized_date else None,
+        )
+        if not current_items:
+            message = "我暂时没锁定要改约的那条预约。你可以先告诉我预约号，或者说“改最近那个预约”。"
+            return {
+                **_base_skill_state_update(state, intent="appointment", skill_mode="clarify", appointment_context=merged_context, skill_last_prompt=message),
+                "pending_clarification": message,
+                "clarification_target": "handle_appointment_skill",
+                "clarification_attempts": int(state.get("clarification_attempts") or 0) + 1,
+                "messages": [AIMessage(content=message)],
+            }
+        if not normalized_date or not time_slot:
+            message = skill.prepare_reschedule(
+                state["thread_id"],
+                current_items[0],
+                target_date=date.fromisoformat(normalized_date) if normalized_date else None,
+                time_slot=time_slot,
+            )
+            _log_appointment_skill_event(state, skill_mode="planning", request_type="prepare_reschedule", selected_candidate_count=1, final_action="prepare_reschedule_options")
+            return {
+                **_base_skill_state_update(state, intent="appointment", skill_mode="prepare_reschedule", topic_focus=current_items[0]["department"], appointment_context=merged_context, candidates=current_items, skill_last_prompt=message),
+                "pending_clarification": "",
+                "clarification_target": "",
+                "clarification_attempts": 0,
+                **_clear_pending_action_state(),
+                "messages": [AIMessage(content=message)],
+            }
+        preview, doctor_options, alternatives = skill.prepare_reschedule_preview(
+            candidate=current_items[0],
+            target_date=date.fromisoformat(normalized_date),
+            time_slot=time_slot,
+            doctor_name=doctor_name,
+            allow_any_doctor=wants_any_doctor,
+        )
+        if preview:
+            payload = preview.__dict__
+            _log_appointment_skill_event(state, skill_mode="planning", request_type="prepare_reschedule", selected_candidate_count=len(doctor_options), required_confirmation=True, final_action="prepare_reschedule")
+            return {
+                **_base_skill_state_update(state, intent="appointment", skill_mode="prepare_reschedule", topic_focus=payload["department"], appointment_context=_build_appointment_context(merged_context, {"department": payload["department"], "date": payload["date"], "time_slot": payload["time_slot"], "doctor_name": payload.get("doctor_name", "")}), candidates=doctor_options, skill_last_prompt=_format_reschedule_confirmation_preview(payload)),
+                "pending_clarification": "",
+                "clarification_target": "",
+                "clarification_attempts": 0,
+                **_build_pending_confirmation("reschedule_appointment", payload),
+                "messages": [AIMessage(content=_format_reschedule_confirmation_preview(payload))],
+            }
+        if doctor_options:
+            message, doctor_options = skill.discover_doctors(current_items[0]["department"], schedule_date=date.fromisoformat(normalized_date), time_slot=time_slot)
+            _log_appointment_skill_event(state, skill_mode="discovery", request_type="discover_doctor", selected_candidate_count=len(doctor_options), final_action="discover_reschedule_doctor")
+            return {
+                **_base_skill_state_update(state, intent="appointment", skill_mode="discover_doctor", topic_focus=current_items[0]["department"], appointment_context=_build_appointment_context(merged_context, {"available_doctors": doctor_options, "doctor_name": ""}), candidates=doctor_options, skill_last_prompt=message),
+                "pending_clarification": "",
+                "clarification_target": "",
+                "clarification_attempts": 0,
+                **_clear_pending_action_state(),
+                "messages": [AIMessage(content=message)],
+            }
+        if alternatives:
+            message = "当前目标时段没有合适的可改约号源，我找到这些替代选择：\n\n" + "\n".join(
+                f"- **{item['doctor_name']}**：{item['schedule_date']} {item['time_slot']}（剩余号源 {item.get('quota_available', 0)}）"
+                for item in alternatives[:6]
+            )
+            _log_appointment_skill_event(state, skill_mode="discovery", request_type="prepare_reschedule", selected_candidate_count=len(alternatives), final_action="discover_reschedule_alternatives")
+            return {
+                **_base_skill_state_update(state, intent="appointment", skill_mode="discover_availability", topic_focus=current_items[0]["department"], appointment_context=merged_context, candidates=alternatives, skill_last_prompt=message),
+                "pending_clarification": "",
+                "clarification_target": "",
+                "clarification_attempts": 0,
+                **_clear_pending_action_state(),
+                "messages": [AIMessage(content=message)],
+            }
+        message = "暂时没有找到可改约的新号源。你可以换一个日期、时段，或者让我继续找其他医生。"
+        return {
+            **_base_skill_state_update(state, intent="appointment", skill_mode="discover_availability", topic_focus=current_items[0]["department"], appointment_context=merged_context, skill_last_prompt=message),
+            "pending_clarification": "",
+            "clarification_target": "",
+            "clarification_attempts": 0,
+            **_clear_pending_action_state(),
+            "messages": [AIMessage(content=message)],
+        }
+
+    if active_intent == "cancel_appointment" or skill_action in {"prepare_cancellation", "confirm_cancellation"}:
+        if not appointment_no and _should_use_last_appointment(user_query):
+            appointment_no = state.get("last_appointment_no", "")
+        preview, candidates = skill.prepare_cancellation(
+            state["thread_id"],
+            appointment_no=appointment_no,
+            department=department,
+            schedule_date=date.fromisoformat(normalized_date) if normalized_date else None,
+        )
+        if preview:
+            payload = preview.__dict__
+            _log_appointment_skill_event(state, skill_mode="planning", request_type="prepare_cancellation", required_confirmation=True, final_action="prepare_cancellation")
+            return {
+                **_base_skill_state_update(state, intent="cancel_appointment", skill_mode="prepare_cancellation", topic_focus=payload["department"], appointment_context=merged_context, skill_last_prompt=_format_cancel_preview(payload)),
+                "pending_clarification": "",
+                "clarification_target": "",
+                "clarification_attempts": 0,
+                **_build_pending_confirmation("cancel_appointment", payload),
+                "messages": [AIMessage(content=_format_cancel_preview(payload))],
+            }
+        message = "我没有找到符合条件的可取消预约。你可以再提供预约号，或者补充科室和日期。"
+        if candidates:
+            message = "我找到了多条可取消预约，请回复具体预约号，或直接说“第 1 个 / 第 2 个”：\n" + "\n".join(
+                f"{idx}. 预约号：{item['appointment_no']}，{item['department']}，{item['appointment_date'].isoformat()} {item['time_slot']}"
+                for idx, item in enumerate(candidates[:8], start=1)
+            )
+        _log_appointment_skill_event(state, skill_mode="discovery", request_type="prepare_cancellation", selected_candidate_count=len(candidates), final_action="list_cancellation_candidates")
+        return {
+            **_base_skill_state_update(state, intent="cancel_appointment", skill_mode="list_my_appointments", candidates=candidates, skill_last_prompt=message),
+            "pending_clarification": message if candidates else "",
+            "clarification_target": "handle_appointment_skill" if candidates else "",
+            "clarification_attempts": int(state.get("clarification_attempts") or 0) + (1 if candidates else 0),
+            **_clear_pending_action_state(),
+            "pending_candidates": candidates[:8],
+            "messages": [AIMessage(content=message)],
+        }
+
+    if not department:
+        clarification = "你想挂哪个科室？如果还不确定，我也可以先根据症状帮你推荐挂什么科。"
+        return {
+            **_base_skill_state_update(state, intent="appointment", skill_mode="clarify", appointment_context=merged_context, skill_last_prompt=clarification),
+            "pending_clarification": clarification,
+            "clarification_target": "handle_appointment_skill",
+            "clarification_attempts": int(state.get("clarification_attempts") or 0) + 1,
+            **_clear_pending_action_state(),
+            "messages": [AIMessage(content=clarification)],
+        }
+
+    if not normalized_date or not time_slot:
+        message, upcoming = skill.discover_department_availability(department)
+        _log_appointment_skill_event(state, skill_mode="discovery", request_type="discover_department_availability", selected_candidate_count=len(upcoming), final_action="discover_department_availability")
+        return {
+            **_base_skill_state_update(state, intent="appointment", skill_mode="discover_availability", topic_focus=department, appointment_context=_build_appointment_context(merged_context, {"available_doctors": upcoming}), candidates=upcoming, skill_last_prompt=message),
+            "pending_clarification": "",
+            "clarification_target": "",
+            "clarification_attempts": 0,
+            **_clear_pending_action_state(),
+            "messages": [AIMessage(content=message)],
+        }
+
+    preview, doctor_options, alternatives = skill.prepare_appointment(
+        department=department,
+        schedule_date=date.fromisoformat(normalized_date),
+        time_slot=time_slot,
+        doctor_name=doctor_name,
+        allow_any_doctor=wants_any_doctor,
+    )
+    if preview:
+        payload = preview.__dict__
+        _log_appointment_skill_event(state, skill_mode="planning", request_type="prepare_appointment", selected_candidate_count=len(doctor_options), required_confirmation=True, final_action="prepare_appointment")
+        return {
+            **_base_skill_state_update(state, intent="appointment", skill_mode="prepare_appointment", topic_focus=payload["department"], appointment_context=_build_appointment_context(merged_context, {"available_doctors": doctor_options, "doctor_name": payload.get("doctor_name", "")}), candidates=doctor_options, skill_last_prompt=_format_booking_preview(payload)),
+            "pending_clarification": "",
+            "clarification_target": "",
+            "clarification_attempts": 0,
+            **_build_pending_confirmation("appointment", payload),
+            "messages": [AIMessage(content=_format_booking_preview(payload))],
+        }
+    if doctor_options:
+        message, doctor_options = skill.discover_doctors(department, schedule_date=date.fromisoformat(normalized_date), time_slot=time_slot)
+        _log_appointment_skill_event(state, skill_mode="discovery", request_type="discover_doctor", selected_candidate_count=len(doctor_options), final_action="discover_doctor")
+        return {
+            **_base_skill_state_update(state, intent="appointment", skill_mode="discover_doctor", topic_focus=department, appointment_context=_build_appointment_context(merged_context, {"available_doctors": doctor_options, "doctor_name": ""}), candidates=doctor_options, skill_last_prompt=message),
+            "pending_clarification": "",
+            "clarification_target": "",
+            "clarification_attempts": 0,
+            **_clear_pending_action_state(),
+            "messages": [AIMessage(content=message)],
+        }
+    if alternatives:
+        message = "当前指定医生或时段没有可用号源，我找到这些替代选择：\n\n" + "\n".join(
+            f"- **{item['doctor_name']}**：{item['schedule_date']} {item['time_slot']}（剩余号源 {item.get('quota_available', 0)}）"
+            for item in alternatives[:6]
+        )
+        _log_appointment_skill_event(state, skill_mode="discovery", request_type="discover_alternatives", selected_candidate_count=len(alternatives), final_action="discover_alternatives")
+        return {
+            **_base_skill_state_update(state, intent="appointment", skill_mode="discover_availability", topic_focus=department, appointment_context=merged_context, candidates=alternatives, skill_last_prompt=message),
+            "pending_clarification": "",
+            "clarification_target": "",
+            "clarification_attempts": 0,
+            **_clear_pending_action_state(),
+            "messages": [AIMessage(content=message)],
+        }
+
+    message = f"暂时没有找到 **{department}** 在 {normalized_date} {time_slot} 的可预约号源。你可以换一个日期、时间段，或继续让我帮你找其他医生。"
+    _log_appointment_skill_event(state, skill_mode="discovery", request_type="prepare_appointment", final_action="no_availability")
+    return {
+        **_base_skill_state_update(state, intent="appointment", skill_mode="discover_availability", topic_focus=department, appointment_context=merged_context, skill_last_prompt=message),
+        "pending_clarification": "",
+        "clarification_target": "",
+        "clarification_attempts": 0,
+        **_clear_pending_action_state(),
+        "messages": [AIMessage(content=message)],
+    }
+
+
+def handle_appointment(state: State, llm, appointment_service):
+    merged_state = dict(state)
+    merged_state.setdefault("intent", "appointment")
+    merged_state.setdefault("primary_intent", "appointment")
+    return handle_appointment_skill(merged_state, llm, appointment_service)
+
+
+def handle_cancel_appointment(state: State, llm, appointment_service):
+    merged_state = dict(state)
+    merged_state.setdefault("intent", "cancel_appointment")
+    merged_state.setdefault("primary_intent", "cancel_appointment")
+    return handle_appointment_skill(merged_state, llm, appointment_service)
+
 def request_clarification(state: State):
     return {}
 
@@ -1461,6 +2284,13 @@ def orchestrator(state: AgentState, llm_with_tools):
     context_summary = state.get("context_summary", "").strip()
     recent_context = state.get("recent_context", "").strip()
     topic_focus = state.get("topic_focus", "").strip()
+    question = str(state.get("question") or "").strip()
+    is_medical_request = _looks_like_medical_request(
+        question,
+        conversation_summary=context_summary,
+        recent_context=recent_context,
+        topic_focus=topic_focus,
+    )
     sys_msg = SystemMessage(content=get_orchestrator_prompt())
     summary_injection = (
         [HumanMessage(content=f"[COMPRESSED CONTEXT FROM PRIOR RESEARCH]\n\n{context_summary}")]
@@ -1475,9 +2305,11 @@ def orchestrator(state: AgentState, llm_with_tools):
         if topic_focus else []
     )
     if not state.get("messages"):
-        human_msg = HumanMessage(content=state["question"])
-        force_search = HumanMessage(content="YOU MUST CALL 'search_child_chunks' AS THE FIRST STEP TO ANSWER THIS QUESTION.")
-        response = llm_with_tools.invoke([sys_msg] + summary_injection + recent_context_injection + topic_focus_injection + [human_msg, force_search])
+        human_msg = HumanMessage(content=question)
+        base_messages = [sys_msg] + summary_injection + recent_context_injection + topic_focus_injection + [human_msg]
+        if is_medical_request:
+            base_messages.append(HumanMessage(content="For this medical question, call 'search_child_chunks' first unless the injected context already provides enough evidence."))
+        response = llm_with_tools.invoke(base_messages)
         return {"messages": [human_msg, response], "tool_call_count": len(response.tool_calls or []), "iteration_count": 1}
 
     response = llm_with_tools.invoke([sys_msg] + summary_injection + recent_context_injection + topic_focus_injection + state["messages"])
@@ -1493,10 +2325,24 @@ def fallback_response(state: AgentState, llm):
             seen.add(m.content)
 
     context_summary = state.get("context_summary", "").strip()
+    recent_context = state.get("recent_context", "").strip()
+    topic_focus = state.get("topic_focus", "").strip()
+    user_query = str(state.get("question") or "").strip()
+    is_medical_request = _looks_like_medical_request(
+        user_query,
+        conversation_summary=context_summary,
+        recent_context=recent_context,
+        topic_focus=topic_focus,
+    )
+    inferred_risk = _infer_risk_level(user_query, "normal")
+    risk_level = "high" if _needs_strict_medical_safety(user_query, inferred_risk) else "normal"
+    has_no_evidence = any("NO_EVIDENCE" in content for content in unique_contents)
 
     context_parts = []
     if context_summary:
         context_parts.append(f"## Compressed Research Context (from prior iterations)\n\n{context_summary}")
+    if recent_context:
+        context_parts.append(f"## Recent Dialogue Context\n\n{recent_context}")
     if unique_contents:
         context_parts.append(
             "## Retrieved Data (current iteration)\n\n" +
@@ -1506,9 +2352,16 @@ def fallback_response(state: AgentState, llm):
     context_text = "\n\n".join(context_parts) if context_parts else "No data was retrieved from the documents."
 
     prompt_content = (
-        f"USER QUERY: {state.get('question')}\n\n"
+        f"USER QUERY: {user_query}\n\n"
+        f"REQUEST TYPE: {'medical' if is_medical_request else 'general_or_non_medical'}\n"
+        f"RISK LEVEL: {risk_level}\n"
+        f"KNOWLEDGE STATUS: {'no_evidence' if has_no_evidence else 'limited_or_partial'}\n\n"
         f"{context_text}\n\n"
-        f"INSTRUCTION:\nProvide the best possible answer using only the data above."
+        "INSTRUCTION:\n"
+        "- If this is a medical request with weak or missing evidence, still provide a concise general medical-information answer when reasonably safe.\n"
+        "- For that medical fallback mode, clearly say the answer was not sufficiently based on knowledge-base retrieval and cannot replace in-person medical diagnosis.\n"
+        "- For severe symptoms, worsening symptoms, or medication/dosing questions, add a stronger safety reminder.\n"
+        "- For non-medical or casual questions, answer naturally and do not force a medical refusal."
     )
     response = llm.invoke([SystemMessage(content=get_fallback_response_prompt()), HumanMessage(content=prompt_content)])
     return {"messages": [response]}
@@ -1637,13 +2490,14 @@ def collect_answer(state: AgentState):
             "index": state["question_index"],
             "question": state["question"],
             "answer": answer,
+            "query_plan": state.get("query_plan", []),
             "confidence_bucket": confidence_bucket,
             "sources": citations[:3],
         }]
     }
 # --- End of Agent Nodes---
 
-def aggregate_answers(state: State, llm):
+def grounded_answer_generation(state: State, llm):
     if not state.get("agent_answers"):
         return {"messages": [AIMessage(content="No answers were generated.")]}
 
@@ -1686,14 +2540,24 @@ def aggregate_answers(state: State, llm):
             line += f" {item['original_url']}"
         citation_lines.append(line)
 
+    original_query = state.get("originalQuery", "")
+    is_medical_request = _looks_like_medical_request(
+        original_query,
+        conversation_summary=state.get("conversation_summary", ""),
+        recent_context=state.get("recent_context", ""),
+        topic_focus=state.get("topic_focus", ""),
+    )
+    risk_level = _infer_risk_level(original_query, state.get("risk_level", "normal"))
+
     confidence_note = ""
-    if confidence_bucket == "no_evidence":
-        confidence_note = "\n\n证据强度：`no_evidence`。当前知识库没有直接相关证据，以上回答应以保守提醒为主。"
-    elif confidence_bucket == "low":
-        confidence_note = "\n\n证据强度：`low`。当前命中证据有限，建议结合线下医生判断。"
+    if is_medical_request and confidence_bucket in {"no_evidence", "low"}:
+        confidence_note = "\n\n" + _build_medical_fallback_notice(
+            risk_level="high" if _needs_strict_medical_safety(original_query, risk_level) else "normal",
+            confidence_bucket=confidence_bucket,
+        )
     elif confidence_bucket == "medium":
         confidence_note = "\n\n证据强度：`medium`。当前回答基于有限但相关的资料。"
-    else:
+    elif confidence_bucket == "high":
         confidence_note = "\n\n证据强度：`high`。当前回答来自较为直接的知识库证据。"
     if any(item.get("freshness_bucket") == "outdated" for item in all_sources):
         confidence_note += "\n\n版本提醒：当前命中了较旧资料，请结合最新指南或线下医生意见一起判断。"
@@ -1706,3 +2570,42 @@ def aggregate_answers(state: State, llm):
         "messages": [AIMessage(content=f"{synthesis_response.content}{confidence_note}{citation_block}")],
         "clarification_attempts": 0,
     }
+
+
+def answer_grounding_check(state: State, llm):
+    latest_message = state["messages"][-1] if state.get("messages") else None
+    current_answer = str(getattr(latest_message, "content", "") or "").strip()
+    confidence_levels = [
+        str(item.get("confidence_bucket") or "").strip().lower()
+        for item in state.get("agent_answers") or []
+        if str(item.get("confidence_bucket") or "").strip()
+    ]
+    pseudo_docs = []
+    if "no_evidence" in confidence_levels:
+        pseudo_docs = []
+    elif "low" in confidence_levels:
+        pseudo_docs = [Document(page_content="", metadata={"score": 0.68})]
+    else:
+        pseudo_docs = [Document(page_content="", metadata={"score": 0.88})]
+    original_query = state.get("originalQuery", "")
+    risk_level = _infer_risk_level(original_query, state.get("risk_level", "normal"))
+    grounded = ground_answer(
+        current_answer,
+        pseudo_docs,
+        question=original_query,
+        medical_mode=_looks_like_medical_request(
+            original_query,
+            conversation_summary=state.get("conversation_summary", ""),
+            recent_context=state.get("recent_context", ""),
+            topic_focus=state.get("topic_focus", ""),
+        ),
+        high_risk=_needs_strict_medical_safety(original_query, risk_level),
+    )
+    final_answer = grounded.get("revised_answer", current_answer)
+    if final_answer == current_answer:
+        return {}
+    return {"messages": [AIMessage(content=final_answer)]}
+
+
+def aggregate_answers(state: State, llm):
+    return grounded_answer_generation(state, llm)

@@ -55,15 +55,15 @@ class RetrievalSourcePriorityTests(unittest.TestCase):
     def test_search_child_chunks_prefers_patient_facing_sources(self):
         docs = [
             Document(
-                page_content="Clinical guideline content",
+                page_content="Clinical guideline content about asthma treatment targets.",
                 metadata={"parent_id": "p3", "source": "guideline.pdf", "source_type": "clinical_guideline", "score": 0.99},
             ),
             Document(
-                page_content="Public health content",
+                page_content="Public health content about asthma triggers and prevention.",
                 metadata={"parent_id": "p2", "source": "who.pdf", "source_type": "public_health", "score": 0.95},
             ),
             Document(
-                page_content="Patient education content",
+                page_content="Patient education content explaining asthma symptoms.",
                 metadata={"parent_id": "p1", "source": "medlineplus.pdf", "source_type": "patient_education", "score": 0.90},
             ),
         ]

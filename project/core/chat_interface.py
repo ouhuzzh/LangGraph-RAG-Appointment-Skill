@@ -280,6 +280,18 @@ class ChatInterface:
             parts.append(f"Recommended department: {session_state['recommended_department']}")
         if session_state.get("appointment_context"):
             parts.append(f"Appointment context: {session_state['appointment_context']}")
+        if session_state.get("appointment_skill_mode"):
+            parts.append(f"Appointment skill mode: {session_state['appointment_skill_mode']}")
+        if session_state.get("appointment_candidates"):
+            parts.append(f"Appointment candidates: {session_state['appointment_candidates']}")
+        if session_state.get("selected_doctor"):
+            parts.append(f"Selected doctor: {session_state['selected_doctor']}")
+        if session_state.get("selected_schedule_id"):
+            parts.append(f"Selected schedule id: {session_state['selected_schedule_id']}")
+        if session_state.get("deferred_confirmation_action"):
+            parts.append(f"Deferred confirmation action: {session_state['deferred_confirmation_action']}")
+        if session_state.get("skill_last_prompt"):
+            parts.append(f"Skill last prompt: {session_state['skill_last_prompt']}")
         if session_state.get("last_appointment_no"):
             parts.append(f"Last appointment number: {session_state['last_appointment_no']}")
         if session_state.get("pending_action_type"):
@@ -309,21 +321,6 @@ class ChatInterface:
         thread_id     = self.rag_system.thread_id
         user_message  = message.strip()
         session_state = self.rag_system.session_memory.get_state(thread_id)
-        if self._infer_intent(user_message, session_state or {}) == "medical_rag" and not self.rag_system.vector_db.has_documents():
-            knowledge_status_getter = getattr(self.rag_system, "get_knowledge_base_status", None)
-            knowledge_status = knowledge_status_getter() if callable(knowledge_status_getter) else {}
-            status = knowledge_status.get("status")
-            if status == "building":
-                yield "知识库正在后台补建中，医学知识类问题稍后再试会更准确。预约/取消功能现在仍然可以正常使用。"
-            elif status == "failed":
-                detail = knowledge_status.get("last_error", "")
-                extra = f" 失败原因：{detail}" if detail else ""
-                yield f"知识库补建失败，暂时没法回答文档型/知识库型问题。{extra}"
-            elif status == "no_documents":
-                yield "当前还没有本地文档可供索引，暂时没法回答文档型/知识库型问题。你可以先到 Documents 页上传 PDF 或 Markdown，再回来提问。"
-            else:
-                yield "当前知识库里还没有可检索文档，系统会继续尝试补建。你也可以先到 Documents 页检查文档状态。"
-            return
 
         try:
             retrieval_context_token = set_retrieval_context(thread_id=thread_id, original_query=user_message)
@@ -356,6 +353,12 @@ class ChatInterface:
                             "last_route_reason": session_state.get("last_route_reason") or "",
                             "recommended_department": session_state.get("recommended_department") or "",
                             "appointment_context": session_state.get("appointment_context") or {},
+                            "appointment_skill_mode": session_state.get("appointment_skill_mode") or "",
+                            "appointment_candidates": session_state.get("appointment_candidates") or [],
+                            "selected_doctor": session_state.get("selected_doctor") or "",
+                            "selected_schedule_id": session_state.get("selected_schedule_id") or "",
+                            "deferred_confirmation_action": session_state.get("deferred_confirmation_action") or "",
+                            "skill_last_prompt": session_state.get("skill_last_prompt") or "",
                             "last_appointment_no": session_state.get("last_appointment_no") or "",
                             "pending_action_type": session_state.get("pending_action_type") or "",
                             "pending_action_payload": session_state.get("pending_action_payload") or {},
@@ -440,6 +443,36 @@ class ChatInterface:
             else:
                 resolved_appointment_context = session_state.get("appointment_context") or {}
 
+            if "appointment_skill_mode" in latest_values:
+                resolved_appointment_skill_mode = latest_values.get("appointment_skill_mode") or ""
+            else:
+                resolved_appointment_skill_mode = session_state.get("appointment_skill_mode") or ""
+
+            if "appointment_candidates" in latest_values:
+                resolved_appointment_candidates = latest_values.get("appointment_candidates") or []
+            else:
+                resolved_appointment_candidates = session_state.get("appointment_candidates") or []
+
+            if "selected_doctor" in latest_values:
+                resolved_selected_doctor = latest_values.get("selected_doctor") or ""
+            else:
+                resolved_selected_doctor = session_state.get("selected_doctor") or ""
+
+            if "selected_schedule_id" in latest_values:
+                resolved_selected_schedule_id = latest_values.get("selected_schedule_id") or ""
+            else:
+                resolved_selected_schedule_id = session_state.get("selected_schedule_id") or ""
+
+            if "deferred_confirmation_action" in latest_values:
+                resolved_deferred_confirmation_action = latest_values.get("deferred_confirmation_action") or ""
+            else:
+                resolved_deferred_confirmation_action = session_state.get("deferred_confirmation_action") or ""
+
+            if "skill_last_prompt" in latest_values:
+                resolved_skill_last_prompt = latest_values.get("skill_last_prompt") or ""
+            else:
+                resolved_skill_last_prompt = session_state.get("skill_last_prompt") or ""
+
             if "last_appointment_no" in latest_values:
                 resolved_last_appointment_no = latest_values.get("last_appointment_no") or None
             else:
@@ -477,6 +510,12 @@ class ChatInterface:
                 "last_route_reason": resolved_last_route_reason,
                 "recommended_department": resolved_department,
                 "appointment_context": resolved_appointment_context,
+                "appointment_skill_mode": resolved_appointment_skill_mode,
+                "appointment_candidates": resolved_appointment_candidates,
+                "selected_doctor": resolved_selected_doctor,
+                "selected_schedule_id": resolved_selected_schedule_id,
+                "deferred_confirmation_action": resolved_deferred_confirmation_action,
+                "skill_last_prompt": resolved_skill_last_prompt,
                 "last_appointment_no": resolved_last_appointment_no,
                 "pending_action_type": resolved_pending_action_type,
                 "pending_action_payload": resolved_pending_action_payload,

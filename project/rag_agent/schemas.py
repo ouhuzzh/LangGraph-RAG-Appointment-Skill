@@ -84,3 +84,51 @@ class CancelActionCall(BaseModel):
         pattern=r"^$|^\d{4}-\d{2}-\d{2}$",
     )
     clarification: str = Field(description="Short clarification question when action is clarify, otherwise empty string.")
+
+
+class AppointmentSkillRequest(BaseModel):
+    action: Literal[
+        "clarify",
+        "discover_department",
+        "discover_doctor",
+        "discover_availability",
+        "list_my_appointments",
+        "prepare_appointment",
+        "confirm_appointment",
+        "prepare_cancellation",
+        "confirm_cancellation",
+        "prepare_reschedule",
+    ] = Field(description="Appointment-skill action for discovery, planning, or controlled execution.")
+    department: str = Field(description="Department name if available, otherwise empty string.")
+    date: str = Field(
+        description="Date in YYYY-MM-DD format when known, otherwise empty string.",
+        pattern=r"^$|^\d{4}-\d{2}-\d{2}$",
+    )
+    time_slot: Literal["", "morning", "afternoon", "evening"] = Field(
+        description="Preferred standardized time slot when known, otherwise empty string."
+    )
+    doctor_name: str = Field(description="Doctor name if explicitly requested, otherwise empty string.")
+    appointment_no: str = Field(description="Appointment number if explicitly referenced, otherwise empty string.")
+    clarification: str = Field(description="Short clarification prompt when action is clarify, otherwise empty string.")
+
+
+class RetrievalQueryPlan(BaseModel):
+    queries: List[str] = Field(description="Ordered list of 2-4 retrieval-friendly queries.")
+
+
+class RetrievalDocumentGrade(BaseModel):
+    keep: bool = Field(description="Whether this retrieved document should be retained.")
+    relevance: Literal["high", "medium", "low"] = Field(description="Estimated relevance grade.")
+    reason: str = Field(description="Short reason for the relevance grade.")
+
+
+class EvidenceSufficiency(BaseModel):
+    is_sufficient: bool = Field(description="Whether current evidence is sufficient to answer the question.")
+    reason: str = Field(description="Short explanation for the sufficiency judgment.")
+    retry_query: str = Field(description="One improved retry query when evidence is insufficient, otherwise empty string.")
+
+
+class GroundedAnswerCheck(BaseModel):
+    grounded: bool = Field(description="Whether the answer stays within the provided evidence.")
+    revised_answer: str = Field(description="A conservative revised answer if the original answer was not grounded.")
+    note: str = Field(description="Short note describing the grounding decision.")

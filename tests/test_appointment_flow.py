@@ -33,6 +33,7 @@ class FakeAppointmentService:
     def __init__(self):
         self.created = []
         self.cancelled = []
+        self.rescheduled = []
         self.schedules = []
         self.doctor_queries = []
         self.candidate_calls = []
@@ -41,6 +42,7 @@ class FakeAppointmentService:
         self.next_doctors = []
         self.next_candidates = []
         self.next_cancel_result = None
+        self.next_reschedule_result = None
 
     def find_available_schedule(self, department, schedule_date, time_slot, doctor_name=None):
         self.schedules.append((department, schedule_date, time_slot, doctor_name))
@@ -61,6 +63,10 @@ class FakeAppointmentService:
     def cancel_appointment(self, thread_id, appointment_id):
         self.cancelled.append((thread_id, appointment_id))
         return self.next_cancel_result
+
+    def reschedule_appointment(self, thread_id, appointment_id, department, schedule_date, time_slot, doctor_name=None):
+        self.rescheduled.append((thread_id, appointment_id, department, schedule_date, time_slot, doctor_name))
+        return self.next_reschedule_result
 
 
 class AppointmentFlowTests(unittest.TestCase):
@@ -428,6 +434,104 @@ class AppointmentFlowTests(unittest.TestCase):
         self.assertEqual(service.cancelled[0], ("thread-6", 9))
         self.assertEqual(result["pending_action_type"], "")
         self.assertIn("已为你取消预约", result["messages"][0].content)
+
+    def test_handle_appointment_prepare_reschedule_requires_confirmation(self):
+        llm = FakeToolLLM(
+            [
+                make_tool_message(
+                    "AppointmentSkillRequest",
+                    {
+                        "action": "prepare_reschedule",
+                        "department": "呼吸内科",
+                        "date": (date.today() + timedelta(days=2)).isoformat(),
+                        "time_slot": "morning",
+                        "doctor_name": "张医生",
+                        "appointment_no": "",
+                        "clarification": "",
+                    },
+                )
+            ]
+        )
+        service = FakeAppointmentService()
+        tomorrow = date.today() + timedelta(days=1)
+        target_day = date.today() + timedelta(days=2)
+        service.next_candidates = [
+            {
+                "appointment_id": 8,
+                "appointment_no": "APT800",
+                "appointment_date": tomorrow,
+                "time_slot": "afternoon",
+                "department": "呼吸内科",
+                "doctor_name": "李医生",
+            }
+        ]
+        service.next_doctors = [
+            {
+                "schedule_id": 99,
+                "doctor_id": 10,
+                "department_id": 20,
+                "schedule_date": target_day,
+                "time_slot": "morning",
+                "quota_available": 2,
+                "doctor_name": "张医生",
+                "department_name": "呼吸内科",
+            }
+        ]
+        service.next_schedule = service.next_doctors[0]
+        state = {
+            "thread_id": "thread-reschedule-preview",
+            "messages": [HumanMessage(content="把最近那个预约改到后天上午张医生")],
+            "appointment_context": {},
+            "last_appointment_no": "APT800",
+        }
+
+        result = handle_appointment(state, llm, service)
+
+        self.assertEqual(result["pending_action_type"], "reschedule_appointment")
+        self.assertEqual(result["pending_action_payload"]["appointment_id"], "8")
+        self.assertIn("确认预约", result["messages"][0].content)
+        self.assertEqual(service.rescheduled, [])
+
+    def test_handle_appointment_confirm_reschedule_executes(self):
+        llm = FakeToolLLM([])
+        service = FakeAppointmentService()
+        service.next_reschedule_result = {
+            "appointment_no": "APT800",
+            "department": "呼吸内科",
+            "date": "2026-04-21",
+            "time_slot": "morning",
+            "doctor_name": "张医生",
+            "previous_department": "呼吸内科",
+            "previous_date": "2026-04-20",
+            "previous_time_slot": "afternoon",
+            "previous_doctor_name": "李医生",
+            "status": "booked",
+        }
+        state = {
+            "thread_id": "thread-reschedule-confirm",
+            "messages": [HumanMessage(content="确认预约")],
+            "appointment_context": {},
+            "pending_action_type": "reschedule_appointment",
+            "pending_action_payload": {
+                "appointment_id": "8",
+                "appointment_no": "APT800",
+                "department": "呼吸内科",
+                "date": "2026-04-21",
+                "time_slot": "morning",
+                "doctor_name": "张医生",
+                "previous_department": "呼吸内科",
+                "previous_date": "2026-04-20",
+                "previous_time_slot": "afternoon",
+                "previous_doctor_name": "李医生",
+            },
+            "pending_confirmation_id": "confirm-reschedule-1",
+        }
+
+        result = handle_appointment(state, llm, service)
+
+        self.assertEqual(service.rescheduled[0][1], 8)
+        self.assertEqual(result["pending_action_type"], "")
+        self.assertIn("已为你改约成功", result["messages"][0].content)
 
 
 if __name__ == "__main__":

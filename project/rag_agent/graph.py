@@ -36,13 +36,16 @@ def create_agent_graph(llm, tools_list, appointment_service=None):
     graph_builder.add_node("analyze_turn", analyze_turn)
     graph_builder.add_node("intent_router", partial(intent_router, llm=llm))
     graph_builder.add_node("rewrite_query", partial(rewrite_query, llm=llm))
+    graph_builder.add_node("plan_retrieval_queries", partial(plan_retrieval_queries, llm=llm))
     graph_builder.add_node("recommend_department", partial(recommend_department, llm=llm))
+    graph_builder.add_node("handle_appointment_skill", partial(handle_appointment_skill, llm=llm, appointment_service=appointment_service))
     graph_builder.add_node("handle_appointment", partial(handle_appointment, llm=llm, appointment_service=appointment_service))
     graph_builder.add_node("handle_cancel_appointment", partial(handle_cancel_appointment, llm=llm, appointment_service=appointment_service))
     graph_builder.add_node(request_clarification)
     graph_builder.add_node("prepare_secondary_turn", prepare_secondary_turn)
     graph_builder.add_node("agent", agent_subgraph)
-    graph_builder.add_node("aggregate_answers", partial(aggregate_answers, llm=llm))
+    graph_builder.add_node("grounded_answer_generation", partial(grounded_answer_generation, llm=llm))
+    graph_builder.add_node("answer_grounding_check", partial(answer_grounding_check, llm=llm))
 
     graph_builder.add_edge(START, "summarize_history")
     graph_builder.add_edge("summarize_history", "analyze_turn")
@@ -50,15 +53,26 @@ def create_agent_graph(llm, tools_list, appointment_service=None):
     graph_builder.add_conditional_edges("intent_router", route_after_intent, {
         "rewrite_query": "rewrite_query",
         "recommend_department": "recommend_department",
-        "handle_appointment": "handle_appointment",
-        "handle_cancel_appointment": "handle_cancel_appointment",
+        "handle_appointment_skill": "handle_appointment_skill",
         "request_clarification": "request_clarification",
         "__end__": END,
     })
-    graph_builder.add_conditional_edges("rewrite_query", route_after_rewrite)
-    graph_builder.add_conditional_edges("request_clarification", route_after_clarification)
-    graph_builder.add_edge(["agent"], "aggregate_answers")
+    graph_builder.add_conditional_edges("rewrite_query", route_after_rewrite, {
+        "request_clarification": "request_clarification",
+        "plan_retrieval_queries": "plan_retrieval_queries",
+    })
+    graph_builder.add_conditional_edges("plan_retrieval_queries", route_after_query_plan)
+    graph_builder.add_conditional_edges("request_clarification", route_after_clarification, {
+        "intent_router": "intent_router",
+        "rewrite_query": "rewrite_query",
+        "recommend_department": "recommend_department",
+        "handle_appointment_skill": "handle_appointment_skill",
+        "handle_appointment": "handle_appointment",
+        "handle_cancel_appointment": "handle_cancel_appointment",
+    })
+    graph_builder.add_edge(["agent"], "grounded_answer_generation")
     graph_builder.add_conditional_edges("recommend_department", route_after_action, {"prepare_secondary_turn": "prepare_secondary_turn", "__end__": END})
+    graph_builder.add_conditional_edges("handle_appointment_skill", route_after_action, {"prepare_secondary_turn": "prepare_secondary_turn", "__end__": END})
     graph_builder.add_conditional_edges("handle_appointment", route_after_action, {"prepare_secondary_turn": "prepare_secondary_turn", "__end__": END})
     graph_builder.add_conditional_edges("handle_cancel_appointment", route_after_action, {"prepare_secondary_turn": "prepare_secondary_turn", "__end__": END})
     graph_builder.add_conditional_edges("prepare_secondary_turn", route_after_prepare_secondary_turn, {
@@ -67,7 +81,8 @@ def create_agent_graph(llm, tools_list, appointment_service=None):
         "handle_cancel_appointment": "handle_cancel_appointment",
         "recommend_department": "recommend_department",
     })
-    graph_builder.add_edge("aggregate_answers", END)
+    graph_builder.add_edge("grounded_answer_generation", "answer_grounding_check")
+    graph_builder.add_edge("answer_grounding_check", END)
 
     agent_graph = graph_builder.compile(checkpointer=checkpointer, interrupt_before=["request_clarification"])
 
