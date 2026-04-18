@@ -66,6 +66,7 @@ _DEPARTMENT_HINTS = (
     "妇科", "骨科", "皮肤科", "耳鼻喉科", "眼科", "呼吸科", "内科", "外科", "门诊",
 )
 _TOPIC_STOP_WORDS = ("一下", "一下子", "这个", "那个", "这种情况", "怎么", "怎么办", "需要", "是否", "一般")
+_ANY_DOCTOR_HINTS = ("任一", "任何医生", "随便医生", "都可以", "任选", "任意医生", "任一可用医生")
 
 
 def _clear_pending_action_state() -> dict:
@@ -229,7 +230,7 @@ def _normalize_date(raw_value: str) -> str:
 def _build_appointment_context(existing: dict | None, updates: dict) -> dict:
     context = dict(existing or {})
     for key, value in updates.items():
-        if value:
+        if value or (key in updates and isinstance(value, list)):
             context[key] = value
     return context
 
@@ -260,6 +261,32 @@ def _extract_topic_focus(user_query: str, existing_topic: str = "", appointment_
             return value
     existing_topic = (existing_topic or "").strip()
     return existing_topic
+
+
+def _wants_any_available_doctor(user_query: str) -> bool:
+    normalized = (user_query or "").strip().lower()
+    return any(token in normalized for token in _ANY_DOCTOR_HINTS)
+
+
+def _pick_doctor_name_from_text(user_query: str, doctor_options: list[dict] | None) -> str:
+    normalized = (user_query or "").strip().lower()
+    for item in doctor_options or []:
+        doctor_name = str(item.get("doctor_name") or "").strip()
+        if doctor_name and doctor_name.lower() in normalized:
+            return doctor_name
+    return ""
+
+
+def _format_doctor_options(department: str, normalized_date: str, time_slot: str, doctor_options: list[dict]) -> str:
+    options = "\n".join(
+        f"{idx}. **{item['doctor_name']}**（剩余号源 {item.get('quota_available', 0)}）"
+        for idx, item in enumerate(doctor_options[:8], start=1)
+    )
+    return (
+        f"目前 **{department}** 在 {normalized_date} {time_slot} 可预约的医生有：\n\n"
+        f"{options}\n\n"
+        "请直接回复医生姓名；如果你不挑医生，也可以回复 **任一可用医生**，我会为你自动安排。"
+    )
 
 
 def _parse_tool_call(response, expected_name: str) -> dict:
@@ -1118,7 +1145,13 @@ def handle_appointment(state: State, llm, appointment_service):
     department = (call_args.get("department") or "").strip() or state.get("recommended_department", "") or appointment_context.get("department", "")
     normalized_date = _normalize_date(call_args.get("date") or appointment_context.get("date", "") or user_query)
     time_slot = _normalize_time_slot(call_args.get("time_slot") or appointment_context.get("time_slot", "") or user_query)
-    doctor_name = (call_args.get("doctor_name") or "").strip() or appointment_context.get("doctor_name", "")
+    available_doctors = appointment_context.get("available_doctors") or []
+    doctor_name = (
+        (call_args.get("doctor_name") or "").strip()
+        or _pick_doctor_name_from_text(user_query, available_doctors)
+        or appointment_context.get("doctor_name", "")
+    )
+    wants_any_doctor = _wants_any_available_doctor(user_query)
 
     merged_context = _build_appointment_context(
         appointment_context,
@@ -1127,6 +1160,7 @@ def handle_appointment(state: State, llm, appointment_service):
             "date": normalized_date,
             "time_slot": time_slot,
             "doctor_name": doctor_name,
+            "available_doctors": available_doctors,
         },
     )
 
@@ -1151,13 +1185,13 @@ def handle_appointment(state: State, llm, appointment_service):
             "messages": [AIMessage(content=clarification)],
         }
 
-    schedule = appointment_service.find_available_schedule(
+    schedule_date_value = date.fromisoformat(normalized_date)
+    doctor_options = appointment_service.list_available_doctors(
         department=department,
-        schedule_date=date.fromisoformat(normalized_date),
+        schedule_date=schedule_date_value,
         time_slot=time_slot,
-        doctor_name=doctor_name or None,
     )
-    if not schedule:
+    if not doctor_options:
         answer = f"暂时没有找到 **{department}** 在 {normalized_date} {time_slot} 的可预约号源。你可以换一个日期、时间段，或继续让我帮你改约。"
         return {
             "intent": "appointment",
@@ -1165,7 +1199,52 @@ def handle_appointment(state: State, llm, appointment_service):
             "clarification_target": "",
             "clarification_attempts": 0,
             "topic_focus": department or state.get("topic_focus", ""),
-            "appointment_context": merged_context,
+            "appointment_context": _build_appointment_context(merged_context, {"available_doctors": []}),
+            **_clear_pending_action_state(),
+            "messages": [AIMessage(content=answer)],
+        }
+
+    if not doctor_name and len(doctor_options) > 1 and not wants_any_doctor:
+        clarification = _format_doctor_options(department, normalized_date, time_slot, doctor_options)
+        return {
+            "intent": "appointment",
+            "pending_clarification": clarification,
+            "clarification_target": "handle_appointment",
+            "clarification_attempts": int(state.get("clarification_attempts") or 0) + 1,
+            "topic_focus": department or state.get("topic_focus", ""),
+            "appointment_context": _build_appointment_context(merged_context, {"available_doctors": doctor_options, "doctor_name": ""}),
+            **_clear_pending_action_state(),
+            "messages": [AIMessage(content=clarification)],
+        }
+
+    schedule = appointment_service.find_available_schedule(
+        department=department,
+        schedule_date=schedule_date_value,
+        time_slot=time_slot,
+        doctor_name=doctor_name or None,
+    )
+    if not schedule:
+        if doctor_name and doctor_options:
+            doctor_hint = _format_doctor_options(department, normalized_date, time_slot, doctor_options)
+            answer = f"没有找到 **{doctor_name}** 在该时段的可预约号源。\n\n{doctor_hint}"
+            return {
+                "intent": "appointment",
+                "pending_clarification": answer,
+                "clarification_target": "handle_appointment",
+                "clarification_attempts": int(state.get('clarification_attempts') or 0) + 1,
+                "topic_focus": department or state.get("topic_focus", ""),
+                "appointment_context": _build_appointment_context(merged_context, {"available_doctors": doctor_options, "doctor_name": ""}),
+                **_clear_pending_action_state(),
+                "messages": [AIMessage(content=answer)],
+            }
+        answer = f"暂时没有找到 **{department}** 在 {normalized_date} {time_slot} 的可预约号源。你可以换一个日期、时间段，或继续让我帮你改约。"
+        return {
+            "intent": "appointment",
+            "pending_clarification": "",
+            "clarification_target": "",
+            "clarification_attempts": 0,
+            "topic_focus": department or state.get("topic_focus", ""),
+            "appointment_context": _build_appointment_context(merged_context, {"available_doctors": doctor_options}),
             **_clear_pending_action_state(),
             "messages": [AIMessage(content=answer)],
         }
@@ -1183,7 +1262,7 @@ def handle_appointment(state: State, llm, appointment_service):
         "clarification_target": "",
         "clarification_attempts": 0,
         "topic_focus": preview_payload["department"],
-        "appointment_context": merged_context,
+        "appointment_context": _build_appointment_context(merged_context, {"available_doctors": doctor_options, "doctor_name": schedule["doctor_name"]}),
         **_build_pending_confirmation("appointment", preview_payload),
         "messages": [AIMessage(content=_format_booking_preview(preview_payload))],
     }

@@ -595,12 +595,66 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
             summary += "\n失败详情：\n- " + "\n- ".join(result.failure_details[:3])
         return (summary,) + refresh_status_panel()
 
-    def chat_handler(msg, hist):
-        for chunk in chat_interface.chat(msg, hist, reveal_diagnostics=False):
-            yield chunk
+    def _append_user_message(msg, hist):
+        user_message = (msg or "").strip()
+        history = _normalize_chat_history(hist)
+        if not user_message:
+            return "", history
+        history.append({"role": "user", "content": user_message})
+        return "", history
+
+    def _extract_chat_message_text(content):
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for item in content:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    parts.append(str(item.get("text") or ""))
+            return "".join(parts).strip()
+        if isinstance(content, dict):
+            return str(content.get("text") or content.get("value") or "").strip()
+        return str(content or "").strip()
+
+    def _normalize_chat_history(hist):
+        if isinstance(hist, str):
+            content = hist.strip()
+            return [{"role": "assistant", "content": content}] if content else []
+        if hasattr(hist, "get"):
+            hist = [hist]
+        normalized = []
+        for item in list(hist or []):
+            if hasattr(item, "get"):
+                role = item.get("role") or "assistant"
+                content = _extract_chat_message_text(item.get("content"))
+            else:
+                role = getattr(item, "role", "assistant")
+                content = _extract_chat_message_text(getattr(item, "content", ""))
+            if not content:
+                continue
+            normalized.append({"role": role, "content": content})
+        return normalized
+
+    def chat_handler(hist):
+        history = _normalize_chat_history(hist)
+        if not history:
+            return history
+
+        last_message = history[-1]
+        user_message = _extract_chat_message_text(last_message.get("content"))
+        if not user_message:
+            return history
+
+        base_history = history[:-1]
+        user_entry = {"role": "user", "content": user_message}
+        resolved_history = [*base_history, user_entry]
+        for chunk in chat_interface.chat(user_message, base_history, reveal_diagnostics=False):
+            resolved_history = [*base_history, user_entry, *_normalize_chat_history(chunk)]
+        return resolved_history
 
     def clear_chat_handler():
         chat_interface.clear_session()
+        return []
 
     with gr.Blocks(title="宁和医疗助手", theme=APP_THEME, css=APP_CSS, fill_height=True) as demo:
         with gr.Column(elem_classes=["app-shell"]):
@@ -622,20 +676,40 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
                     placeholder="<strong>直接输入你的问题就可以。</strong><br><em>比如：高血压要注意什么、咳嗽挂什么科、帮我预约明天下午呼吸内科。</em>",
                     layout="bubble",
                 )
-                chatbot.clear(clear_chat_handler)
-                gr.ChatInterface(
-                    fn=chat_handler,
-                    chatbot=chatbot,
-                    textbox=gr.Textbox(
-                        placeholder="输入症状、医学问题或挂号需求 …",
-                        lines=1,
-                        max_lines=4,
-                        show_label=False,
-                        autofocus=True,
-                    ),
-                    submit_btn="发送",
-                    stop_btn="停止",
+                chat_input = gr.Textbox(
+                    placeholder="输入症状、医学问题或挂号需求 …",
+                    lines=1,
+                    max_lines=4,
+                    show_label=False,
+                    autofocus=True,
                 )
+                with gr.Row():
+                    send_btn = gr.Button("发送", variant="primary")
+                    clear_chat_btn = gr.Button("清空对话", variant="secondary")
+
+                submit_event = chat_input.submit(
+                    _append_user_message,
+                    [chat_input, chatbot],
+                    [chat_input, chatbot],
+                    show_progress="hidden",
+                ).then(
+                    chat_handler,
+                    [chatbot],
+                    [chatbot],
+                    show_progress="minimal",
+                )
+                send_btn.click(
+                    _append_user_message,
+                    [chat_input, chatbot],
+                    [chat_input, chatbot],
+                    show_progress="hidden",
+                ).then(
+                    chat_handler,
+                    [chatbot],
+                    [chatbot],
+                    show_progress="minimal",
+                )
+                clear_chat_btn.click(clear_chat_handler, None, [chatbot], show_progress="hidden")
                 gr.HTML(
                     """
 <div class="quick-hints">

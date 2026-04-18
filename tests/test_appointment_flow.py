@@ -34,15 +34,21 @@ class FakeAppointmentService:
         self.created = []
         self.cancelled = []
         self.schedules = []
+        self.doctor_queries = []
         self.candidate_calls = []
         self.next_schedule = None
         self.next_booking = None
+        self.next_doctors = []
         self.next_candidates = []
         self.next_cancel_result = None
 
     def find_available_schedule(self, department, schedule_date, time_slot, doctor_name=None):
         self.schedules.append((department, schedule_date, time_slot, doctor_name))
         return self.next_schedule
+
+    def list_available_doctors(self, department, schedule_date, time_slot):
+        self.doctor_queries.append((department, schedule_date, time_slot))
+        return list(self.next_doctors)
 
     def create_appointment(self, thread_id, department, schedule_date, time_slot, doctor_name=None):
         self.created.append((thread_id, department, schedule_date, time_slot, doctor_name))
@@ -76,6 +82,18 @@ class AppointmentFlowTests(unittest.TestCase):
         )
         service = FakeAppointmentService()
         tomorrow = date.today() + timedelta(days=1)
+        service.next_doctors = [
+            {
+                "schedule_id": 1,
+                "doctor_id": 10,
+                "department_id": 20,
+                "schedule_date": tomorrow,
+                "time_slot": "morning",
+                "quota_available": 3,
+                "doctor_name": "张医生",
+                "department_name": "呼吸内科",
+            }
+        ]
         service.next_schedule = {
             "schedule_id": 1,
             "doctor_id": 10,
@@ -99,6 +117,114 @@ class AppointmentFlowTests(unittest.TestCase):
         self.assertEqual(result["pending_action_payload"]["department"], "呼吸内科")
         self.assertIn("确认预约", result["messages"][0].content)
         self.assertEqual(service.created, [])
+
+    def test_handle_appointment_lists_available_doctors_when_multiple_options_exist(self):
+        llm = FakeToolLLM(
+            [
+                make_tool_message(
+                    "AppointmentActionCall",
+                    {
+                        "action": "prepare_booking",
+                        "department": "呼吸内科",
+                        "date": "明天",
+                        "time_slot": "上午",
+                        "doctor_name": "",
+                        "clarification": "",
+                    },
+                )
+            ]
+        )
+        service = FakeAppointmentService()
+        tomorrow = date.today() + timedelta(days=1)
+        service.next_doctors = [
+            {
+                "schedule_id": 1,
+                "doctor_id": 10,
+                "department_id": 20,
+                "schedule_date": tomorrow,
+                "time_slot": "morning",
+                "quota_available": 3,
+                "doctor_name": "张医生",
+                "department_name": "呼吸内科",
+            },
+            {
+                "schedule_id": 2,
+                "doctor_id": 11,
+                "department_id": 20,
+                "schedule_date": tomorrow,
+                "time_slot": "morning",
+                "quota_available": 1,
+                "doctor_name": "李医生",
+                "department_name": "呼吸内科",
+            },
+        ]
+        state = {
+            "thread_id": "thread-multi-doctor",
+            "messages": [HumanMessage(content="帮我预约明天上午呼吸内科")],
+            "appointment_context": {},
+            "recommended_department": "",
+        }
+
+        result = handle_appointment(state, llm, service)
+
+        self.assertEqual(result["pending_action_type"], "")
+        self.assertIn("可预约的医生有", result["messages"][0].content)
+        self.assertIn("张医生", result["messages"][0].content)
+        self.assertIn("李医生", result["messages"][0].content)
+
+    def test_handle_appointment_allows_any_available_doctor_selection(self):
+        llm = FakeToolLLM(
+            [
+                make_tool_message(
+                    "AppointmentActionCall",
+                    {
+                        "action": "prepare_booking",
+                        "department": "呼吸内科",
+                        "date": "明天",
+                        "time_slot": "上午",
+                        "doctor_name": "",
+                        "clarification": "",
+                    },
+                )
+            ]
+        )
+        service = FakeAppointmentService()
+        tomorrow = date.today() + timedelta(days=1)
+        service.next_doctors = [
+            {
+                "schedule_id": 1,
+                "doctor_id": 10,
+                "department_id": 20,
+                "schedule_date": tomorrow,
+                "time_slot": "morning",
+                "quota_available": 3,
+                "doctor_name": "张医生",
+                "department_name": "呼吸内科",
+            },
+            {
+                "schedule_id": 2,
+                "doctor_id": 11,
+                "department_id": 20,
+                "schedule_date": tomorrow,
+                "time_slot": "morning",
+                "quota_available": 1,
+                "doctor_name": "李医生",
+                "department_name": "呼吸内科",
+            },
+        ]
+        service.next_schedule = service.next_doctors[0]
+        state = {
+            "thread_id": "thread-any-doctor",
+            "messages": [HumanMessage(content="任一可用医生都可以，帮我预约明天上午呼吸内科")],
+            "appointment_context": {},
+            "recommended_department": "",
+        }
+
+        result = handle_appointment(state, llm, service)
+
+        self.assertEqual(result["pending_action_type"], "appointment")
+        self.assertEqual(result["pending_action_payload"]["doctor_name"], "张医生")
+        self.assertIn("确认预约", result["messages"][0].content)
 
     def test_handle_appointment_confirmation_executes_booking(self):
         llm = FakeToolLLM([])
@@ -150,6 +276,18 @@ class AppointmentFlowTests(unittest.TestCase):
         )
         service = FakeAppointmentService()
         tomorrow = date.today() + timedelta(days=1)
+        service.next_doctors = [
+            {
+                "schedule_id": 2,
+                "doctor_id": 11,
+                "department_id": 21,
+                "schedule_date": tomorrow,
+                "time_slot": "afternoon",
+                "quota_available": 5,
+                "doctor_name": "李医生",
+                "department_name": "心内科",
+            }
+        ]
         service.next_schedule = {
             "schedule_id": 2,
             "doctor_id": 11,

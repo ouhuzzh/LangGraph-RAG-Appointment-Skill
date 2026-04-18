@@ -154,6 +154,50 @@ class AppointmentService:
             "department_name": department_row["name"],
         }
 
+    def list_available_doctors(self, department: str, schedule_date: date, time_slot: str, conn=None):
+        owns_connection = conn is None
+        connection = conn or self._connect()
+        department_row = self.find_department_by_name(department, conn=connection)
+        if not department_row:
+            if owns_connection:
+                connection.close()
+            return []
+
+        try:
+            with connection.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT ds.id, ds.doctor_id, ds.department_id, ds.schedule_date, ds.time_slot,
+                           ds.quota_available, d.name
+                    FROM doctor_schedules ds
+                    JOIN doctors d ON d.id = ds.doctor_id
+                    WHERE ds.department_id = %s
+                      AND ds.schedule_date = %s
+                      AND ds.time_slot = %s
+                      AND ds.quota_available > 0
+                    ORDER BY d.name, ds.id
+                    """,
+                    (department_row["id"], schedule_date, time_slot),
+                )
+                rows = cur.fetchall()
+        finally:
+            if owns_connection:
+                connection.close()
+
+        return [
+            {
+                "schedule_id": row[0],
+                "doctor_id": row[1],
+                "department_id": row[2],
+                "schedule_date": row[3],
+                "time_slot": row[4],
+                "quota_available": row[5],
+                "doctor_name": row[6],
+                "department_name": department_row["name"],
+            }
+            for row in rows
+        ]
+
     def create_appointment(self, thread_id: str, department: str, schedule_date: date, time_slot: str, doctor_name: str | None = None):
         appointment_no = "APT" + uuid.uuid4().hex[:10].upper()
         request_payload = {

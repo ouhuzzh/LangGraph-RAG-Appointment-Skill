@@ -16,7 +16,7 @@ logging.getLogger("opentelemetry.context").addFilter(_SuppressOtelDetachWarning(
 from ui.gradio_app import create_gradio_ui
 
 if __name__ == "__main__":
-    print("\n🔨 Creating RAG Assistant...")
+    print("\nCreating RAG Assistant...")
     demo = create_gradio_ui()
-    print("\n🚀 Launching RAG Assistant...")
-    demo.launch()
+    print("\nLaunching RAG Assistant...")
+    demo.launch(show_error=True)
