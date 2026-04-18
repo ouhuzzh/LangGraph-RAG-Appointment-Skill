@@ -135,7 +135,10 @@ APP_CSS = """
 .card-shell h3, .import-card h3, .doc-card h3 { margin: 0 0 10px; color: var(--text) !important; font-size: 1rem; font-weight: 700; }
 
 /* ── Item Lists ── */
-.item-list { display:grid; gap:8px; }
+.item-list { display:grid; gap:8px; max-height: 420px; overflow-y: auto; padding-right: 4px; }
+.item-list::-webkit-scrollbar { width: 5px; }
+.item-list::-webkit-scrollbar-track { background: transparent; }
+.item-list::-webkit-scrollbar-thumb { background: rgba(0,0,0,.08); border-radius: 4px; }
 .item {
   background: var(--surface-soft); border: 1px solid var(--border);
   border-radius: var(--radius-md); padding: 12px 14px; transition: background .15s ease;
@@ -735,8 +738,8 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
 """.strip()
                 )
                 docs_status_panel = gr.HTML(value=_format_docs_status_panel())
-                with gr.Row(equal_height=True):
-                    with gr.Column(scale=5):
+                with gr.Row():
+                    with gr.Column(scale=1):
                         with gr.Group(elem_classes=["card-shell"]):
                             gr.Markdown("### 上传你自己的资料")
                             gr.Markdown('<p class="diag-note">支持 PDF 和 Markdown。同名文件不会被静默覆盖，系统会明确告诉你是新增还是跳过。</p>')
@@ -747,7 +750,8 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
                                 height=180,
                             )
                             add_btn = gr.Button("添加到知识库", variant="primary")
-
+                            
+                    with gr.Column(scale=1):
                         with gr.Group(elem_classes=["card-shell"]):
                             gr.Markdown("### 一键导入官方资料")
                             gr.Markdown('<p class="diag-note">适合先快速搭一个可靠底座，再逐步补自己的资料。</p>')
@@ -764,13 +768,19 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
                                 official_limit = gr.Number(value=5, precision=0, minimum=1, maximum=100, label="数量")
                             official_overwrite = gr.Checkbox(value=False, label="覆盖已存在的本地 Markdown")
                             official_import_btn = gr.Button("导入官方资料", variant="secondary")
-                            official_import_result = gr.Textbox(value="", label="导入结果", interactive=False, lines=9)
-                    with gr.Column(scale=7):
+                            official_import_result = gr.Textbox(value="", label="导入结果", interactive=False, lines=2)
+
+                with gr.Row():
+                    with gr.Column(scale=1):
                         docs_import_tasks = gr.HTML(value=_format_recent_imports())
+                    with gr.Column(scale=1):
                         file_list = gr.HTML(value=_format_files())
-                        with gr.Row():
-                            refresh_btn = gr.Button("刷新状态", variant="secondary")
-                            clear_btn = gr.Button("清空知识库", variant="stop")
+                        
+                with gr.Row():
+                    with gr.Column():
+                        refresh_btn = gr.Button("刷新状态", variant="secondary")
+                    with gr.Column():
+                        clear_btn = gr.Button("清空知识库", variant="stop")
 
                 with gr.Accordion("高级诊断", open=False, elem_classes=["diagnostics-accordion"]):
                     docs_debug_panel = gr.Markdown(value=_format_debug_snapshot())
