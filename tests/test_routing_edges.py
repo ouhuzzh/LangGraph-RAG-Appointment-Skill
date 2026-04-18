@@ -66,6 +66,26 @@ class RoutingEdgeTests(unittest.TestCase):
         self.assertEqual(result["secondary_intent"], "medical_rag")
         self.assertEqual(result["deferred_user_question"], "流感怎么预防？")
 
+    def test_analyze_turn_keeps_department_selection_inside_appointment_flow(self):
+        result = analyze_turn(
+            {
+                "messages": [HumanMessage(content="呼吸内科")],
+                "conversation_summary": "",
+                "pending_action_type": "",
+                "pending_candidates": [],
+                "pending_clarification": "",
+                "clarification_target": "",
+                "appointment_context": {},
+                "recommended_department": "",
+                "topic_focus": "",
+                "intent": "appointment",
+                "appointment_skill_mode": "discover_department",
+            }
+        )
+
+        self.assertEqual(result["primary_intent"], "appointment")
+        self.assertEqual(result["route_reason"], "continue_department_selection")
+
     def test_route_after_rewrite_passes_recent_context_to_agent_subgraph(self):
         self.assertEqual(
             route_after_rewrite(

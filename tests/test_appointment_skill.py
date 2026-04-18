@@ -10,6 +10,7 @@ from services.appointment_skill import AppointmentSkill  # noqa: E402
 class FakeAppointmentService:
     def __init__(self):
         self.next_departments = []
+        self.all_departments = []
         self.next_doctors = []
         self.next_availability = []
         self.next_appointments = []
@@ -19,7 +20,9 @@ class FakeAppointmentService:
         self.next_booking = None
 
     def list_departments(self, query=None, limit=10):
-        return list(self.next_departments)[:limit]
+        if query:
+            return list(self.next_departments)[:limit]
+        return list(self.all_departments or self.next_departments)[:limit]
 
     def list_available_doctors(self, department, schedule_date, time_slot):
         return list(self.next_doctors)
@@ -47,6 +50,20 @@ class FakeAppointmentService:
 
 
 class AppointmentSkillTests(unittest.TestCase):
+    def test_discover_departments_falls_back_to_default_list_when_query_has_no_match(self):
+        service = FakeAppointmentService()
+        service.next_departments = []
+        service.all_departments = [
+            {"id": 1, "code": "resp", "name": "呼吸内科"},
+            {"id": 2, "code": "card", "name": "心内科"},
+        ]
+        skill = AppointmentSkill(service)
+
+        message = skill.discover_departments("我要挂号")
+
+        self.assertIn("呼吸内科", message)
+        self.assertIn("心内科", message)
+
     def test_discover_doctors_returns_read_only_listing(self):
         service = FakeAppointmentService()
         tomorrow = date.today() + timedelta(days=1)

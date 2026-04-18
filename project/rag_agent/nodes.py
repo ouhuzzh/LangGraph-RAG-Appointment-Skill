@@ -325,8 +325,20 @@ def _build_appointment_context(existing: dict | None, updates: dict) -> dict:
     context = dict(existing or {})
     for key, value in updates.items():
         if value or (key in updates and isinstance(value, list)):
-            context[key] = value
+            context[key] = _json_safe_value(value)
     return context
+
+
+def _json_safe_value(value):
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: _json_safe_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_safe_value(item) for item in value]
+    return value
 
 
 def _sanitize_pending_payload(payload: dict | None) -> dict:
@@ -500,6 +512,13 @@ def _looks_like_appointment_discovery_query(user_query: str) -> bool:
     return False
 
 
+def _looks_like_department_name_only(user_query: str) -> bool:
+    normalized = (user_query or "").strip()
+    if not normalized:
+        return False
+    return any(department in normalized for department in _DEPARTMENT_HINTS)
+
+
 def _looks_like_explicit_cancel_intent(user_query: str) -> bool:
     normalized = (user_query or "").strip().lower()
     if not normalized or not any(keyword in normalized for keyword in _CANCEL_KEYWORDS):
@@ -653,6 +672,29 @@ def analyze_turn(state: State):
             "decision_source": "resume",
             "route_reason": f"continue_{clarification_target}",
             "last_route_reason": f"continue_{clarification_target}",
+        }
+
+    if (
+        (state.get("intent") == "appointment" or state.get("appointment_skill_mode") in {"discover_department", "clarify", "discover_doctor", "discover_availability"})
+        and _looks_like_department_name_only(user_query)
+        and not _looks_like_explicit_cancel_intent(user_query)
+    ):
+        return {
+            "recent_context": recent_context,
+            "topic_focus": _extract_topic_focus(
+                user_query,
+                state.get("topic_focus", ""),
+                state.get("appointment_context", {}),
+                state.get("recommended_department", ""),
+            ),
+            "primary_intent": "appointment",
+            "secondary_intent": "",
+            "primary_user_query": user_query,
+            "secondary_user_query": "",
+            "deferred_user_question": "",
+            "decision_source": "resume",
+            "route_reason": "continue_department_selection",
+            "last_route_reason": "continue_department_selection",
         }
 
     segments = _split_compound_request(user_query)
@@ -1733,8 +1775,8 @@ def _base_skill_state_update(
         "intent": intent,
         "appointment_skill_mode": skill_mode,
         "topic_focus": topic_focus or state.get("topic_focus", ""),
-        "appointment_context": appointment_context if appointment_context is not None else dict(state.get("appointment_context") or {}),
-        "appointment_candidates": list(candidates or []),
+        "appointment_context": _json_safe_value(appointment_context if appointment_context is not None else dict(state.get("appointment_context") or {})),
+        "appointment_candidates": _json_safe_value(list(candidates or [])),
         "skill_last_prompt": skill_last_prompt or "",
     }
 

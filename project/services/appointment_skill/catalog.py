@@ -9,7 +9,10 @@ class AppointmentCatalog:
 
     def list_departments(self, query: str = "", limit: int = 10):
         if hasattr(self.appointment_service, "list_departments"):
-            return self.appointment_service.list_departments(query=query or None, limit=limit)
+            results = self.appointment_service.list_departments(query=query or None, limit=limit)
+            if results or not query:
+                return results
+            return self.appointment_service.list_departments(query=None, limit=limit)
         return []
 
     def list_available_doctors(self, department: str, schedule_date: date, time_slot: str):
