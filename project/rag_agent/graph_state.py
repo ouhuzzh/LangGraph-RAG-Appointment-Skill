@@ -10,12 +10,19 @@ def accumulate_or_reset(existing: List[dict], new: List[dict]) -> List[dict]:
 def set_union(a: Set[str], b: Set[str]) -> Set[str]:
     return a | b
 
+
+def keep_latest_non_empty(existing: str, new: str) -> str:
+    new_value = str(new or "").strip()
+    if new_value:
+        return new_value
+    return str(existing or "")
+
 class State(MessagesState):
     """State for main agent graph"""
     questionIsClear: bool = False
     conversation_summary: str = ""
-    recent_context: str = ""
-    topic_focus: str = ""
+    recent_context: Annotated[str, keep_latest_non_empty] = ""
+    topic_focus: Annotated[str, keep_latest_non_empty] = ""
     originalQuery: str = ""
     thread_id: str = ""
     intent: str = ""
