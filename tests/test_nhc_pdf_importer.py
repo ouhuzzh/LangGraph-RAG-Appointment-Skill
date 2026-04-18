@@ -53,6 +53,9 @@ class NhcPdfImporterTests(unittest.TestCase):
         self.assertIn("plain_text_fallback", result.conversion_details[0])
         self.assertIn("Source: 国家卫生健康委员会", content)
         self.assertIn("样例诊疗指南", content)
+        self.assertIn("Published At:", content)
+        self.assertIn("Fetched At:", content)
+        self.assertIn("Freshness Bucket:", content)
         self.assertIn("第一段内容", content)
         self.assertEqual(importer.downloaded_urls, ["https://www.nhc.gov.cn/sample/files/sample.pdf"])
 

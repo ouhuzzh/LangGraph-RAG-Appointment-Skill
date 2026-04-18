@@ -47,12 +47,14 @@ class QAEvaluationTests(unittest.TestCase):
     def test_load_qa_samples_parses_realistic_fixture(self):
         samples = load_qa_samples(FIXTURES_DIR / "qa_eval_samples.json")
 
-        self.assertEqual(len(samples), 10)
+        self.assertEqual(len(samples), 21)
         self.assertEqual(samples[0].sample_id, "patient-hypertension-symptoms")
         self.assertTrue(samples[1].must_not_clarify)
         self.assertEqual(samples[1].category, "follow_up")
         self.assertTrue(samples[1].transcript_turns)
-        self.assertTrue(samples[-1].expected_no_evidence)
+        self.assertEqual(samples[10].expected_primary_intent, "cancel_appointment")
+        self.assertEqual(samples[10].expected_secondary_intent, "medical_rag")
+        self.assertEqual(samples[9].expected_no_evidence, True)
 
     def test_retrieval_evaluator_scores_source_type_and_keywords(self):
         collection = FakeCollection(
@@ -99,6 +101,7 @@ class QAEvaluationTests(unittest.TestCase):
 
         self.assertGreaterEqual(result.retrieval_score, 0.95)
         self.assertEqual(result.top_source_type, "patient_education")
+        self.assertEqual(result.route_primary_intent, "medical_rag")
         self.assertIn("生活方式", result.matched_retrieval_keywords)
 
     def test_answer_quality_detects_clarification_penalty(self):
@@ -150,6 +153,7 @@ class QAEvaluationTests(unittest.TestCase):
         self.assertGreaterEqual(report["summary"]["avg_answer_score"], 0.8)
         self.assertGreaterEqual(report["summary"]["avg_safety_score"], 0.8)
         self.assertGreaterEqual(report["summary"]["avg_tone_score"], 0.8)
+        self.assertGreaterEqual(report["summary"]["route_hit_rate"], 0.8)
         self.assertGreater(report["summary"]["patient_friendly_rate"], 0.0)
         self.assertGreater(report["summary"]["no_evidence_answer_rate"], 0.0)
         no_evidence_result = next(item for item in report["results"] if item["sample_id"] == "no-evidence-rare-condition")
@@ -184,12 +188,14 @@ class QAEvaluationTests(unittest.TestCase):
 
         report = evaluator.evaluate_samples(samples)
 
-        self.assertEqual(report["summary"]["sample_count"], 10)
+        self.assertEqual(report["summary"]["sample_count"], 21)
         self.assertGreaterEqual(report["summary"]["avg_retrieval_score"], 0.72)
-        self.assertEqual(len(report["results"]), 10)
+        self.assertEqual(len(report["results"]), 21)
         self.assertIn("patient_education", report["summary"]["by_category"])
         self.assertIn("hard", report["summary"]["by_difficulty"])
         self.assertIn("patient_education", report["summary"]["by_top_source_type"])
+        self.assertIn("route_hit_rate", report["summary"])
+        self.assertIn("compound_request_handling_rate", report["summary"])
         no_evidence_result = next(item for item in report["results"] if item["sample_id"] == "no-evidence-rare-condition")
         self.assertTrue(no_evidence_result["no_evidence_detected"])
         self.assertIsInstance(report["summary"]["low_scoring_samples"], list)
@@ -225,6 +231,7 @@ class QAEvaluationTests(unittest.TestCase):
         self.assertIn("## By Category", markdown)
         self.assertIn("## Low Scoring Samples", markdown)
         self.assertIn("Average safety score", markdown)
+        self.assertIn("Route hit rate", markdown)
         self.assertIn("### patient-hypertension-symptoms", markdown)
 
 

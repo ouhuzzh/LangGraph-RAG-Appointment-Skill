@@ -34,6 +34,9 @@ def _print_text_report(report: dict):
     if summary.get("avg_tone_score") is not None:
         print(f"- avg_tone_score: {summary['avg_tone_score']}")
     print(f"- pass_rate_085: {summary['pass_rate_085']}")
+    print(f"- route_hit_rate: {summary.get('route_hit_rate')}")
+    print(f"- secondary_route_hit_rate: {summary.get('secondary_route_hit_rate')}")
+    print(f"- compound_request_handling_rate: {summary.get('compound_request_handling_rate')}")
     print(f"- patient_friendly_rate: {summary.get('patient_friendly_rate')}")
     print(f"- no_evidence_answer_rate: {summary.get('no_evidence_answer_rate')}")
     print("")
@@ -41,6 +44,7 @@ def _print_text_report(report: dict):
         print(f"[{item['sample_id']}] {item['question']}")
         print(f"  category={item['category']} difficulty={item['difficulty']}")
         print(f"  overall={item['overall_score']} retrieval={item['retrieval_score']} answer={item['answer_score']}")
+        print(f"  route={item['route_primary_intent']} secondary={item['route_secondary_intent']} source={item['route_decision_source']} confidence={item['confidence_bucket']}")
         print(f"  top_source_type={item['top_source_type']} top_source={item['top_source']}")
         print(f"  preferred_layers={', '.join(item['preferred_source_layers'])}")
         if item["transcript_turns"]:
@@ -91,6 +95,9 @@ def _render_markdown_report(report: dict) -> str:
         f"- Clarification rate: {summary.get('clarification_rate')}",
         f"- No-evidence rate: {summary.get('no_evidence_rate')}",
         f"- Source type hit rate: {summary.get('source_type_hit_rate')}",
+        f"- Route hit rate: {summary.get('route_hit_rate')}",
+        f"- Secondary route hit rate: {summary.get('secondary_route_hit_rate')}",
+        f"- Compound request handling rate: {summary.get('compound_request_handling_rate')}",
         f"- Patient-friendly rate: {summary.get('patient_friendly_rate')}",
         f"- No-evidence answer rate: {summary.get('no_evidence_answer_rate')}",
     ]
@@ -134,6 +141,9 @@ def _render_markdown_report(report: dict) -> str:
                 f"- Difficulty: {item['difficulty']}",
                 f"- Overall / Retrieval / Answer: {item['overall_score']} / {item['retrieval_score']} / {item['answer_score']}",
                 f"- Preferred layers: {', '.join(item['preferred_source_layers'])}",
+                f"- Route: {item['route_primary_intent']} / {item['route_secondary_intent'] or 'n/a'} ({item['route_decision_source']})",
+                f"- Route reason: {item['route_reason']}",
+                f"- Confidence bucket: {item['confidence_bucket']}",
                 f"- Top source: {item['top_source_type'] or 'n/a'} / {item['top_source'] or 'n/a'}",
                 f"- Clarification detected: {item['clarification_detected']}",
                 f"- Patient friendly detected: {item['patient_friendly_detected']}",

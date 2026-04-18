@@ -166,7 +166,7 @@ class DocumentChuncker:
         for i, p_chunk in enumerate(parent_chunks):
             parent_id = f"{doc_path.stem}_parent_{i}"
             p_chunk.metadata.update(base_metadata)
-            p_chunk.metadata.update({"source": str(doc_path.stem)+".pdf", "parent_id": parent_id})
+            p_chunk.metadata.update({"source": doc_path.name, "parent_id": parent_id})
             
             all_parent_pairs.append((parent_id, p_chunk))
             all_child_chunks.extend(self.__child_splitter.split_documents([p_chunk]))

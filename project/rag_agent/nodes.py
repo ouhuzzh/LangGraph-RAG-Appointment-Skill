@@ -42,6 +42,30 @@ _MEDICAL_FOLLOW_UP_HINTS = (
     "那", "这个", "这种情况", "这会", "还会", "严重吗", "怎么办", "注意什么", "要紧吗",
     "what about", "does that", "is that", "should i", "what should",
 )
+_MEDICAL_TERMS = (
+    "高血压", "糖尿病", "感冒", "发烧", "头晕", "咳嗽", "腹痛", "胃痛", "胸闷", "胸痛",
+    "呼吸困难", "肺炎", "哮喘", "鼻炎", "胃炎", "肠胃炎", "失眠", "焦虑", "抑郁",
+    "血压", "血糖", "检查", "药", "症状", "疾病", "炎", "癌", "病", "疫苗", "预防", "指南", "综合征",
+    "hypertension", "diabetes", "fever", "cough", "dizziness", "headache", "pneumonia",
+    "asthma", "symptom", "treatment", "disease", "medicine", "blood pressure",
+)
+_MEDICAL_QUESTION_PATTERNS = (
+    "是什么", "怎么回事", "为什么", "原因", "症状", "表现", "怎么办", "如何", "怎么处理",
+    "怎么缓解", "严重吗", "会不会", "会引起", "会导致", "能不能", "可以吗", "要不要",
+    "是否", "注意事项", "治疗", "预防", "要紧吗", "还要看吗", "哪些人", "什么人", "什么时候", "是不是",
+    "means", "what is", "why", "how to", "symptoms",
+    "treatment", "can ", "could ", "does ", "is it",
+)
+_APPOINTMENT_KEYWORDS = ("挂号", "预约", "book appointment", "register")
+_CANCEL_KEYWORDS = ("取消", "退号", "cancel appointment", "cancel booking")
+_EXPLICIT_APPOINTMENT_CUES = ("帮我", "给我", "我要", "想", "安排", "预约一下", "挂一下", "register me", "book me")
+_EXPLICIT_CANCEL_CUES = ("取消预约", "取消挂号", "退号", "帮我取消", "取消刚才", "cancel", "取消那个")
+_COMPOUND_SPLIT_RE = re.compile(r"(?:，|,)?\s*(另外|然后|然后再|顺便|并且|同时|再帮我|再问一下)\s*")
+_DEPARTMENT_HINTS = (
+    "呼吸内科", "心内科", "神经内科", "消化内科", "内分泌科", "急诊科", "全科", "儿科",
+    "妇科", "骨科", "皮肤科", "耳鼻喉科", "眼科", "呼吸科", "内科", "外科", "门诊",
+)
+_TOPIC_STOP_WORDS = ("一下", "一下子", "这个", "那个", "这种情况", "怎么", "怎么办", "需要", "是否", "一般")
 
 
 def _clear_pending_action_state() -> dict:
@@ -97,23 +121,10 @@ def _looks_like_medical_knowledge_question(query: str) -> bool:
     if not normalized or _looks_like_department_question(normalized):
         return False
 
-    medical_terms = [
-        "高血压", "糖尿病", "感冒", "发烧", "头晕", "咳嗽", "腹痛", "胃痛", "胸闷", "胸痛",
-        "呼吸困难", "肺炎", "哮喘", "鼻炎", "胃炎", "肠胃炎", "失眠", "焦虑", "抑郁",
-        "血压", "血糖", "检查", "药", "症状", "疾病", "炎", "癌", "病",
-        "hypertension", "diabetes", "fever", "cough", "dizziness", "headache", "pneumonia",
-        "asthma", "symptom", "treatment", "disease", "medicine", "blood pressure",
-    ]
-    question_patterns = [
-        "是什么", "怎么回事", "为什么", "原因", "症状", "表现", "怎么办", "如何", "怎么处理",
-        "怎么缓解", "严重吗", "会不会", "会引起", "会导致", "能不能", "可以吗", "要不要",
-        "是否", "注意事项", "治疗", "预防", "means", "what is", "why", "how to", "symptoms",
-        "treatment", "can ", "could ", "does ", "is it",
-    ]
-
-    has_medical_term = any(term in normalized for term in medical_terms)
-    has_question_pattern = any(pattern in normalized for pattern in question_patterns) or normalized.endswith("?") or normalized.endswith("？")
-    return has_medical_term and has_question_pattern
+    has_medical_term = any(term in normalized for term in _MEDICAL_TERMS)
+    has_disease_suffix = bool(re.search(r"(综合征|感染|病|炎|癌|瘤)", normalized))
+    has_question_pattern = any(pattern in normalized for pattern in _MEDICAL_QUESTION_PATTERNS) or normalized.endswith("?") or normalized.endswith("？") or normalized.endswith("吗")
+    return (has_medical_term or has_disease_suffix) and has_question_pattern
 
 
 def _normalize_time_slot(raw_value: str) -> str:
@@ -232,6 +243,25 @@ def _sanitize_pending_payload(payload: dict | None) -> dict:
     return cleaned
 
 
+def _extract_topic_focus(user_query: str, existing_topic: str = "", appointment_context: dict | None = None, recommended_department: str = "") -> str:
+    normalized = (user_query or "").strip()
+    for term in _MEDICAL_TERMS:
+        if term in normalized.lower():
+            return term
+    for department in _DEPARTMENT_HINTS:
+        if department in normalized:
+            return department
+    if recommended_department:
+        return recommended_department
+    appointment_context = appointment_context or {}
+    for key in ("department", "doctor_name"):
+        value = (appointment_context.get(key) or "").strip()
+        if value:
+            return value
+    existing_topic = (existing_topic or "").strip()
+    return existing_topic
+
+
 def _parse_tool_call(response, expected_name: str) -> dict:
     tool_calls = getattr(response, "tool_calls", None) or []
     for tool_call in tool_calls:
@@ -281,11 +311,252 @@ def _should_use_last_appointment(user_query: str) -> bool:
     return any(token in normalized for token in hints)
 
 
-def _looks_like_medical_follow_up(user_query: str, conversation_summary: str) -> bool:
+def _build_recent_context(messages, keep_turns: int = 2, *, exclude_latest_user: bool = True) -> str:
+    recent_messages = [
+        msg for msg in (messages or [])
+        if isinstance(msg, (HumanMessage, AIMessage)) and not getattr(msg, "tool_calls", None)
+    ]
+    if exclude_latest_user and recent_messages and isinstance(recent_messages[-1], HumanMessage):
+        recent_messages = recent_messages[:-1]
+    recent_messages = recent_messages[-keep_turns * 2 :]
+    lines = []
+    for msg in recent_messages:
+        role = "User" if isinstance(msg, HumanMessage) else "Assistant"
+        content = str(msg.content or "").strip()
+        if content:
+            lines.append(f"{role}: {content}")
+    return "\n".join(lines)
+
+
+def _context_has_medical_signal(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    return any(term in normalized for term in _MEDICAL_TERMS)
+
+
+def _looks_like_medical_follow_up(user_query: str, conversation_summary: str, recent_context: str = "") -> bool:
     normalized = (user_query or "").strip().lower()
-    if not normalized or not conversation_summary.strip():
+    context_text = "\n".join(part for part in (conversation_summary, recent_context) if part and str(part).strip())
+    if not normalized or not context_text.strip():
         return False
-    return any(token in normalized for token in _MEDICAL_FOLLOW_UP_HINTS)
+    if not any(token in normalized for token in _MEDICAL_FOLLOW_UP_HINTS):
+        return False
+    return _context_has_medical_signal(context_text)
+
+
+def _looks_like_explicit_appointment_intent(user_query: str) -> bool:
+    normalized = (user_query or "").strip().lower()
+    has_booking_keyword = any(keyword in normalized for keyword in _APPOINTMENT_KEYWORDS) or (
+        "挂" in normalized and not _looks_like_department_question(user_query)
+    )
+    if not normalized or not has_booking_keyword:
+        return False
+    if re.search(r"(预约|挂号|挂)前", normalized):
+        return False
+
+    explicit_cue = any(token in normalized for token in _EXPLICIT_APPOINTMENT_CUES)
+    scheduling_cue = bool(_normalize_date(user_query) or _normalize_time_slot(user_query))
+    entity_cue = any(token in normalized for token in ("医生", "门诊", "内科", "外科", "呼吸科", "呼吸内科", "儿科", "妇科", "科室"))
+
+    if _looks_like_medical_knowledge_question(user_query) and not (explicit_cue or scheduling_cue or entity_cue):
+        return False
+    return explicit_cue or scheduling_cue or entity_cue
+
+
+def _looks_like_explicit_cancel_intent(user_query: str) -> bool:
+    normalized = (user_query or "").strip().lower()
+    if not normalized or not any(keyword in normalized for keyword in _CANCEL_KEYWORDS):
+        return False
+    if _looks_like_medical_knowledge_question(user_query) and not (_should_use_last_appointment(user_query) or _APPOINTMENT_NO_RE.search(user_query or "")):
+        return False
+    return (
+        any(token in normalized for token in _EXPLICIT_CANCEL_CUES)
+        or _should_use_last_appointment(user_query)
+        or bool(_APPOINTMENT_NO_RE.search(user_query or ""))
+    )
+
+
+def _looks_like_clarification_response(user_query: str) -> bool:
+    normalized = (user_query or "").strip().lower()
+    if not normalized:
+        return False
+    if _looks_like_greeting(user_query) or _looks_like_department_question(user_query):
+        return False
+    if _looks_like_explicit_cancel_intent(user_query) or _looks_like_explicit_appointment_intent(user_query):
+        return False
+    if _looks_like_medical_knowledge_question(user_query):
+        return False
+    if len(normalized) <= 40:
+        return True
+    return bool(
+        _normalize_date(user_query)
+        or _normalize_time_slot(user_query)
+        or _APPOINTMENT_NO_RE.search(user_query or "")
+        or _ORDINAL_RE.search(user_query or "")
+    )
+
+
+def _intent_for_clarification_target(target: str, current_intent: str) -> str:
+    if target == "recommend_department":
+        return "triage"
+    if target == "handle_appointment":
+        return "appointment"
+    if target == "handle_cancel_appointment":
+        return "cancel_appointment"
+    if target == "rewrite_query":
+        return "medical_rag"
+    return current_intent or "medical_rag"
+
+
+def _classify_query_by_rules(user_query: str, *, conversation_summary: str = "", recent_context: str = "", topic_focus: str = "") -> tuple[str, str]:
+    if _looks_like_greeting(user_query):
+        return "greeting", "greeting_rule"
+    if _looks_like_explicit_cancel_intent(user_query):
+        return "cancel_appointment", "explicit_cancel_rule"
+    if _looks_like_explicit_appointment_intent(user_query):
+        return "appointment", "explicit_appointment_rule"
+    if _looks_like_department_question(user_query):
+        return "triage", "department_question_rule"
+    if _looks_like_medical_knowledge_question(user_query) or _looks_like_medical_follow_up(
+        user_query,
+        "\n".join(part for part in (conversation_summary, topic_focus) if part),
+        recent_context,
+    ):
+        return "medical_rag", "medical_question_rule"
+    return "", "rule_inconclusive"
+
+
+def _split_compound_request(user_query: str) -> list[str]:
+    query = (user_query or "").strip()
+    if not query:
+        return []
+    segments = [segment.strip(" ，,。；;") for segment in _COMPOUND_SPLIT_RE.split(query) if segment and segment.strip(" ，,。；;")]
+    cleaned = []
+    for segment in segments:
+        if segment in {"另外", "然后", "然后再", "顺便", "并且", "同时", "再帮我", "再问一下"}:
+            continue
+        cleaned.append(segment)
+    if not cleaned:
+        return [query]
+    if len(cleaned) == 1:
+        return cleaned
+    return cleaned[:2]
+
+
+def _choose_compound_intents(first_intent: str, second_intent: str) -> tuple[str, str]:
+    if (first_intent, second_intent) in {
+        ("cancel_appointment", "medical_rag"),
+        ("appointment", "medical_rag"),
+        ("triage", "appointment"),
+        ("triage", "medical_rag"),
+    }:
+        return first_intent, second_intent
+    if (first_intent, second_intent) == ("medical_rag", "appointment"):
+        return "appointment", "medical_rag"
+    return first_intent, ""
+
+
+def analyze_turn(state: State):
+    last_message = state["messages"][-1]
+    user_query = str(last_message.content).strip()
+    recent_context = state.get("recent_context") or _build_recent_context(state.get("messages", []))
+    topic_focus = _extract_topic_focus(
+        user_query,
+        state.get("topic_focus", ""),
+        state.get("appointment_context", {}),
+        state.get("recommended_department", ""),
+    )
+
+    if state.get("pending_action_type") and _should_continue_pending_action(state, user_query):
+        primary_intent = state.get("pending_action_type", "")
+        return {
+            "recent_context": recent_context,
+            "topic_focus": topic_focus or state.get("topic_focus", ""),
+            "primary_intent": primary_intent,
+            "secondary_intent": state.get("secondary_intent", ""),
+            "primary_user_query": user_query,
+            "secondary_user_query": state.get("secondary_user_query", ""),
+            "deferred_user_question": state.get("deferred_user_question", ""),
+            "decision_source": "resume",
+            "route_reason": "continue_pending_action",
+            "last_route_reason": "continue_pending_action",
+        }
+
+    if state.get("pending_candidates") and _pick_candidate_from_text(user_query, state.get("pending_candidates") or []):
+        return {
+            "recent_context": recent_context,
+            "topic_focus": topic_focus or state.get("topic_focus", ""),
+            "primary_intent": "cancel_appointment",
+            "secondary_intent": state.get("secondary_intent", ""),
+            "primary_user_query": user_query,
+            "secondary_user_query": state.get("secondary_user_query", ""),
+            "deferred_user_question": state.get("deferred_user_question", ""),
+            "decision_source": "resume",
+            "route_reason": "continue_pending_candidates",
+            "last_route_reason": "continue_pending_candidates",
+        }
+
+    clarification_target = state.get("clarification_target", "")
+    if state.get("pending_clarification") and clarification_target and _looks_like_clarification_response(user_query):
+        primary_intent = _intent_for_clarification_target(clarification_target, state.get("intent", ""))
+        return {
+            "recent_context": recent_context,
+            "topic_focus": topic_focus or state.get("topic_focus", ""),
+            "primary_intent": primary_intent,
+            "secondary_intent": state.get("secondary_intent", ""),
+            "primary_user_query": user_query,
+            "secondary_user_query": state.get("secondary_user_query", ""),
+            "deferred_user_question": state.get("deferred_user_question", ""),
+            "decision_source": "resume",
+            "route_reason": f"continue_{clarification_target}",
+            "last_route_reason": f"continue_{clarification_target}",
+        }
+
+    segments = _split_compound_request(user_query)
+    first_segment = segments[0] if segments else user_query
+    second_segment = segments[1] if len(segments) > 1 else ""
+    first_intent, first_reason = _classify_query_by_rules(
+        first_segment,
+        conversation_summary=state.get("conversation_summary", ""),
+        recent_context=recent_context,
+        topic_focus=state.get("topic_focus", ""),
+    )
+    second_intent = ""
+    second_reason = ""
+    if second_segment:
+        second_intent, second_reason = _classify_query_by_rules(
+            second_segment,
+            conversation_summary=state.get("conversation_summary", ""),
+            recent_context=recent_context,
+            topic_focus=state.get("topic_focus", ""),
+        )
+    primary_intent, secondary_intent = _choose_compound_intents(first_intent, second_intent)
+    if primary_intent:
+        route_reason = first_reason if not secondary_intent else f"{first_reason}+{second_reason or 'secondary'}"
+        return {
+            "recent_context": recent_context,
+            "topic_focus": topic_focus or state.get("topic_focus", ""),
+            "primary_intent": primary_intent,
+            "secondary_intent": secondary_intent,
+            "primary_user_query": first_segment if secondary_intent else user_query,
+            "secondary_user_query": second_segment if secondary_intent else "",
+            "deferred_user_question": second_segment if secondary_intent else "",
+            "decision_source": "rule",
+            "route_reason": route_reason,
+            "last_route_reason": route_reason,
+        }
+
+    return {
+        "recent_context": recent_context,
+        "topic_focus": topic_focus or state.get("topic_focus", ""),
+        "primary_intent": "",
+        "secondary_intent": "",
+        "primary_user_query": user_query,
+        "secondary_user_query": "",
+        "deferred_user_question": "",
+        "decision_source": "llm",
+        "route_reason": "rule_inconclusive",
+        "last_route_reason": "rule_inconclusive",
+    }
 
 
 def _build_history_reset_messages(messages, keep_recent: int = 5):
@@ -393,50 +664,40 @@ def _infer_risk_level(user_query: str, existing_risk: str = "normal") -> str:
 
 
 def intent_router(state: State, llm):
+    if not state.get("primary_intent"):
+        state = {**state, **analyze_turn(state)}
     last_message = state["messages"][-1]
     user_query = str(last_message.content).strip()
-    normalized_query = user_query.lower()
     risk_level = _infer_risk_level(user_query, state.get("risk_level", "normal"))
     pending_action_type = state.get("pending_action_type", "")
     pending_candidates = state.get("pending_candidates", []) or []
+    recent_context = state.get("recent_context") or _build_recent_context(state.get("messages", []))
+    topic_focus = state.get("topic_focus", "")
+    primary_intent = state.get("primary_intent", "")
+    secondary_intent = state.get("secondary_intent", "")
+    primary_user_query = state.get("primary_user_query", "") or user_query
+    secondary_user_query = state.get("secondary_user_query", "")
+    decision_source = state.get("decision_source", "")
+    route_reason = state.get("route_reason", "")
 
-    if pending_action_type and _should_continue_pending_action(state, user_query):
-        return {
-            "intent": pending_action_type,
-            "risk_level": risk_level,
-            "pending_clarification": "",
-            "clarification_target": "",
-            "recommended_department": state.get("recommended_department", ""),
-            "appointment_context": state.get("appointment_context", {}),
-            "last_appointment_no": state.get("last_appointment_no", ""),
-            "pending_action_type": pending_action_type,
-            "pending_action_payload": state.get("pending_action_payload", {}),
-            "pending_confirmation_id": state.get("pending_confirmation_id", ""),
-            "pending_candidates": pending_candidates,
-        }
-
-    if pending_candidates and _pick_candidate_from_text(user_query, pending_candidates):
-        return {
-            "intent": "cancel_appointment",
-            "risk_level": risk_level,
-            "pending_clarification": "",
-            "clarification_target": "",
-            "recommended_department": state.get("recommended_department", ""),
-            "appointment_context": state.get("appointment_context", {}),
-            "last_appointment_no": state.get("last_appointment_no", ""),
-            "pending_action_type": state.get("pending_action_type", ""),
-            "pending_action_payload": state.get("pending_action_payload", {}),
-            "pending_confirmation_id": state.get("pending_confirmation_id", ""),
-            "pending_candidates": pending_candidates,
-        }
-
-    if _looks_like_greeting(user_query):
+    if primary_intent == "greeting":
         greeting_response = "你好！我是你的医疗助手，可以帮你：\n- 🏥 推荐就诊科室\n- 📅 预约挂号\n- ❌ 取消预约\n- 💊 解答医疗健康问题\n\n请问有什么可以帮你的？"
         return {
             "intent": "greeting",
+            "primary_intent": "greeting",
+            "secondary_intent": "",
+            "primary_user_query": primary_user_query,
+            "secondary_user_query": "",
+            "decision_source": decision_source or "rule",
+            "route_reason": route_reason or "greeting_rule",
+            "last_route_reason": route_reason or "greeting_rule",
             "risk_level": risk_level,
             "pending_clarification": "",
             "clarification_target": "",
+            "recent_context": recent_context,
+            "topic_focus": topic_focus,
+            "deferred_user_question": "",
+            "clarification_attempts": 0,
             "recommended_department": state.get("recommended_department", ""),
             "appointment_context": state.get("appointment_context", {}),
             "last_appointment_no": state.get("last_appointment_no", ""),
@@ -444,69 +705,60 @@ def intent_router(state: State, llm):
             "messages": [AIMessage(content=greeting_response)],
         }
 
-    if _looks_like_department_question(user_query):
+    if primary_intent in {"triage", "appointment", "cancel_appointment", "medical_rag"}:
+        if primary_intent == "triage":
+            pending_updates = _clear_pending_action_state()
+            recommended_department = ""
+            appointment_context = {}
+            last_appointment_no = ""
+        elif primary_intent == "medical_rag":
+            pending_updates = _reset_pending_action_if_needed(state)
+            recommended_department = state.get("recommended_department", "")
+            appointment_context = state.get("appointment_context", {})
+            last_appointment_no = state.get("last_appointment_no", "")
+        else:
+            pending_updates = {
+                "pending_action_type": pending_action_type,
+                "pending_action_payload": state.get("pending_action_payload", {}),
+                "pending_confirmation_id": state.get("pending_confirmation_id", ""),
+                "pending_candidates": pending_candidates,
+            }
+            recommended_department = state.get("recommended_department", "")
+            appointment_context = state.get("appointment_context", {})
+            last_appointment_no = state.get("last_appointment_no", "")
         return {
-            "intent": "triage",
+            "intent": primary_intent,
+            "primary_intent": primary_intent,
+            "secondary_intent": secondary_intent,
+            "primary_user_query": primary_user_query,
+            "secondary_user_query": secondary_user_query,
+            "decision_source": decision_source or "rule",
+            "route_reason": route_reason or "rule_match",
+            "last_route_reason": route_reason or "rule_match",
             "risk_level": risk_level,
             "pending_clarification": "",
             "clarification_target": "",
-            "recommended_department": "",
-            "appointment_context": {},
-            "last_appointment_no": "",
-            **_clear_pending_action_state(),
-        }
-
-    has_appointment_keyword = any(keyword in normalized_query for keyword in ["挂号", "预约", "book appointment", "register"])
-    has_cancel_keyword = any(keyword in normalized_query for keyword in ["取消", "退号", "cancel appointment", "cancel booking"])
-
-    # 复合意图: "取消+挂号" → 优先走预约(用户最终目的是挂号)
-    if has_appointment_keyword:
-        return {
-            "intent": "appointment",
-            "risk_level": risk_level,
-            "pending_clarification": "",
-            "clarification_target": "",
-            "recommended_department": state.get("recommended_department", ""),
-            "appointment_context": state.get("appointment_context", {}),
-            "last_appointment_no": state.get("last_appointment_no", ""),
-            "pending_action_type": state.get("pending_action_type", ""),
-            "pending_action_payload": state.get("pending_action_payload", {}),
-            "pending_confirmation_id": state.get("pending_confirmation_id", ""),
-            "pending_candidates": state.get("pending_candidates", []),
-        }
-
-    if has_cancel_keyword:
-        return {
-            "intent": "cancel_appointment",
-            "risk_level": risk_level,
-            "pending_clarification": "",
-            "clarification_target": "",
-            "recommended_department": state.get("recommended_department", ""),
-            "appointment_context": state.get("appointment_context", {}),
-            "last_appointment_no": state.get("last_appointment_no", ""),
-            "pending_action_type": state.get("pending_action_type", ""),
-            "pending_action_payload": state.get("pending_action_payload", {}),
-            "pending_confirmation_id": state.get("pending_confirmation_id", ""),
-            "pending_candidates": state.get("pending_candidates", []),
-        }
-
-    if _looks_like_medical_knowledge_question(user_query) or _looks_like_medical_follow_up(user_query, state.get("conversation_summary", "")):
-        return {
-            "intent": "medical_rag",
-            "risk_level": risk_level,
-            "pending_clarification": "",
-            "clarification_target": "",
-            "recommended_department": state.get("recommended_department", ""),
-            "appointment_context": state.get("appointment_context", {}),
-            "last_appointment_no": state.get("last_appointment_no", ""),
-            **_reset_pending_action_if_needed(state),
+            "recent_context": recent_context,
+            "topic_focus": topic_focus,
+            "deferred_user_question": state.get("deferred_user_question", "") or secondary_user_query,
+            "clarification_attempts": 0,
+            "recommended_department": recommended_department,
+            "appointment_context": appointment_context,
+            "last_appointment_no": last_appointment_no,
+            **pending_updates,
         }
 
     llm_with_structure = llm.with_config(temperature=0.1).with_structured_output(IntentAnalysis)
     response = llm_with_structure.invoke(
         [
             SystemMessage(content=get_intent_router_prompt()),
-            HumanMessage(content=f"Conversation summary:\n{state.get('conversation_summary', '')}\n\nUser query:\n{user_query}"),
+            HumanMessage(
+                content=(
+                    f"Conversation summary:\n{state.get('conversation_summary', '')}\n\n"
+                    f"Recent dialogue context:\n{recent_context}\n\n"
+                    f"User query:\n{user_query}"
+                )
+            ),
         ]
     )
 
@@ -523,21 +775,69 @@ def intent_router(state: State, llm):
         )
         return {
             "intent": response.intent,
+            "primary_intent": response.intent,
+            "secondary_intent": "",
+            "primary_user_query": user_query,
+            "secondary_user_query": "",
+            "decision_source": "llm",
+            "route_reason": f"llm:{response.intent}",
+            "last_route_reason": f"llm:{response.intent}",
             "risk_level": risk_level,
             "pending_clarification": "",
             "clarification_target": "",
+            "recent_context": recent_context,
+            "topic_focus": topic_focus,
+            "deferred_user_question": "",
+            "clarification_attempts": 0,
             "recommended_department": state.get("recommended_department", ""),
             "appointment_context": state.get("appointment_context", {}),
             "last_appointment_no": state.get("last_appointment_no", ""),
             **pending_updates,
         }
 
+    clarification_attempts = int(state.get("clarification_attempts") or 0) + 1
+    if clarification_attempts > 1:
+        fallback_answer = "我先给你一个保守建议：如果你有持续不适、症状加重，建议尽快线下就医；如果你愿意，也可以再补充一句最困扰你的症状，我会继续帮你缩小范围。"
+        return {
+            "intent": "medical_rag",
+            "primary_intent": "medical_rag",
+            "secondary_intent": "",
+            "primary_user_query": user_query,
+            "secondary_user_query": "",
+            "decision_source": "clarification_budget",
+            "route_reason": "clarification_budget_exceeded",
+            "last_route_reason": "clarification_budget_exceeded",
+            "risk_level": risk_level,
+            "pending_clarification": "",
+            "clarification_target": "",
+            "recent_context": recent_context,
+            "topic_focus": topic_focus,
+            "deferred_user_question": "",
+            "clarification_attempts": clarification_attempts,
+            "recommended_department": state.get("recommended_department", ""),
+            "appointment_context": state.get("appointment_context", {}),
+            "last_appointment_no": state.get("last_appointment_no", ""),
+            **_reset_pending_action_if_needed(state),
+            "messages": [AIMessage(content=fallback_answer)],
+        }
+
     clarification = response.clarification_needed if response.clarification_needed and len(response.clarification_needed.strip()) > 5 else "可以再具体描述一下你的问题吗？"
     return {
         "intent": "clarification",
+        "primary_intent": "clarification",
+        "secondary_intent": "",
+        "primary_user_query": user_query,
+        "secondary_user_query": "",
+        "decision_source": "llm",
+        "route_reason": "llm:clarification",
+        "last_route_reason": "llm:clarification",
         "risk_level": risk_level,
         "pending_clarification": clarification,
         "clarification_target": "intent_router",
+        "recent_context": recent_context,
+        "topic_focus": topic_focus,
+        "deferred_user_question": "",
+        "clarification_attempts": clarification_attempts,
         "recommended_department": state.get("recommended_department", ""),
         "appointment_context": state.get("appointment_context", {}),
         "last_appointment_no": state.get("last_appointment_no", ""),
@@ -549,9 +849,19 @@ def intent_router(state: State, llm):
 def rewrite_query(state: State, llm):
     last_message = state["messages"][-1]
     conversation_summary = state.get("conversation_summary", "")
-    user_query = str(last_message.content).strip()
+    recent_context = state.get("recent_context") or _build_recent_context(state.get("messages", []))
+    user_query = state.get("primary_user_query") or str(last_message.content).strip()
+    topic_focus = state.get("topic_focus", "")
 
-    context_section = (f"Conversation Context:\n{conversation_summary}\n" if conversation_summary.strip() else "") + f"User Query:\n{user_query}\n"
+    context_parts = []
+    if conversation_summary.strip():
+        context_parts.append(f"Conversation Context:\n{conversation_summary}\n")
+    if recent_context.strip():
+        context_parts.append(f"Recent Dialogue Context:\n{recent_context}\n")
+    if topic_focus.strip():
+        context_parts.append(f"Topic focus:\n{topic_focus}\n")
+    context_parts.append(f"User Query:\n{user_query}\n")
+    context_section = "".join(context_parts)
 
     llm_with_structure = llm.with_config(temperature=0.1).with_structured_output(QueryAnalysis)
     response = llm_with_structure.invoke([SystemMessage(content=get_rewrite_query_prompt()), HumanMessage(content=context_section)])
@@ -563,8 +873,11 @@ def rewrite_query(state: State, llm):
             "messages": delete_all,
             "originalQuery": user_query,
             "rewrittenQuestions": response.questions,
+            "recent_context": recent_context,
+            "topic_focus": topic_focus,
             "pending_clarification": "",
             "clarification_target": "",
+            "clarification_attempts": 0,
         }
 
     if _looks_like_department_question(user_query):
@@ -574,8 +887,11 @@ def rewrite_query(state: State, llm):
             "messages": delete_all,
             "originalQuery": user_query,
             "rewrittenQuestions": [user_query],
+            "recent_context": recent_context,
+            "topic_focus": topic_focus,
             "pending_clarification": "",
             "clarification_target": "",
+            "clarification_attempts": 0,
         }
 
     if state.get("intent") == "medical_rag" and _looks_like_medical_knowledge_question(user_query):
@@ -586,48 +902,76 @@ def rewrite_query(state: State, llm):
             "messages": delete_all,
             "originalQuery": user_query,
             "rewrittenQuestions": [fallback_query],
+            "recent_context": recent_context,
+            "topic_focus": topic_focus,
             "pending_clarification": "",
             "clarification_target": "",
+            "clarification_attempts": 0,
         }
 
-    if state.get("intent") == "medical_rag" and _looks_like_medical_follow_up(user_query, conversation_summary):
+    if state.get("intent") == "medical_rag" and _looks_like_medical_follow_up(user_query, "\n".join(part for part in (conversation_summary, topic_focus) if part), recent_context):
         delete_all = _build_history_reset_messages(state["messages"])
-        fallback_query = response.questions[0] if response.questions else f"{conversation_summary}\nFollow-up: {user_query}"
+        fallback_query = response.questions[0] if response.questions else f"{topic_focus or recent_context or conversation_summary}\nFollow-up: {user_query}"
         return {
             "questionIsClear": True,
             "messages": delete_all,
             "originalQuery": user_query,
             "rewrittenQuestions": [fallback_query],
+            "recent_context": recent_context,
+            "topic_focus": topic_focus,
             "pending_clarification": "",
             "clarification_target": "",
+            "clarification_attempts": 0,
         }
 
     if state.get("intent") == "medical_rag" and state.get("pending_clarification"):
         delete_all = _build_history_reset_messages(state["messages"])
-        fallback_query = response.questions[0] if response.questions else (f"{conversation_summary}\nQuestion: {user_query}" if conversation_summary else user_query)
+        fallback_query = response.questions[0] if response.questions else (f"{topic_focus or recent_context or conversation_summary}\nQuestion: {user_query}" if (topic_focus or recent_context or conversation_summary) else user_query)
         return {
             "questionIsClear": True,
             "messages": delete_all,
             "originalQuery": user_query,
             "rewrittenQuestions": [fallback_query],
+            "recent_context": recent_context,
+            "topic_focus": topic_focus,
             "pending_clarification": "",
             "clarification_target": "",
+            "clarification_attempts": 0,
+        }
+
+    clarification_attempts = int(state.get("clarification_attempts") or 0) + 1
+    if clarification_attempts > 1:
+        fallback_query = response.questions[0] if response.questions else (topic_focus or user_query)
+        return {
+            "questionIsClear": True,
+            "messages": _build_history_reset_messages(state["messages"]),
+            "originalQuery": user_query,
+            "rewrittenQuestions": [fallback_query],
+            "recent_context": recent_context,
+            "topic_focus": topic_focus or _extract_topic_focus(user_query, topic_focus),
+            "pending_clarification": "",
+            "clarification_target": "",
+            "clarification_attempts": clarification_attempts,
         }
 
     clarification = response.clarification_needed if response.clarification_needed and len(response.clarification_needed.strip()) > 10 else "我可以继续帮你，但还差一点关键信息。你能再具体一点吗？"
     return {
         "questionIsClear": False,
+        "recent_context": recent_context,
+        "topic_focus": topic_focus or _extract_topic_focus(user_query, topic_focus),
         "pending_clarification": clarification,
         "clarification_target": "rewrite_query",
+        "clarification_attempts": clarification_attempts,
         "messages": [AIMessage(content=clarification)],
     }
 
 
 def recommend_department(state: State, llm):
     last_message = state["messages"][-1]
-    user_query = str(last_message.content).strip()
+    user_query = state.get("primary_user_query") or str(last_message.content).strip()
     conversation_summary = state.get("conversation_summary", "")
     risk_level = state.get("risk_level", "normal")
+    topic_focus = state.get("topic_focus", "")
 
     llm_with_structure = llm.with_config(temperature=0.1).with_structured_output(DepartmentRecommendation)
     response = llm_with_structure.invoke(
@@ -643,8 +987,23 @@ def recommend_department(state: State, llm):
             return {
                 "pending_clarification": "",
                 "clarification_target": "",
+                "clarification_attempts": 0,
                 "recommended_department": "急诊科",
+                "topic_focus": topic_focus or "急诊科",
                 "appointment_context": _build_appointment_context(state.get("appointment_context"), {"department": "急诊科"}),
+                **_reset_pending_action_if_needed(state),
+                "messages": [AIMessage(content=answer)],
+            }
+        clarification_attempts = int(state.get("clarification_attempts") or 0) + 1
+        if clarification_attempts > 1:
+            answer = "如果你目前还拿不准具体挂什么科，建议先从 **全科医学科/普通内科** 开始，由医生根据症状再分流；如果出现胸痛、呼吸困难、意识异常等情况，请优先急诊。"
+            return {
+                "pending_clarification": "",
+                "clarification_target": "",
+                "clarification_attempts": clarification_attempts,
+                "recommended_department": "全科医学科",
+                "topic_focus": topic_focus or "全科医学科",
+                "appointment_context": _build_appointment_context(state.get("appointment_context"), {"department": "全科医学科"}),
                 **_reset_pending_action_if_needed(state),
                 "messages": [AIMessage(content=answer)],
             }
@@ -652,7 +1011,9 @@ def recommend_department(state: State, llm):
         return {
             "pending_clarification": clarification,
             "clarification_target": "recommend_department",
+            "clarification_attempts": clarification_attempts,
             "recommended_department": "",
+            "topic_focus": topic_focus or _extract_topic_focus(user_query, topic_focus),
             **_reset_pending_action_if_needed(state),
             "messages": [AIMessage(content=clarification)],
         }
@@ -665,6 +1026,8 @@ def recommend_department(state: State, llm):
         "recommended_department": response.department.strip(),
         "pending_clarification": "",
         "clarification_target": "",
+        "clarification_attempts": 0,
+        "topic_focus": response.department.strip(),
         "appointment_context": _build_appointment_context(state.get("appointment_context"), {"department": response.department.strip()}),
         **_clear_pending_action_state(),
         "messages": [AIMessage(content=answer)],
@@ -673,7 +1036,7 @@ def recommend_department(state: State, llm):
 
 def handle_appointment(state: State, llm, appointment_service):
     last_message = state["messages"][-1]
-    user_query = str(last_message.content).strip()
+    user_query = state.get("primary_user_query") or str(last_message.content).strip()
     appointment_context = dict(state.get("appointment_context") or {})
     pending_action_type = state.get("pending_action_type", "")
     pending_payload = _sanitize_pending_payload(state.get("pending_action_payload"))
@@ -684,6 +1047,8 @@ def handle_appointment(state: State, llm, appointment_service):
                 "intent": "appointment",
                 "pending_clarification": "",
                 "clarification_target": "",
+                "clarification_attempts": 0,
+                "topic_focus": appointment_context.get("department", state.get("topic_focus", "")),
                 "appointment_context": appointment_context,
                 **_clear_pending_action_state(),
                 "messages": [AIMessage(content="好的，这次预约我先不提交了。你如果想改时间、科室或重新预约，直接告诉我即可。")],
@@ -707,6 +1072,8 @@ def handle_appointment(state: State, llm, appointment_service):
                     "intent": "appointment",
                     "pending_clarification": "",
                     "clarification_target": "",
+                    "clarification_attempts": 0,
+                    "topic_focus": merged_context.get("department", state.get("topic_focus", "")),
                     "appointment_context": merged_context,
                     **_clear_pending_action_state(),
                     "messages": [AIMessage(content=answer)],
@@ -724,6 +1091,8 @@ def handle_appointment(state: State, llm, appointment_service):
                 "intent": "appointment",
                 "pending_clarification": "",
                 "clarification_target": "",
+                "clarification_attempts": 0,
+                "topic_focus": merged_context.get("department", state.get("topic_focus", "")),
                 "appointment_context": merged_context,
                 "last_appointment_no": booking["appointment_no"],
                 **_clear_pending_action_state(),
@@ -775,6 +1144,8 @@ def handle_appointment(state: State, llm, appointment_service):
             "intent": "appointment",
             "pending_clarification": clarification,
             "clarification_target": "handle_appointment",
+            "clarification_attempts": int(state.get("clarification_attempts") or 0) + 1,
+            "topic_focus": department or state.get("topic_focus", ""),
             "appointment_context": merged_context,
             **_clear_pending_action_state(),
             "messages": [AIMessage(content=clarification)],
@@ -792,6 +1163,8 @@ def handle_appointment(state: State, llm, appointment_service):
             "intent": "appointment",
             "pending_clarification": "",
             "clarification_target": "",
+            "clarification_attempts": 0,
+            "topic_focus": department or state.get("topic_focus", ""),
             "appointment_context": merged_context,
             **_clear_pending_action_state(),
             "messages": [AIMessage(content=answer)],
@@ -808,6 +1181,8 @@ def handle_appointment(state: State, llm, appointment_service):
         "intent": "appointment",
         "pending_clarification": "",
         "clarification_target": "",
+        "clarification_attempts": 0,
+        "topic_focus": preview_payload["department"],
         "appointment_context": merged_context,
         **_build_pending_confirmation("appointment", preview_payload),
         "messages": [AIMessage(content=_format_booking_preview(preview_payload))],
@@ -816,7 +1191,7 @@ def handle_appointment(state: State, llm, appointment_service):
 
 def handle_cancel_appointment(state: State, llm, appointment_service):
     last_message = state["messages"][-1]
-    user_query = str(last_message.content).strip()
+    user_query = state.get("primary_user_query") or str(last_message.content).strip()
     appointment_context = dict(state.get("appointment_context") or {})
     last_appointment_no = state.get("last_appointment_no", "")
     pending_action_type = state.get("pending_action_type", "")
@@ -829,6 +1204,7 @@ def handle_cancel_appointment(state: State, llm, appointment_service):
                 "intent": "cancel_appointment",
                 "pending_clarification": "",
                 "clarification_target": "",
+                "clarification_attempts": 0,
                 **_clear_pending_action_state(),
                 "messages": [AIMessage(content="好的，这次取消我先不提交了。如果你想改成别的预约，直接告诉我新的预约号或条件即可。")],
             }
@@ -840,6 +1216,7 @@ def handle_cancel_appointment(state: State, llm, appointment_service):
                     "intent": "cancel_appointment",
                     "pending_clarification": "",
                     "clarification_target": "",
+                    "clarification_attempts": 0,
                     **_clear_pending_action_state(),
                     "messages": [AIMessage(content="这条预约当前无法取消，可能已经被处理过了。你可以再给我新的预约号或条件。")],
                 }
@@ -854,6 +1231,7 @@ def handle_cancel_appointment(state: State, llm, appointment_service):
                 "intent": "cancel_appointment",
                 "pending_clarification": "",
                 "clarification_target": "",
+                "clarification_attempts": 0,
                 "last_appointment_no": "",
                 **_clear_pending_action_state(),
                 "messages": [AIMessage(content=answer)],
@@ -865,6 +1243,7 @@ def handle_cancel_appointment(state: State, llm, appointment_service):
                 "intent": "cancel_appointment",
                 "pending_clarification": "",
                 "clarification_target": "",
+                "clarification_attempts": 0,
                 **_clear_pending_action_state(),
                 "messages": [AIMessage(content="好的，我先不取消了。如果你还想取消其他预约，可以继续告诉我预约号或条件。")],
             }
@@ -884,6 +1263,7 @@ def handle_cancel_appointment(state: State, llm, appointment_service):
                 "intent": "cancel_appointment",
                 "pending_clarification": "",
                 "clarification_target": "",
+                "clarification_attempts": 0,
                 **_build_pending_confirmation("cancel_appointment", preview_payload),
                 "messages": [AIMessage(content=_format_cancel_preview(preview_payload))],
             }
@@ -916,6 +1296,7 @@ def handle_cancel_appointment(state: State, llm, appointment_service):
             "intent": "cancel_appointment",
             "pending_clarification": clarification,
             "clarification_target": "handle_cancel_appointment",
+            "clarification_attempts": int(state.get("clarification_attempts") or 0) + 1,
             **_clear_pending_action_state(),
             "messages": [AIMessage(content=clarification)],
         }
@@ -931,6 +1312,7 @@ def handle_cancel_appointment(state: State, llm, appointment_service):
             "intent": "cancel_appointment",
             "pending_clarification": "",
             "clarification_target": "",
+            "clarification_attempts": 0,
             **_clear_pending_action_state(),
             "messages": [AIMessage(content="我没有找到符合条件的可取消预约。你可以再提供预约号，或者补充科室和日期。")],
         }
@@ -947,6 +1329,7 @@ def handle_cancel_appointment(state: State, llm, appointment_service):
             "intent": "cancel_appointment",
             "pending_clarification": clarification,
             "clarification_target": "handle_cancel_appointment",
+            "clarification_attempts": int(state.get("clarification_attempts") or 0) + 1,
             "pending_action_type": "",
             "pending_action_payload": {},
             "pending_confirmation_id": "",
@@ -968,6 +1351,7 @@ def handle_cancel_appointment(state: State, llm, appointment_service):
         "intent": "cancel_appointment",
         "pending_clarification": "",
         "clarification_target": "",
+        "clarification_attempts": 0,
         **_build_pending_confirmation("cancel_appointment", preview_payload),
         "messages": [AIMessage(content=_format_cancel_preview(preview_payload))],
     }
@@ -975,21 +1359,49 @@ def handle_cancel_appointment(state: State, llm, appointment_service):
 def request_clarification(state: State):
     return {}
 
+
+def prepare_secondary_turn(state: State):
+    secondary_intent = state.get("secondary_intent", "")
+    deferred_question = state.get("deferred_user_question") or state.get("secondary_user_query") or ""
+    if not secondary_intent or not deferred_question:
+        return {}
+    return {
+        "intent": secondary_intent,
+        "primary_intent": secondary_intent,
+        "secondary_intent": "",
+        "primary_user_query": deferred_question,
+        "secondary_user_query": "",
+        "deferred_user_question": "",
+        "route_reason": f"resume_secondary:{secondary_intent}",
+        "last_route_reason": f"resume_secondary:{secondary_intent}",
+        "messages": [HumanMessage(content=deferred_question)],
+    }
+
 # --- Agent Nodes ---
 def orchestrator(state: AgentState, llm_with_tools):
     context_summary = state.get("context_summary", "").strip()
+    recent_context = state.get("recent_context", "").strip()
+    topic_focus = state.get("topic_focus", "").strip()
     sys_msg = SystemMessage(content=get_orchestrator_prompt())
     summary_injection = (
         [HumanMessage(content=f"[COMPRESSED CONTEXT FROM PRIOR RESEARCH]\n\n{context_summary}")]
         if context_summary else []
     )
+    recent_context_injection = (
+        [HumanMessage(content=f"[RECENT DIALOGUE CONTEXT]\n\n{recent_context}")]
+        if recent_context else []
+    )
+    topic_focus_injection = (
+        [HumanMessage(content=f"[TOPIC FOCUS]\n\n{topic_focus}")]
+        if topic_focus else []
+    )
     if not state.get("messages"):
         human_msg = HumanMessage(content=state["question"])
         force_search = HumanMessage(content="YOU MUST CALL 'search_child_chunks' AS THE FIRST STEP TO ANSWER THIS QUESTION.")
-        response = llm_with_tools.invoke([sys_msg] + summary_injection + [human_msg, force_search])
+        response = llm_with_tools.invoke([sys_msg] + summary_injection + recent_context_injection + topic_focus_injection + [human_msg, force_search])
         return {"messages": [human_msg, response], "tool_call_count": len(response.tool_calls or []), "iteration_count": 1}
 
-    response = llm_with_tools.invoke([sys_msg] + summary_injection + state["messages"])
+    response = llm_with_tools.invoke([sys_msg] + summary_injection + recent_context_injection + topic_focus_injection + state["messages"])
     tool_calls = response.tool_calls if hasattr(response, "tool_calls") else []
     return {"messages": [response], "tool_call_count": len(tool_calls) if tool_calls else 0, "iteration_count": 1}
 
@@ -1092,13 +1504,63 @@ def compress_context(state: AgentState, llm):
 
     return {"context_summary": new_summary, "messages": [RemoveMessage(id=m.id) for m in messages[1:]]}
 
+
+def _extract_source_citations(messages) -> list[dict]:
+    citations = []
+    seen = set()
+    current_confidence = ""
+    for message in messages or []:
+        if not isinstance(message, ToolMessage):
+            continue
+        text = str(message.content or "")
+        confidence_match = re.search(r"Confidence Bucket:\s*(\w+)", text, re.IGNORECASE)
+        if confidence_match and not current_confidence:
+            current_confidence = confidence_match.group(1).strip().lower()
+        for block in text.split("\n\n"):
+            title_match = re.search(r"Source Title:\s*(.+)", block)
+            source_type_match = re.search(r"Source Type:\s*(.+)", block)
+            url_match = re.search(r"Original URL:\s*(.+)", block)
+            source_match = re.search(r"File Name:\s*(.+)", block)
+            freshness_match = re.search(r"Freshness Bucket:\s*(.+)", block)
+            if not any((title_match, source_match)):
+                continue
+            title = (title_match.group(1).strip() if title_match else source_match.group(1).strip())
+            source_type = source_type_match.group(1).strip() if source_type_match else "unknown"
+            original_url = url_match.group(1).strip() if url_match else ""
+            freshness_bucket = freshness_match.group(1).strip().lower() if freshness_match else ""
+            key = (title, source_type, original_url, freshness_bucket)
+            if key in seen:
+                continue
+            seen.add(key)
+            citations.append(
+                {
+                    "title": title,
+                    "source_type": source_type,
+                    "original_url": original_url,
+                    "confidence_bucket": current_confidence or "",
+                    "freshness_bucket": freshness_bucket,
+                }
+            )
+    return citations
+
+
 def collect_answer(state: AgentState):
     last_message = state["messages"][-1]
     is_valid = isinstance(last_message, AIMessage) and last_message.content and not last_message.tool_calls
     answer = last_message.content if is_valid else "Unable to generate an answer."
+    citations = _extract_source_citations(state.get("messages", []))
+    confidence_bucket = next((item.get("confidence_bucket") for item in citations if item.get("confidence_bucket")), "")
+    if not confidence_bucket:
+        confidence_bucket = "no_evidence" if any("NO_EVIDENCE" in str(msg.content or "") for msg in state.get("messages", []) if isinstance(msg, ToolMessage)) else "low"
     return {
         "final_answer": answer,
-        "agent_answers": [{"index": state["question_index"], "question": state["question"], "answer": answer}]
+        "agent_answers": [{
+            "index": state["question_index"],
+            "question": state["question"],
+            "answer": answer,
+            "confidence_bucket": confidence_bucket,
+            "sources": citations[:3],
+        }]
     }
 # --- End of Agent Nodes---
 
@@ -1114,4 +1576,54 @@ def aggregate_answers(state: State, llm):
 
     user_message = HumanMessage(content=f"""Original user question: {state["originalQuery"]}\nRetrieved answers:{formatted_answers}""")
     synthesis_response = llm.invoke([SystemMessage(content=get_aggregation_prompt()), user_message])
-    return {"messages": [AIMessage(content=synthesis_response.content)]}
+    all_sources = []
+    seen_sources = set()
+    confidence_levels = []
+    for answer in sorted_answers:
+        bucket = str(answer.get("confidence_bucket") or "").strip().lower()
+        if bucket:
+            confidence_levels.append(bucket)
+        for item in answer.get("sources") or []:
+            key = (item.get("title", ""), item.get("source_type", ""), item.get("original_url", ""))
+            if key in seen_sources:
+                continue
+            seen_sources.add(key)
+            all_sources.append(item)
+
+    confidence_bucket = "high"
+    if "no_evidence" in confidence_levels:
+        confidence_bucket = "no_evidence"
+    elif "low" in confidence_levels:
+        confidence_bucket = "low"
+    elif "medium" in confidence_levels:
+        confidence_bucket = "medium"
+
+    citation_lines = []
+    for item in all_sources[:3]:
+        line = f"- {item.get('title', '未知来源')} [{item.get('source_type', 'unknown')}]"
+        if item.get("freshness_bucket"):
+            line += f" freshness={item['freshness_bucket']}"
+        if item.get("original_url"):
+            line += f" {item['original_url']}"
+        citation_lines.append(line)
+
+    confidence_note = ""
+    if confidence_bucket == "no_evidence":
+        confidence_note = "\n\n证据强度：`no_evidence`。当前知识库没有直接相关证据，以上回答应以保守提醒为主。"
+    elif confidence_bucket == "low":
+        confidence_note = "\n\n证据强度：`low`。当前命中证据有限，建议结合线下医生判断。"
+    elif confidence_bucket == "medium":
+        confidence_note = "\n\n证据强度：`medium`。当前回答基于有限但相关的资料。"
+    else:
+        confidence_note = "\n\n证据强度：`high`。当前回答来自较为直接的知识库证据。"
+    if any(item.get("freshness_bucket") == "outdated" for item in all_sources):
+        confidence_note += "\n\n版本提醒：当前命中了较旧资料，请结合最新指南或线下医生意见一起判断。"
+
+    citation_block = ""
+    if citation_lines:
+        citation_block = "\n\n参考来源：\n" + "\n".join(citation_lines)
+
+    return {
+        "messages": [AIMessage(content=f"{synthesis_response.content}{confidence_note}{citation_block}")],
+        "clarification_attempts": 0,
+    }

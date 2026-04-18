@@ -17,6 +17,7 @@ from core.qa_eval import RetrievalQualityEvaluator, load_qa_samples  # noqa: E40
 from core.rag_system import RAGSystem  # noqa: E402
 from db.document_ids import build_document_no  # noqa: E402
 from db.import_task_store import ImportTaskStore  # noqa: E402
+from db.route_log_store import RouteLogStore  # noqa: E402
 from db.vector_db_manager import PgVectorCollection, VectorDbManager  # noqa: E402
 from memory.summary_store import SummaryStore  # noqa: E402
 from rag_agent.tools import ToolFactory, reset_retrieval_context, set_retrieval_context  # noqa: E402
@@ -85,6 +86,7 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
     def setUpClass(cls):
         cls.summary_store = SummaryStore()
         cls.import_task_store = ImportTaskStore()
+        cls.route_log_store = RouteLogStore()
         cls.appointment_service = AppointmentService()
         cls.vector_db = VectorDbManager()
 
@@ -103,6 +105,8 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
             self._cleanup_document(self.document_no)
         if hasattr(self, "retrieval_log_thread_id"):
             self._cleanup_retrieval_logs(self.retrieval_log_thread_id)
+        if hasattr(self, "route_log_thread_id"):
+            self._cleanup_route_logs(self.route_log_thread_id)
         if hasattr(self, "quota_restore"):
             self._restore_schedule_quota(*self.quota_restore)
 
@@ -150,6 +154,18 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
         ) as conn:
             with conn.cursor() as cur:
                 cur.execute("delete from retrieval_logs where thread_id = %s", (thread_id,))
+            conn.commit()
+
+    def _cleanup_route_logs(self, thread_id: str):
+        with psycopg.connect(
+            host=config.POSTGRES_HOST,
+            port=config.POSTGRES_PORT,
+            dbname=config.POSTGRES_DB,
+            user=config.POSTGRES_USER,
+            password=config.POSTGRES_PASSWORD,
+        ) as conn:
+            with conn.cursor() as cur:
+                cur.execute("delete from route_logs where thread_id = %s", (thread_id,))
             conn.commit()
 
     def _set_schedule_quota(self, schedule_id: int, quota: int):
@@ -309,9 +325,11 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
         self.assertIn("uq_chat_session_summaries_thread_type", schema_status["indexes"])
         self.assertIn("idx_child_chunks_embedding_cosine", schema_status["indexes"])
         self.assertIn("idx_import_task_logs_created_at", schema_status["indexes"])
+        self.assertIn("idx_route_logs_created_at", schema_status["indexes"])
         self.assertIn("001_summary_dedup_and_indexes", schema_status["versions"])
         self.assertIn("002_child_chunks_vector_index", schema_status["versions"])
         self.assertIn("003_import_task_logs", schema_status["versions"])
+        self.assertIn("004_route_logs", schema_status["versions"])
 
     def test_import_task_store_round_trip(self):
         self.vector_db.create_collection(config.CHILD_COLLECTION)
@@ -337,6 +355,57 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
         events = self.import_task_store.list_recent(limit=10)
 
         self.assertTrue(any(item["note"] == unique_note for item in events))
+
+    def test_route_log_store_round_trip(self):
+        self.vector_db.create_collection(config.CHILD_COLLECTION)
+        self.route_log_thread_id = f"live-route-{uuid.uuid4().hex[:10]}"
+        self.route_log_store.save_log(
+            {
+                "thread_id": self.route_log_thread_id,
+                "user_query": "取消刚才那个预约，然后我这个咳嗽还要看吗",
+                "primary_intent": "cancel_appointment",
+                "secondary_intent": "medical_rag",
+                "decision_source": "rule",
+                "route_reason": "explicit_cancel_rule+medical_question_rule",
+                "had_pending_state": True,
+                "extra_metadata": {"topic_focus": "咳嗽"},
+            }
+        )
+
+        events = self.route_log_store.list_recent(limit=10)
+        saved = next(item for item in events if item["thread_id"] == self.route_log_thread_id)
+
+        self.assertEqual(saved["primary_intent"], "cancel_appointment")
+        self.assertEqual(saved["secondary_intent"], "medical_rag")
+        self.assertEqual(saved["decision_source"], "rule")
+        self.assertTrue(saved["had_pending_state"])
+
+    def test_route_log_store_summary_includes_compound_metrics(self):
+        self.vector_db.create_collection(config.CHILD_COLLECTION)
+        self.route_log_thread_id = f"live-route-summary-{uuid.uuid4().hex[:10]}"
+        self.route_log_store.save_log(
+            {
+                "thread_id": self.route_log_thread_id,
+                "user_query": "帮我挂呼吸内科，另外高血压药还要不要继续吃",
+                "primary_intent": "appointment",
+                "secondary_intent": "medical_rag",
+                "decision_source": "rule",
+                "route_reason": "explicit_appointment_rule+medical_question_rule",
+                "had_pending_state": False,
+                "extra_metadata": {
+                    "topic_focus": "高血压",
+                    "deferred_user_question": "高血压药还要不要继续吃",
+                },
+            }
+        )
+
+        report = self.route_log_store.build_recent_report(limit=20)
+
+        self.assertGreaterEqual(report["summary"]["sample_count"], 1)
+        self.assertIn("appointment", report["summary"]["intent_distribution"])
+        self.assertIn("medical_rag", report["summary"]["secondary_intent_distribution"])
+        self.assertIn("rule", report["summary"]["decision_source_distribution"])
+        self.assertIn("events", report)
 
     def test_auto_index_single_markdown_with_fake_embeddings(self):
         unique_marker = f"livefollowup{uuid.uuid4().hex[:8]}"

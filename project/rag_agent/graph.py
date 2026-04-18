@@ -33,17 +33,20 @@ def create_agent_graph(llm, tools_list, appointment_service=None):
 
     graph_builder = StateGraph(State)
     graph_builder.add_node("summarize_history", partial(summarize_history, llm=llm))
+    graph_builder.add_node("analyze_turn", analyze_turn)
     graph_builder.add_node("intent_router", partial(intent_router, llm=llm))
     graph_builder.add_node("rewrite_query", partial(rewrite_query, llm=llm))
     graph_builder.add_node("recommend_department", partial(recommend_department, llm=llm))
     graph_builder.add_node("handle_appointment", partial(handle_appointment, llm=llm, appointment_service=appointment_service))
     graph_builder.add_node("handle_cancel_appointment", partial(handle_cancel_appointment, llm=llm, appointment_service=appointment_service))
     graph_builder.add_node(request_clarification)
+    graph_builder.add_node("prepare_secondary_turn", prepare_secondary_turn)
     graph_builder.add_node("agent", agent_subgraph)
     graph_builder.add_node("aggregate_answers", partial(aggregate_answers, llm=llm))
 
     graph_builder.add_edge(START, "summarize_history")
-    graph_builder.add_edge("summarize_history", "intent_router")
+    graph_builder.add_edge("summarize_history", "analyze_turn")
+    graph_builder.add_edge("analyze_turn", "intent_router")
     graph_builder.add_conditional_edges("intent_router", route_after_intent, {
         "rewrite_query": "rewrite_query",
         "recommend_department": "recommend_department",
@@ -55,9 +58,15 @@ def create_agent_graph(llm, tools_list, appointment_service=None):
     graph_builder.add_conditional_edges("rewrite_query", route_after_rewrite)
     graph_builder.add_conditional_edges("request_clarification", route_after_clarification)
     graph_builder.add_edge(["agent"], "aggregate_answers")
-    graph_builder.add_edge("recommend_department", END)
-    graph_builder.add_edge("handle_appointment", END)
-    graph_builder.add_edge("handle_cancel_appointment", END)
+    graph_builder.add_conditional_edges("recommend_department", route_after_action, {"prepare_secondary_turn": "prepare_secondary_turn", "__end__": END})
+    graph_builder.add_conditional_edges("handle_appointment", route_after_action, {"prepare_secondary_turn": "prepare_secondary_turn", "__end__": END})
+    graph_builder.add_conditional_edges("handle_cancel_appointment", route_after_action, {"prepare_secondary_turn": "prepare_secondary_turn", "__end__": END})
+    graph_builder.add_conditional_edges("prepare_secondary_turn", route_after_prepare_secondary_turn, {
+        "rewrite_query": "rewrite_query",
+        "handle_appointment": "handle_appointment",
+        "handle_cancel_appointment": "handle_cancel_appointment",
+        "recommend_department": "recommend_department",
+    })
     graph_builder.add_edge("aggregate_answers", END)
 
     agent_graph = graph_builder.compile(checkpointer=checkpointer, interrupt_before=["request_clarification"])

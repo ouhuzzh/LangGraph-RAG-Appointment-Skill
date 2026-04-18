@@ -4,7 +4,9 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, List, Optional
 
+from langchain_core.messages import AIMessage, HumanMessage
 from rag_agent.tools import ToolFactory
+from rag_agent.nodes import analyze_turn
 
 
 CLARIFICATION_PATTERNS = (
@@ -71,6 +73,8 @@ class QAEvalSample:
     must_not_clarify: bool = False
     preferred_answer_style: str = ""
     note: str = ""
+    expected_primary_intent: str = ""
+    expected_secondary_intent: str = ""
 
     @classmethod
     def from_dict(cls, payload: dict):
@@ -93,6 +97,8 @@ class QAEvalSample:
             must_not_clarify=bool(payload.get("must_not_clarify", False)),
             preferred_answer_style=str(payload.get("preferred_answer_style") or "").strip().lower(),
             note=str(payload.get("note") or "").strip(),
+            expected_primary_intent=str(payload.get("expected_primary_intent") or "").strip(),
+            expected_secondary_intent=str(payload.get("expected_secondary_intent") or "").strip(),
         )
 
     def validate(self):
@@ -109,7 +115,14 @@ class RetrievalEvalResult:
     category: str
     difficulty: str
     transcript_turns: List[str]
+    route_primary_intent: str
+    route_secondary_intent: str
+    route_decision_source: str
+    route_reason: str
+    route_hit: bool
+    secondary_route_hit: bool
     preferred_source_layers: List[str]
+    confidence_bucket: str
     retrieval_score: float
     answer_score: Optional[float]
     overall_score: float
@@ -189,8 +202,36 @@ def _group_summary(results: list[RetrievalEvalResult], attr_name: str) -> dict:
             "avg_safety_score": round(sum(safety_scored) / len(safety_scored), 4) if safety_scored else None,
             "avg_tone_score": round(sum(tone_scored) / len(tone_scored), 4) if tone_scored else None,
             "pass_rate_085": round(sum(1 for entry in items if entry.overall_score >= 0.85) / len(items), 4),
+            "route_hit_rate": round(sum(1 for entry in items if entry.route_hit) / len(items), 4),
         }
     return summary
+
+
+def _messages_from_transcript(sample: QAEvalSample) -> list:
+    messages = []
+    for turn in sample.transcript_turns:
+        text = str(turn or "").strip()
+        if not text:
+            continue
+        if text.lower().startswith("user:"):
+            messages.append(HumanMessage(content=text.split(":", 1)[1].strip()))
+        elif text.lower().startswith("assistant:"):
+            messages.append(AIMessage(content=text.split(":", 1)[1].strip()))
+    if not messages or not isinstance(messages[-1], HumanMessage):
+        messages.append(HumanMessage(content=sample.question))
+    return messages
+
+
+def _confidence_bucket_from_docs(docs) -> str:
+    if not docs:
+        return "no_evidence"
+    metadata = docs[0].metadata or {}
+    score = float(metadata.get("rerank_score") or metadata.get("fusion_score") or metadata.get("score") or 0.0)
+    if score >= 0.85 and len(docs) >= 2:
+        return "high"
+    if score >= 0.72:
+        return "medium"
+    return "low"
 
 
 class RetrievalQualityEvaluator:
@@ -269,12 +310,25 @@ class RetrievalQualityEvaluator:
 
     def evaluate_sample(self, sample: QAEvalSample, answer_text: str | None = None) -> RetrievalEvalResult:
         search_query = sample.search_query or sample.question
+        route_state = {
+            "messages": _messages_from_transcript(sample),
+            "conversation_summary": sample.conversation_summary,
+            "pending_action_type": "",
+            "pending_candidates": [],
+            "pending_clarification": "",
+            "clarification_target": "",
+            "appointment_context": {},
+            "recommended_department": "",
+            "topic_focus": "",
+        }
+        route_result = analyze_turn(route_state)
         docs = self.tool_factory.search_documents(
             search_query,
             limit=self.limit,
             score_threshold=self.score_threshold,
         )
         preferred_layers = self.tool_factory.preferred_source_layers(search_query)
+        confidence_bucket = _confidence_bucket_from_docs(docs)
         retrieved_sources = [str((doc.metadata or {}).get("source", "")) for doc in docs]
         retrieved_source_types = [str((doc.metadata or {}).get("source_type", "")).strip().lower() for doc in docs]
         snippet_text = "\n".join(doc.page_content for doc in docs)
@@ -286,7 +340,7 @@ class RetrievalQualityEvaluator:
 
         top_source_type = retrieved_source_types[0] if retrieved_source_types else ""
         top_source = retrieved_sources[0] if retrieved_sources else ""
-        source_type_hit = False
+        source_type_hit = not sample.expected_source_type
         source_type_value = 1.0
         if sample.expected_source_type:
             if top_source_type == sample.expected_source_type:
@@ -298,7 +352,7 @@ class RetrievalQualityEvaluator:
             else:
                 source_type_value = 0.0
 
-        source_contains_hit = False
+        source_contains_hit = not sample.expected_source_contains
         source_contains_value = 1.0
         if sample.expected_source_contains:
             normalized_sources = [_normalize_text(source) for source in retrieved_sources]
@@ -321,6 +375,8 @@ class RetrievalQualityEvaluator:
             keyword_coverage = len(matched_retrieval_keywords) / len(sample.expected_retrieval_keywords)
             retrieval_components.append((0.35, keyword_coverage))
         retrieval_score = _weighted_score(retrieval_components)
+        route_hit = not sample.expected_primary_intent or route_result.get("primary_intent") == sample.expected_primary_intent
+        secondary_route_hit = not sample.expected_secondary_intent or route_result.get("secondary_intent") == sample.expected_secondary_intent
 
         answer_metrics = self._score_answer(sample, answer_text)
         answer_score = answer_metrics["answer_score"]
@@ -332,7 +388,14 @@ class RetrievalQualityEvaluator:
             category=sample.category,
             difficulty=sample.difficulty,
             transcript_turns=list(sample.transcript_turns),
+            route_primary_intent=route_result.get("primary_intent", ""),
+            route_secondary_intent=route_result.get("secondary_intent", ""),
+            route_decision_source=route_result.get("decision_source", ""),
+            route_reason=route_result.get("route_reason", ""),
+            route_hit=route_hit,
+            secondary_route_hit=secondary_route_hit,
             preferred_source_layers=preferred_layers,
+            confidence_bucket=confidence_bucket,
             retrieval_score=retrieval_score,
             answer_score=answer_score,
             overall_score=overall_score,
@@ -401,8 +464,19 @@ class RetrievalQualityEvaluator:
             "clarification_rate": round(sum(1 for item in results if item.clarification_detected) / len(results), 4),
             "no_evidence_rate": round(len(no_evidence_items) / len(results), 4),
             "source_type_hit_rate": round(sum(1 for item in results if item.source_type_hit) / len(results), 4),
+            "route_hit_rate": round(sum(1 for item in results if item.route_hit) / len(results), 4),
+            "secondary_route_hit_rate": round(sum(1 for item in results if item.secondary_route_hit) / len(results), 4),
+            "compound_request_handling_rate": round(
+                sum(1 for item in results if item.secondary_route_hit and item.route_secondary_intent) /
+                max(sum(1 for item in results if item.route_secondary_intent or "compound_request" in item.category), 1),
+                4,
+            ),
             "patient_friendly_rate": round(sum(1 for item in results if item.patient_friendly_detected) / len(results), 4),
             "no_evidence_answer_rate": round(sum(1 for item in results if item.no_evidence_answer_detected) / len(results), 4),
+            "confidence_distribution": {
+                bucket: sum(1 for item in results if item.confidence_bucket == bucket)
+                for bucket in ("high", "medium", "low", "no_evidence")
+            },
             "by_category": _group_summary(results, "category"),
             "by_difficulty": _group_summary(results, "difficulty"),
             "by_top_source_type": _group_summary(results, "top_source_type"),

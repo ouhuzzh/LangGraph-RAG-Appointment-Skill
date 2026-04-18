@@ -14,12 +14,23 @@ class State(MessagesState):
     """State for main agent graph"""
     questionIsClear: bool = False
     conversation_summary: str = ""
+    recent_context: str = ""
+    topic_focus: str = ""
     originalQuery: str = ""
     thread_id: str = ""
     intent: str = ""
+    primary_intent: str = ""
+    secondary_intent: str = ""
+    primary_user_query: str = ""
+    secondary_user_query: str = ""
+    decision_source: str = ""
+    route_reason: str = ""
+    last_route_reason: str = ""
     risk_level: str = "normal"
     pending_clarification: str = ""
+    clarification_attempts: int = 0
     clarification_target: str = ""
+    deferred_user_question: str = ""
     recommended_department: str = ""
     appointment_context: Dict[str, str] = {}
     last_appointment_no: str = ""
@@ -35,6 +46,8 @@ class AgentState(MessagesState):
     question: str = ""
     question_index: int = 0
     context_summary: str = ""
+    recent_context: str = ""
+    topic_focus: str = ""
     retrieval_keys: Annotated[Set[str], set_union] = set()
     final_answer: str = ""
     agent_answers: List[dict] = []

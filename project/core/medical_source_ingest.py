@@ -5,6 +5,7 @@ import tempfile
 import zipfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urljoin
@@ -31,6 +32,36 @@ def _extract_first_match(text: str, patterns: list[str]) -> str:
         if match:
             return match.group(1).strip()
     return ""
+
+
+def _derive_published_at(entry: dict, fallback_text: str = "") -> str:
+    for key in ("published_at", "published", "publication_date"):
+        value = str(entry.get(key) or "").strip()
+        if re.match(r"^\d{4}-\d{2}-\d{2}$", value):
+            return value
+    text = " ".join(filter(None, [str(entry.get("title") or ""), str(entry.get("page_url") or ""), str(entry.get("url") or ""), fallback_text]))
+    match = re.search(r"(20\d{2})[-/](\d{2})", text)
+    if match:
+        return f"{match.group(1)}-{match.group(2)}-01"
+    year_match = re.search(r"(20\d{2})", text)
+    if year_match:
+        return f"{year_match.group(1)}-01-01"
+    return ""
+
+
+def _freshness_bucket(published_at: str) -> str:
+    if not published_at:
+        return "unknown"
+    try:
+        published = date.fromisoformat(published_at)
+    except ValueError:
+        return "unknown"
+    age_days = max((date.today() - published).days, 0)
+    if age_days <= 365:
+        return "current"
+    if age_days <= 365 * 3:
+        return "aging"
+    return "outdated"
 
 
 class _SimpleHtmlToMarkdownParser(HTMLParser):
@@ -192,6 +223,7 @@ class MedlinePlusXmlImporter:
         return topics
 
     def render_topic_markdown(self, topic: ImportedMedicalDocument) -> str:
+        fetched_at = datetime.now().strftime("%Y-%m-%d")
         metadata_lines = [
             f"Source: MedlinePlus",
             "Source type: patient_education",
@@ -199,6 +231,8 @@ class MedlinePlusXmlImporter:
             "File type: md",
             f"Title: {topic.title}",
             f"Original URL: {topic.source_url}",
+            f"Fetched At: {fetched_at}",
+            "Freshness Bucket: current",
         ]
         if topic.summary:
             metadata_lines.append(f"Summary: {topic.summary}")
@@ -275,6 +309,8 @@ class NhcPdfWhitelistImporter:
             return markdown_path.read_text(encoding="utf-8"), conversion_result
 
     def _render_entry_markdown(self, entry: dict, body_markdown: str) -> str:
+        published_at = _derive_published_at(entry)
+        fetched_at = datetime.now().strftime("%Y-%m-%d")
         metadata_lines = [
             "Source: 国家卫生健康委员会",
             f"Source type: {entry.get('document_type', 'clinical_guideline')}",
@@ -283,6 +319,9 @@ class NhcPdfWhitelistImporter:
             f"Title: {entry['title']}",
             f"Original URL: {entry.get('page_url', entry['pdf_url'])}",
             f"PDF URL: {entry['pdf_url']}",
+            f"Published At: {published_at}",
+            f"Fetched At: {fetched_at}",
+            f"Freshness Bucket: {_freshness_bucket(published_at)}",
         ]
         if entry.get("document_type"):
             metadata_lines.append(f"Document type: {entry['document_type']}")
@@ -381,6 +420,8 @@ class WhoHtmlWhitelistImporter:
         return article_html
 
     def _render_entry_markdown(self, entry: dict, body_markdown: str) -> str:
+        published_at = _derive_published_at(entry)
+        fetched_at = datetime.now().strftime("%Y-%m-%d")
         metadata_lines = [
             "Source: World Health Organization",
             f"Source type: {entry.get('document_type', 'public_health')}",
@@ -388,6 +429,9 @@ class WhoHtmlWhitelistImporter:
             "File type: html",
             f"Title: {entry['title']}",
             f"Original URL: {entry['url']}",
+            f"Published At: {published_at}",
+            f"Fetched At: {fetched_at}",
+            f"Freshness Bucket: {_freshness_bucket(published_at)}",
         ]
         if entry.get("document_type"):
             metadata_lines.append(f"Document type: {entry['document_type']}")

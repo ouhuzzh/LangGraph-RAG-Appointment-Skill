@@ -2,6 +2,7 @@ import json
 import re
 
 import config
+from db.route_log_store import RouteLogStore
 from langchain_core.messages import HumanMessage, AIMessage, AIMessageChunk, ToolMessage, SystemMessage
 from rag_agent.tools import reset_retrieval_context, set_retrieval_context
 
@@ -10,6 +11,16 @@ SYSTEM_NODES = {"summarize_history", "rewrite_query"}
 APPOINTMENT_UPDATE_HINTS = ("改", "换", "预约", "挂号", "医生", "科", "时间", "时段")
 CANCEL_UPDATE_HINTS = ("取消", "退号", "预约号", "第", "appointment", "cancel")
 PENDING_ACK_HINTS = ("可以", "好的", "行", "好", "ok", "okay")
+MEDICAL_KB_HINTS = (
+    "高血压", "糖尿病", "感冒", "发烧", "头晕", "咳嗽", "腹痛", "胃痛", "胸闷", "胸痛",
+    "呼吸困难", "肺炎", "哮喘", "鼻炎", "胃炎", "肠胃炎", "血压", "血糖", "症状", "治疗",
+    "hypertension", "diabetes", "fever", "cough", "dizziness", "symptom", "treatment",
+)
+MEDICAL_KB_QUESTION_HINTS = (
+    "是什么", "怎么回事", "为什么", "原因", "症状", "表现", "怎么办", "如何", "怎么处理",
+    "怎么缓解", "严重吗", "会不会", "会引起", "会导致", "能不能", "可以吗", "要不要",
+    "治疗", "预防", "what is", "why", "how to", "symptoms", "treatment",
+)
 
 SYSTEM_NODE_CONFIG = {
     "rewrite_query":     {"title": "🔍 Query Analysis & Rewriting"},
@@ -63,6 +74,7 @@ class ChatInterface:
 
     def __init__(self, rag_system):
         self.rag_system = rag_system
+        self.route_log_store = RouteLogStore()
 
     def _handle_system_node(self, chunk, node, response_messages, system_node_buffer):
         """Update (or create) the collapsible system-node message and surface any clarification."""
@@ -121,6 +133,14 @@ class ChatInterface:
             if message.get("role") == "assistant" and "metadata" not in message and message.get("content", "").strip():
                 return message["content"].strip()
         return ""
+
+    @staticmethod
+    def _extract_all_visible_assistant_texts(response_messages):
+        return [
+            message.get("content", "").strip()
+            for message in response_messages
+            if message.get("role") == "assistant" and "metadata" not in message and message.get("content", "").strip()
+        ]
 
     @staticmethod
     def _extract_latest_state_assistant(latest_values):
@@ -207,24 +227,27 @@ class ChatInterface:
 
     @staticmethod
     def _infer_intent(user_message: str, existing_state: dict):
-        if ChatInterface._should_continue_pending_intent(user_message, existing_state or {}):
-            return existing_state.get("pending_action_type") or existing_state.get("intent", "clarification")
-
         normalized = (user_message or "").strip().lower()
-        # 问候语
-        greetings = ["你好", "您好", "hello", "hi", "谢谢", "感谢", "thanks", "再见", "bye"]
-        if len(normalized) <= 15 and any(g in normalized for g in greetings):
-            return "greeting"
-        # 科室问题优先(与 intent_router 一致)
+        if ChatInterface._should_continue_pending_intent(user_message, existing_state or {}):
+            return "pending"
         if ChatInterface._looks_like_department_question(user_message):
             return "triage"
-        has_appointment = any(keyword in normalized for keyword in ["挂号", "预约", "book appointment", "register"])
-        has_cancel = any(keyword in normalized for keyword in ["取消", "退号", "cancel appointment", "cancel booking"])
-        if has_appointment:
-            return "appointment"
-        if has_cancel:
-            return "cancel_appointment"
-        return "medical_rag"
+        if ChatInterface._looks_like_explicit_medical_query(user_message):
+            return "medical_rag"
+        return "unknown"
+
+    @staticmethod
+    def _looks_like_explicit_medical_query(user_message: str) -> bool:
+        normalized = (user_message or "").strip().lower()
+        if not normalized:
+            return False
+        if ChatInterface._looks_like_department_question(user_message):
+            return False
+        if any(token in normalized for token in ("挂号前", "预约前")):
+            return False
+        has_term = any(token in normalized for token in MEDICAL_KB_HINTS)
+        has_question = any(token in normalized for token in MEDICAL_KB_QUESTION_HINTS) or normalized.endswith("?") or normalized.endswith("？")
+        return has_term and has_question
 
     @staticmethod
     def _infer_risk_level(user_message: str, existing_state: dict):
@@ -245,6 +268,14 @@ class ChatInterface:
             parts.append(f"Risk level: {session_state['risk_level']}")
         if session_state.get("pending_clarification"):
             parts.append(f"Pending clarification: {session_state['pending_clarification']}")
+        if session_state.get("clarification_target"):
+            parts.append(f"Clarification target: {session_state['clarification_target']}")
+        if session_state.get("topic_focus"):
+            parts.append(f"Topic focus: {session_state['topic_focus']}")
+        if session_state.get("deferred_user_question"):
+            parts.append(f"Deferred user question: {session_state['deferred_user_question']}")
+        if session_state.get("secondary_intent"):
+            parts.append(f"Secondary intent: {session_state['secondary_intent']}")
         if session_state.get("recommended_department"):
             parts.append(f"Recommended department: {session_state['recommended_department']}")
         if session_state.get("appointment_context"):
@@ -278,9 +309,7 @@ class ChatInterface:
         thread_id     = self.rag_system.thread_id
         user_message  = message.strip()
         session_state = self.rag_system.session_memory.get_state(thread_id)
-        inferred_intent = self._infer_intent(user_message, session_state or {})
-
-        if inferred_intent == "medical_rag" and not self.rag_system.vector_db.has_documents():
+        if self._infer_intent(user_message, session_state or {}) == "medical_rag" and not self.rag_system.vector_db.has_documents():
             knowledge_status_getter = getattr(self.rag_system, "get_knowledge_base_status", None)
             knowledge_status = knowledge_status_getter() if callable(knowledge_status_getter) else {}
             status = knowledge_status.get("status")
@@ -319,6 +348,12 @@ class ChatInterface:
                             "intent": session_state.get("intent", ""),
                             "risk_level": session_state.get("risk_level", "normal"),
                             "pending_clarification": session_state.get("pending_clarification") or "",
+                            "clarification_target": session_state.get("clarification_target") or "",
+                            "topic_focus": session_state.get("topic_focus") or "",
+                            "deferred_user_question": session_state.get("deferred_user_question") or "",
+                            "secondary_intent": session_state.get("secondary_intent") or "",
+                            "clarification_attempts": int(session_state.get("clarification_attempts") or 0),
+                            "last_route_reason": session_state.get("last_route_reason") or "",
                             "recommended_department": session_state.get("recommended_department") or "",
                             "appointment_context": session_state.get("appointment_context") or {},
                             "last_appointment_no": session_state.get("last_appointment_no") or "",
@@ -343,6 +378,7 @@ class ChatInterface:
                 yield self._prepare_visible_messages(response_messages, reveal_diagnostics=reveal_diagnostics)
 
             final_assistant = self._extract_final_assistant_text(response_messages)
+            all_visible_assistant_texts = self._extract_all_visible_assistant_texts(response_messages)
             clarification_text = self._extract_clarification_text(response_messages)
             latest_state = self.rag_system.agent_graph.get_state(graph_config)
             latest_values = getattr(latest_state, "values", {}) or {}
@@ -352,17 +388,15 @@ class ChatInterface:
                     response_messages.append(make_message(final_from_state))
                     final_assistant = final_from_state
                     yield self._prepare_visible_messages(response_messages, reveal_diagnostics=reveal_diagnostics)
-            if final_assistant:
-                recent_count = self.rag_system.session_memory.append_exchange(thread_id, user_message, final_assistant)
+            combined_assistant_text = "\n\n".join(all_visible_assistant_texts) if all_visible_assistant_texts else final_assistant
+            if combined_assistant_text:
+                recent_count = self.rag_system.session_memory.append_exchange(thread_id, user_message, combined_assistant_text)
                 if recent_count >= config.SUMMARY_REFRESH_THRESHOLD:
                     conversation_summary = latest_values.get("conversation_summary", "")
                     if conversation_summary:
                         self.rag_system.summary_store.save_summary(thread_id, conversation_summary, recent_count)
 
-            if "intent" in latest_values:
-                resolved_intent = latest_values.get("intent")
-            else:
-                resolved_intent = inferred_intent
+            resolved_intent = latest_values.get("intent", session_state.get("intent"))
 
             if "risk_level" in latest_values:
                 resolved_risk_level = latest_values.get("risk_level")
@@ -373,6 +407,28 @@ class ChatInterface:
                 resolved_pending = latest_values.get("pending_clarification") or None
             else:
                 resolved_pending = clarification_text or None
+
+            resolved_clarification_target = latest_values.get(
+                "clarification_target",
+                session_state.get("clarification_target"),
+            ) or None
+            resolved_topic_focus = latest_values.get("topic_focus", session_state.get("topic_focus")) or None
+            resolved_deferred_user_question = latest_values.get(
+                "deferred_user_question",
+                session_state.get("deferred_user_question"),
+            ) or None
+            resolved_secondary_intent = latest_values.get(
+                "secondary_intent",
+                session_state.get("secondary_intent"),
+            ) or None
+            resolved_clarification_attempts = int(latest_values.get(
+                "clarification_attempts",
+                session_state.get("clarification_attempts") or 0,
+            ) or 0)
+            resolved_last_route_reason = latest_values.get(
+                "last_route_reason",
+                session_state.get("last_route_reason"),
+            ) or None
 
             if "recommended_department" in latest_values:
                 resolved_department = latest_values.get("recommended_department") or None
@@ -413,6 +469,12 @@ class ChatInterface:
                 "intent": resolved_intent,
                 "risk_level": resolved_risk_level,
                 "pending_clarification": resolved_pending,
+                "clarification_target": resolved_clarification_target,
+                "topic_focus": resolved_topic_focus,
+                "deferred_user_question": resolved_deferred_user_question,
+                "secondary_intent": resolved_secondary_intent,
+                "clarification_attempts": resolved_clarification_attempts,
+                "last_route_reason": resolved_last_route_reason,
                 "recommended_department": resolved_department,
                 "appointment_context": resolved_appointment_context,
                 "last_appointment_no": resolved_last_appointment_no,
@@ -423,6 +485,30 @@ class ChatInterface:
             }
             if updated_state != (session_state or {}):
                 self.rag_system.session_memory.set_state(thread_id, updated_state)
+
+            had_pending_state = bool(
+                (session_state or {}).get("pending_action_type")
+                or (session_state or {}).get("pending_clarification")
+                or (session_state or {}).get("deferred_user_question")
+            )
+            try:
+                self.route_log_store.save_log(
+                    {
+                        "thread_id": thread_id,
+                        "user_query": user_message,
+                        "primary_intent": latest_values.get("primary_intent", resolved_intent) or "",
+                        "secondary_intent": resolved_secondary_intent or "",
+                        "decision_source": latest_values.get("decision_source", "") or "",
+                        "route_reason": latest_values.get("route_reason", resolved_last_route_reason or "") or "",
+                        "had_pending_state": had_pending_state,
+                        "extra_metadata": {
+                            "topic_focus": resolved_topic_focus or "",
+                            "deferred_user_question": resolved_deferred_user_question or "",
+                        },
+                    }
+                )
+            except Exception:
+                pass
 
         except Exception as e:
             yield f"❌ Error: {str(e)}"

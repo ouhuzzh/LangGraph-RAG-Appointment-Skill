@@ -52,6 +52,23 @@ class TranscriptRegressionTests(unittest.TestCase):
         self.assertEqual(result["intent"], "medical_rag")
         self.assertEqual(result["pending_clarification"], "")
 
+    def test_intent_router_uses_recent_history_for_follow_up_when_summary_is_empty(self):
+        state = {
+            "messages": [
+                HumanMessage(content="高血压会引起头晕吗"),
+                AIMessage(content="高血压有时会引起头晕，也可能伴随头痛。"),
+                HumanMessage(content="那应该注意什么"),
+            ],
+            "conversation_summary": "",
+            "pending_action_type": "",
+            "pending_candidates": [],
+        }
+
+        result = intent_router(state, ExplodingStructuredLLM())
+
+        self.assertEqual(result["intent"], "medical_rag")
+        self.assertIn("高血压", result["recent_context"])
+
     def test_intent_router_short_circuits_clear_medical_question_before_llm(self):
         state = {
             "messages": [HumanMessage(content="高血压会引起头晕吗")],
@@ -63,6 +80,47 @@ class TranscriptRegressionTests(unittest.TestCase):
         result = intent_router(state, ExplodingStructuredLLM())
 
         self.assertEqual(result["intent"], "medical_rag")
+
+    def test_intent_router_prefers_medical_rag_for_mixed_booking_medical_question(self):
+        state = {
+            "messages": [HumanMessage(content="预约前高血压药还要不要吃")],
+            "conversation_summary": "",
+            "pending_action_type": "",
+            "pending_candidates": [],
+        }
+
+        result = intent_router(state, ExplodingStructuredLLM())
+
+        self.assertEqual(result["intent"], "medical_rag")
+
+    def test_intent_router_prefers_cancel_flow_for_explicit_cancel_then_medical_question(self):
+        state = {
+            "messages": [HumanMessage(content="取消刚才那个预约，然后我这个咳嗽还要看吗")],
+            "conversation_summary": "",
+            "last_appointment_no": "APT001",
+            "pending_action_type": "",
+            "pending_candidates": [],
+        }
+
+        result = intent_router(state, ExplodingStructuredLLM())
+
+        self.assertEqual(result["intent"], "cancel_appointment")
+
+    def test_intent_router_routes_pending_clarification_back_to_original_target(self):
+        state = {
+            "messages": [HumanMessage(content="明天下午")],
+            "conversation_summary": "",
+            "pending_clarification": "请补充时间",
+            "clarification_target": "handle_appointment",
+            "intent": "appointment",
+            "pending_action_type": "",
+            "pending_candidates": [],
+        }
+
+        result = intent_router(state, ExplodingStructuredLLM())
+
+        self.assertEqual(result["intent"], "appointment")
+        self.assertEqual(result["pending_clarification"], "")
 
     def test_rewrite_query_accepts_contextual_follow_up_without_extra_clarification(self):
         llm = FakeStructuredLLM(
@@ -81,6 +139,7 @@ class TranscriptRegressionTests(unittest.TestCase):
         self.assertTrue(result["questionIsClear"])
         self.assertEqual(result["pending_clarification"], "")
         self.assertTrue(result["rewrittenQuestions"])
+        self.assertIn("糖尿病", result["recent_context"] or state["conversation_summary"])
 
     def test_rewrite_query_keeps_recent_history_instead_of_deleting_everything(self):
         llm = FakeStructuredLLM(

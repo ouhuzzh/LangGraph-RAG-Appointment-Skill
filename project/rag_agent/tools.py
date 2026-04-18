@@ -52,6 +52,19 @@ def get_retrieval_context() -> dict:
     return dict(value) if isinstance(value, dict) else {}
 
 
+def _confidence_bucket(results: List[Document]) -> str:
+    if not results:
+        return "no_evidence"
+    top_doc = results[0]
+    metadata = top_doc.metadata or {}
+    score = float(metadata.get("rerank_score") or metadata.get("fusion_score") or metadata.get("score") or 0.0)
+    if score >= 0.85 and len(results) >= 2:
+        return "high"
+    if score >= 0.72:
+        return "medium"
+    return "low"
+
+
 class ToolFactory:
     
     def __init__(self, collection):
@@ -260,13 +273,24 @@ class ToolFactory:
             if not results:
                 return _NO_EVIDENCE_RESPONSE
 
-            return "\n\n".join([
-                f"Parent ID: {doc.metadata.get('parent_id', '')}\n"
-                f"File Name: {doc.metadata.get('source', '')}\n"
-                f"Source Type: {doc.metadata.get('source_type', 'unknown')}\n"
-                f"Content: {doc.page_content.strip()}"
-                for doc in results
-            ])            
+            confidence_bucket = _confidence_bucket(results)
+            formatted_results = []
+            for doc in results:
+                metadata = doc.metadata or {}
+                formatted_results.append(
+                    f"Parent ID: {metadata.get('parent_id', '')}\n"
+                    f"File Name: {metadata.get('source', '')}\n"
+                    f"Source Title: {metadata.get('title', metadata.get('source', ''))}\n"
+                    f"Source Type: {metadata.get('source_type', 'unknown')}\n"
+                    f"Original URL: {metadata.get('original_url', '')}\n"
+                    f"Published At: {metadata.get('published_at', '')}\n"
+                    f"Freshness Bucket: {metadata.get('freshness_bucket', '')}\n"
+                    f"Score: {float(metadata.get('rerank_score') or metadata.get('fusion_score') or metadata.get('score') or 0.0):.4f}\n"
+                    f"Confidence Bucket: {confidence_bucket}\n"
+                    f"Content: {doc.page_content.strip()}"
+                )
+
+            return "\n\n".join(formatted_results)
 
         except Exception as e:
             return f"RETRIEVAL_ERROR: {str(e)}"
@@ -286,7 +310,11 @@ class ToolFactory:
             return "\n\n".join([
                 f"Parent ID: {doc.get('parent_id', 'n/a')}\n"
                 f"File Name: {doc.get('metadata', {}).get('source', 'unknown')}\n"
+                f"Source Title: {doc.get('metadata', {}).get('title', doc.get('metadata', {}).get('source', 'unknown'))}\n"
                 f"Source Type: {doc.get('metadata', {}).get('source_type', 'unknown')}\n"
+                f"Original URL: {doc.get('metadata', {}).get('original_url', '')}\n"
+                f"Published At: {doc.get('metadata', {}).get('published_at', '')}\n"
+                f"Freshness Bucket: {doc.get('metadata', {}).get('freshness_bucket', '')}\n"
                 f"Content: {doc.get('content', '').strip()}"
                 for doc in raw_parents
             ])            
@@ -308,7 +336,11 @@ class ToolFactory:
             return (
                 f"Parent ID: {parent.get('parent_id', 'n/a')}\n"
                 f"File Name: {parent.get('metadata', {}).get('source', 'unknown')}\n"
+                f"Source Title: {parent.get('metadata', {}).get('title', parent.get('metadata', {}).get('source', 'unknown'))}\n"
                 f"Source Type: {parent.get('metadata', {}).get('source_type', 'unknown')}\n"
+                f"Original URL: {parent.get('metadata', {}).get('original_url', '')}\n"
+                f"Published At: {parent.get('metadata', {}).get('published_at', '')}\n"
+                f"Freshness Bucket: {parent.get('metadata', {}).get('freshness_bucket', '')}\n"
                 f"Content: {parent.get('content', '').strip()}"
             )          
 

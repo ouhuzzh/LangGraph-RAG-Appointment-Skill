@@ -45,6 +45,9 @@ class WhoHtmlImporterTests(unittest.TestCase):
         self.assertEqual(result.failed, 0)
         self.assertIn("Source: World Health Organization", content)
         self.assertIn("Sample WHO topic", content)
+        self.assertIn("Published At:", content)
+        self.assertIn("Fetched At:", content)
+        self.assertIn("Freshness Bucket:", content)
         self.assertIn("Symptom one", content)
         self.assertEqual(importer.downloaded_urls, ["https://www.who.int/news-room/fact-sheets/detail/sample-topic"])
 

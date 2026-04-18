@@ -89,6 +89,34 @@ class SchemaManager:
                 """,
             ],
         ),
+        (
+            "004_route_logs",
+            "Persist routing decisions for transcript and route-quality evaluation.",
+            [
+                """
+                CREATE TABLE IF NOT EXISTS route_logs (
+                    id                  BIGSERIAL PRIMARY KEY,
+                    thread_id           VARCHAR(128),
+                    user_query          TEXT NOT NULL,
+                    primary_intent      VARCHAR(64) NOT NULL,
+                    secondary_intent    VARCHAR(64) NOT NULL DEFAULT '',
+                    decision_source     VARCHAR(32) NOT NULL DEFAULT '',
+                    route_reason        TEXT NOT NULL DEFAULT '',
+                    had_pending_state   BOOLEAN NOT NULL DEFAULT FALSE,
+                    extra_metadata      JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    created_at          TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_route_logs_created_at
+                ON route_logs(created_at DESC)
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_route_logs_thread_id
+                ON route_logs(thread_id)
+                """,
+            ],
+        ),
     ]
 
     def __init__(self, conninfo: str):
@@ -159,7 +187,9 @@ class SchemaManager:
                           'idx_appointments_patient_status_date',
                           'idx_chat_sessions_patient_id',
                           'idx_documents_source_name',
-                          'idx_import_task_logs_created_at'
+                          'idx_import_task_logs_created_at',
+                          'idx_route_logs_created_at',
+                          'idx_route_logs_thread_id'
                       )
                     """
                 )
