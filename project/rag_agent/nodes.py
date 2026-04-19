@@ -75,8 +75,13 @@ _DEPARTMENT_HINTS = (
 )
 _TOPIC_STOP_WORDS = ("一下", "一下子", "这个", "那个", "这种情况", "怎么", "怎么办", "需要", "是否", "一般")
 _ANY_DOCTOR_HINTS = ("任一", "任何医生", "随便医生", "都可以", "任选", "任意医生", "任一可用医生")
+_EARLIEST_SLOT_HINTS = ("最早可用时段", "最早的", "最早号源", "最快的", "尽快")
 _DOCTOR_DISCOVERY_HINTS = ("有哪些医生", "哪个医生", "医生有号", "谁有号", "查医生", "医生排班", "专家", "号源")
-_APPOINTMENT_LIST_HINTS = ("我的预约", "有哪些预约", "查预约", "看看预约", "预约列表")
+_APPOINTMENT_LIST_HINTS = (
+    "我的预约", "有哪些预约", "查预约", "看看预约", "预约列表",
+    "挂了谁的号", "挂的是谁的号", "我挂了谁的号", "我之前挂了谁的号",
+    "我现在挂了谁的号", "预约了谁", "约了谁的号",
+)
 _RESCHEDULE_HINTS = ("改约", "改到", "换到", "换成", "改成", "挪到")
 _GENERAL_CHAT_HINTS = (
     "我今天有点烦", "有点烦", "心情不好", "不开心", "有点累", "有点焦虑", "想聊聊", "聊聊",
@@ -381,6 +386,64 @@ def _pick_doctor_name_from_text(user_query: str, doctor_options: list[dict] | No
         if doctor_name and doctor_name.lower() in normalized:
             return doctor_name
     return ""
+
+
+def _wants_earliest_available_slot(user_query: str) -> bool:
+    normalized = (user_query or "").strip().lower()
+    return any(token in normalized for token in _EARLIEST_SLOT_HINTS)
+
+
+def _sort_schedule_options(options: list[dict]) -> list[dict]:
+    return sorted(
+        list(options or []),
+        key=lambda item: (
+            str(item.get("schedule_date") or ""),
+            str(item.get("time_slot") or ""),
+            str(item.get("doctor_name") or ""),
+            int(item.get("schedule_id") or 0),
+        ),
+    )
+
+
+def _find_matching_doctor_options(options: list[dict], doctor_name: str) -> list[dict]:
+    doctor_name_normalized = str(doctor_name or "").strip().lower()
+    if not doctor_name_normalized:
+        return []
+    return [
+        item
+        for item in (options or [])
+        if doctor_name_normalized in str(item.get("doctor_name") or "").strip().lower()
+    ]
+
+
+def _schedule_to_preview_payload(schedule: dict, *, action: str = "book") -> dict:
+    return {
+        "department": schedule.get("department_name") or schedule.get("department") or "",
+        "date": str(schedule.get("schedule_date") or ""),
+        "time_slot": schedule.get("time_slot") or "",
+        "doctor_name": schedule.get("doctor_name") or "",
+        "action": action,
+    }
+
+
+def _format_doctor_slot_selection_message(department: str, doctor_name: str, options: list[dict]) -> str:
+    lines = [
+        f"{idx}. **{item.get('schedule_date')} {item.get('time_slot')}**（剩余号源 {item.get('quota_available', 0)}）"
+        for idx, item in enumerate(_sort_schedule_options(options)[:8], start=1)
+    ]
+    return (
+        f"我找到 **{department}** 的 **{doctor_name}** 可预约时段：\n\n"
+        + "\n".join(lines)
+        + "\n\n你可以直接回复具体日期和时段，例如“2026-04-18 下午”；如果你希望我直接优先选最早可用时段，也可以回复 **最早可用时段**。"
+    )
+
+
+def _strip_leading_query_plan_blob(text: str) -> str:
+    raw = str(text or "").strip()
+    if not raw.startswith("{"):
+        return raw
+    cleaned = re.sub(r'^\s*\{\s*"queries"\s*:\s*\[[\s\S]*?\]\s*\}\s*', "", raw, count=1)
+    return cleaned.strip() or raw
 
 
 def _format_doctor_options(department: str, normalized_date: str, time_slot: str, doctor_options: list[dict]) -> str:
@@ -1981,6 +2044,117 @@ def handle_appointment_skill(state: State, llm, appointment_service):
             "messages": [AIMessage(content="我还没确定你要取消哪一条。你可以直接回复预约号，或者说“第 1 个 / 第 2 个”。")],
         }
 
+    available_doctors = list(appointment_context.get("available_doctors") or [])
+    selected_doctor_name = _pick_doctor_name_from_text(user_query, available_doctors) or appointment_context.get("doctor_name", "")
+    if active_intent == "appointment" and available_doctors:
+        if _wants_any_available_doctor(user_query):
+            chosen_schedule = _sort_schedule_options(available_doctors)[0]
+            payload = _schedule_to_preview_payload(chosen_schedule)
+            preview_message = _format_booking_preview(payload)
+            _log_appointment_skill_event(
+                state,
+                skill_mode="planning",
+                request_type="prepare_appointment",
+                selected_candidate_count=len(available_doctors),
+                required_confirmation=True,
+                final_action="prepare_any_available_doctor",
+            )
+            return {
+                **_base_skill_state_update(
+                    state,
+                    intent="appointment",
+                    skill_mode="prepare_appointment",
+                    topic_focus=payload["department"],
+                    appointment_context=_build_appointment_context(
+                        appointment_context,
+                        {
+                            "department": payload["department"],
+                            "date": payload["date"],
+                            "time_slot": payload["time_slot"],
+                            "doctor_name": payload["doctor_name"],
+                            "available_doctors": available_doctors,
+                        },
+                    ),
+                    candidates=available_doctors,
+                    skill_last_prompt=preview_message,
+                ),
+                "pending_clarification": "",
+                "clarification_target": "",
+                "clarification_attempts": 0,
+                **_build_pending_confirmation("appointment", payload),
+                "messages": [AIMessage(content=preview_message)],
+            }
+        matching_doctor_options = _find_matching_doctor_options(available_doctors, selected_doctor_name)
+        if matching_doctor_options:
+            if len(matching_doctor_options) == 1 or _wants_earliest_available_slot(user_query):
+                chosen_schedule = _sort_schedule_options(matching_doctor_options)[0]
+                payload = _schedule_to_preview_payload(chosen_schedule)
+                preview_message = _format_booking_preview(payload)
+                _log_appointment_skill_event(
+                    state,
+                    skill_mode="planning",
+                    request_type="prepare_appointment",
+                    selected_candidate_count=len(matching_doctor_options),
+                    required_confirmation=True,
+                    final_action="prepare_selected_doctor",
+                )
+                return {
+                    **_base_skill_state_update(
+                        state,
+                        intent="appointment",
+                        skill_mode="prepare_appointment",
+                        topic_focus=payload["department"],
+                        appointment_context=_build_appointment_context(
+                            appointment_context,
+                            {
+                                "department": payload["department"],
+                                "date": payload["date"],
+                                "time_slot": payload["time_slot"],
+                                "doctor_name": payload["doctor_name"],
+                                "available_doctors": matching_doctor_options,
+                            },
+                        ),
+                        candidates=matching_doctor_options,
+                        skill_last_prompt=preview_message,
+                    ),
+                    "pending_clarification": "",
+                    "clarification_target": "",
+                    "clarification_attempts": 0,
+                    **_build_pending_confirmation("appointment", payload),
+                    "messages": [AIMessage(content=preview_message)],
+                }
+            selection_message = _format_doctor_slot_selection_message(
+                appointment_context.get("department", "") or matching_doctor_options[0].get("department_name", ""),
+                selected_doctor_name,
+                matching_doctor_options,
+            )
+            _log_appointment_skill_event(
+                state,
+                skill_mode="discovery",
+                request_type="discover_availability",
+                selected_candidate_count=len(matching_doctor_options),
+                final_action="discover_selected_doctor_slots",
+            )
+            return {
+                **_base_skill_state_update(
+                    state,
+                    intent="appointment",
+                    skill_mode="discover_availability",
+                    topic_focus=appointment_context.get("department", "") or selected_doctor_name,
+                    appointment_context=_build_appointment_context(
+                        appointment_context,
+                        {"available_doctors": matching_doctor_options, "doctor_name": selected_doctor_name},
+                    ),
+                    candidates=matching_doctor_options,
+                    skill_last_prompt=selection_message,
+                ),
+                "pending_clarification": "",
+                "clarification_target": "",
+                "clarification_attempts": 0,
+                **_clear_pending_action_state(),
+                "messages": [AIMessage(content=selection_message)],
+            }
+
     call_args = _invoke_appointment_skill_request(llm, state, user_query)
     department = (call_args.get("department") or "").strip() or state.get("recommended_department", "") or appointment_context.get("department", "")
     normalized_date = _normalize_date(call_args.get("date") or appointment_context.get("date", "") or user_query)
@@ -1997,6 +2171,116 @@ def handle_appointment_skill(state: State, llm, appointment_service):
         appointment_context,
         {"department": department, "date": normalized_date, "time_slot": time_slot, "doctor_name": doctor_name},
     )
+    available_doctors = list(appointment_context.get("available_doctors") or [])
+    matching_doctor_options = _find_matching_doctor_options(available_doctors, doctor_name)
+
+    if active_intent == "appointment" and available_doctors and not normalized_date and not time_slot:
+        if wants_any_doctor:
+            chosen_schedule = _sort_schedule_options(available_doctors)[0]
+            payload = _schedule_to_preview_payload(chosen_schedule)
+            preview_message = _format_booking_preview(payload)
+            _log_appointment_skill_event(
+                state,
+                skill_mode="planning",
+                request_type="prepare_appointment",
+                selected_candidate_count=len(available_doctors),
+                required_confirmation=True,
+                final_action="prepare_any_available_doctor",
+            )
+            return {
+                **_base_skill_state_update(
+                    state,
+                    intent="appointment",
+                    skill_mode="prepare_appointment",
+                    topic_focus=payload["department"],
+                    appointment_context=_build_appointment_context(
+                        merged_context,
+                        {
+                            "department": payload["department"],
+                            "date": payload["date"],
+                            "time_slot": payload["time_slot"],
+                            "doctor_name": payload["doctor_name"],
+                            "available_doctors": available_doctors,
+                        },
+                    ),
+                    candidates=available_doctors,
+                    skill_last_prompt=preview_message,
+                ),
+                "pending_clarification": "",
+                "clarification_target": "",
+                "clarification_attempts": 0,
+                **_build_pending_confirmation("appointment", payload),
+                "messages": [AIMessage(content=preview_message)],
+            }
+        if matching_doctor_options:
+            if len(matching_doctor_options) == 1 or _wants_earliest_available_slot(user_query):
+                chosen_schedule = _sort_schedule_options(matching_doctor_options)[0]
+                payload = _schedule_to_preview_payload(chosen_schedule)
+                preview_message = _format_booking_preview(payload)
+                _log_appointment_skill_event(
+                    state,
+                    skill_mode="planning",
+                    request_type="prepare_appointment",
+                    selected_candidate_count=len(matching_doctor_options),
+                    required_confirmation=True,
+                    final_action="prepare_selected_doctor",
+                )
+                return {
+                    **_base_skill_state_update(
+                        state,
+                        intent="appointment",
+                        skill_mode="prepare_appointment",
+                        topic_focus=payload["department"],
+                        appointment_context=_build_appointment_context(
+                            merged_context,
+                            {
+                                "department": payload["department"],
+                                "date": payload["date"],
+                                "time_slot": payload["time_slot"],
+                                "doctor_name": payload["doctor_name"],
+                                "available_doctors": matching_doctor_options,
+                            },
+                        ),
+                        candidates=matching_doctor_options,
+                        skill_last_prompt=preview_message,
+                    ),
+                    "pending_clarification": "",
+                    "clarification_target": "",
+                    "clarification_attempts": 0,
+                    **_build_pending_confirmation("appointment", payload),
+                    "messages": [AIMessage(content=preview_message)],
+                }
+            selection_message = _format_doctor_slot_selection_message(
+                department or matching_doctor_options[0].get("department_name", ""),
+                doctor_name,
+                matching_doctor_options,
+            )
+            _log_appointment_skill_event(
+                state,
+                skill_mode="discovery",
+                request_type="discover_availability",
+                selected_candidate_count=len(matching_doctor_options),
+                final_action="discover_selected_doctor_slots",
+            )
+            return {
+                **_base_skill_state_update(
+                    state,
+                    intent="appointment",
+                    skill_mode="discover_availability",
+                    topic_focus=department or doctor_name,
+                    appointment_context=_build_appointment_context(
+                        merged_context,
+                        {"available_doctors": matching_doctor_options, "doctor_name": doctor_name},
+                    ),
+                    candidates=matching_doctor_options,
+                    skill_last_prompt=selection_message,
+                ),
+                "pending_clarification": "",
+                "clarification_target": "",
+                "clarification_attempts": 0,
+                **_clear_pending_action_state(),
+                "messages": [AIMessage(content=selection_message)],
+            }
 
     if skill_action == "clarify":
         clarification = (call_args.get("clarification") or "").strip() or "你可以再补充一下要处理的预约信息。"
@@ -2521,7 +2805,7 @@ def _extract_source_citations(messages) -> list[dict]:
 def collect_answer(state: AgentState):
     last_message = state["messages"][-1]
     is_valid = isinstance(last_message, AIMessage) and last_message.content and not last_message.tool_calls
-    answer = last_message.content if is_valid else "Unable to generate an answer."
+    answer = _strip_leading_query_plan_blob(last_message.content) if is_valid else "Unable to generate an answer."
     citations = _extract_source_citations(state.get("messages", []))
     confidence_bucket = next((item.get("confidence_bucket") for item in citations if item.get("confidence_bucket")), "")
     if not confidence_bucket:
@@ -2608,8 +2892,9 @@ def grounded_answer_generation(state: State, llm):
     if citation_lines:
         citation_block = "\n\n参考来源：\n" + "\n".join(citation_lines)
 
+    final_content = _strip_leading_query_plan_blob(synthesis_response.content)
     return {
-        "messages": [AIMessage(content=f"{synthesis_response.content}{confidence_note}{citation_block}")],
+        "messages": [AIMessage(content=f"{final_content}{confidence_note}{citation_block}")],
         "clarification_attempts": 0,
     }
 
@@ -2643,7 +2928,7 @@ def answer_grounding_check(state: State, llm):
         ),
         high_risk=_needs_strict_medical_safety(original_query, risk_level),
     )
-    final_answer = grounded.get("revised_answer", current_answer)
+    final_answer = _strip_leading_query_plan_blob(grounded.get("revised_answer", current_answer))
     if final_answer == current_answer:
         return {}
     return {"messages": [AIMessage(content=final_answer)]}

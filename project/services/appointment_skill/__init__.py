@@ -8,6 +8,7 @@ from .dialog_policy import (
     format_appointment_list,
     format_department_options,
     format_doctor_options,
+    format_doctor_schedule_options,
     format_reschedule_preview,
     format_upcoming_availability,
 )
@@ -45,7 +46,7 @@ class AppointmentSkill:
         if not upcoming:
             return f"暂时没有找到 **{doctor_name}** 的可预约号源。你也可以告诉我科室，我帮你看看其他医生。", []
         header = f"我找到 **{doctor_name}** 当前可预约的时段："
-        return format_doctor_options(department or upcoming[0]["department_name"], upcoming, lead=header), upcoming
+        return format_doctor_schedule_options(department or upcoming[0]["department_name"], doctor_name, upcoming, lead=header), upcoming
 
     def list_my_appointments(self, thread_id: str) -> tuple[str, list[dict]]:
         appointments = self.catalog.list_my_appointments(thread_id)

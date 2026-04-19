@@ -8,7 +8,9 @@ from rag_agent.nodes import (  # noqa: E402
     _normalize_date,
     _normalize_time_slot,
     _is_explicit_confirmation,
+    _looks_like_appointment_discovery_query,
     _pick_candidate_from_text,
+    _strip_leading_query_plan_blob,
     _should_use_last_appointment,
 )
 
@@ -49,6 +51,14 @@ class NodesHelperTests(unittest.TestCase):
         self.assertTrue(_should_use_last_appointment("帮我取消最近的那个预约"))
         self.assertTrue(_should_use_last_appointment("取消上次那个"))
         self.assertFalse(_should_use_last_appointment("帮我取消预约"))
+
+    def test_appointment_discovery_query_covers_existing_booking_lookup(self):
+        self.assertTrue(_looks_like_appointment_discovery_query("我之前挂了谁的号"))
+        self.assertTrue(_looks_like_appointment_discovery_query("我现在挂了谁的号"))
+
+    def test_strip_leading_query_plan_blob_removes_json_prefix(self):
+        text = '{"queries": ["呼吸内科", "呼吸内科挂号"]}呼吸内科主要诊治呼吸系统疾病。'
+        self.assertEqual(_strip_leading_query_plan_blob(text), "呼吸内科主要诊治呼吸系统疾病。")
 
 
 if __name__ == "__main__":

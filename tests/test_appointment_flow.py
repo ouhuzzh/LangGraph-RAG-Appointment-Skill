@@ -264,6 +264,92 @@ class AppointmentFlowTests(unittest.TestCase):
         self.assertEqual(result["last_appointment_no"], "APTBOOK123")
         self.assertIn("预约成功", result["messages"][0].content)
 
+    def test_handle_appointment_any_available_doctor_from_context_prepares_preview(self):
+        llm = FakeToolLLM([])
+        service = FakeAppointmentService()
+        tomorrow = date.today() + timedelta(days=1)
+        state = {
+            "thread_id": "thread-any-available",
+            "messages": [HumanMessage(content="任一可用医生")],
+            "intent": "appointment",
+            "appointment_context": {
+                "department": "呼吸内科",
+                "available_doctors": [
+                    {
+                        "schedule_id": 11,
+                        "doctor_id": 10,
+                        "department_id": 20,
+                        "schedule_date": tomorrow.isoformat(),
+                        "time_slot": "afternoon",
+                        "quota_available": 10,
+                        "doctor_name": "张医生",
+                        "department_name": "呼吸内科",
+                    },
+                    {
+                        "schedule_id": 12,
+                        "doctor_id": 10,
+                        "department_id": 20,
+                        "schedule_date": tomorrow.isoformat(),
+                        "time_slot": "morning",
+                        "quota_available": 1,
+                        "doctor_name": "张医生",
+                        "department_name": "呼吸内科",
+                    },
+                ],
+            },
+            "recommended_department": "",
+        }
+
+        result = handle_appointment(state, llm, service)
+
+        self.assertEqual(result["pending_action_type"], "appointment")
+        self.assertEqual(result["pending_action_payload"]["department"], "呼吸内科")
+        self.assertEqual(result["pending_action_payload"]["doctor_name"], "张医生")
+        self.assertIn("确认预约", result["messages"][0].content)
+
+    def test_handle_appointment_selected_doctor_without_slot_prompts_slot_selection(self):
+        llm = FakeToolLLM([])
+        service = FakeAppointmentService()
+        tomorrow = date.today() + timedelta(days=1)
+        state = {
+            "thread_id": "thread-doctor-only",
+            "messages": [HumanMessage(content="张医生")],
+            "intent": "appointment",
+            "appointment_context": {
+                "department": "呼吸内科",
+                "available_doctors": [
+                    {
+                        "schedule_id": 21,
+                        "doctor_id": 10,
+                        "department_id": 20,
+                        "schedule_date": tomorrow.isoformat(),
+                        "time_slot": "afternoon",
+                        "quota_available": 10,
+                        "doctor_name": "张医生",
+                        "department_name": "呼吸内科",
+                    },
+                    {
+                        "schedule_id": 22,
+                        "doctor_id": 10,
+                        "department_id": 20,
+                        "schedule_date": tomorrow.isoformat(),
+                        "time_slot": "morning",
+                        "quota_available": 1,
+                        "doctor_name": "张医生",
+                        "department_name": "呼吸内科",
+                    },
+                ],
+            },
+            "recommended_department": "",
+        }
+
+        result = handle_appointment(state, llm, service)
+
+        self.assertEqual(result["pending_action_type"], "")
+        self.assertIn("张医生", result["messages"][0].content)
+        self.assertIn("可预约时段", result["messages"][0].content)
+        self.assertIn("最早可用时段", result["messages"][0].content)
+
     def test_handle_appointment_non_explicit_confirmation_does_not_execute(self):
         llm = FakeToolLLM(
             [

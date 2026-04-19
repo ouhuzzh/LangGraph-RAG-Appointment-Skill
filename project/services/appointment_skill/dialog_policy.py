@@ -25,6 +25,23 @@ def format_doctor_options(department: str, doctor_options: list[dict], *, lead: 
     )
 
 
+def format_doctor_schedule_options(department: str, doctor_name: str, doctor_options: list[dict], *, lead: str = "") -> str:
+    if not doctor_options:
+        prefix = f"{lead}\n\n" if lead else ""
+        return prefix + f"暂时没有找到 **{department}** 的 **{doctor_name}** 可预约时段。你也可以让我看看其他医生。"
+    lines = [
+        f"{idx}. **{item.get('schedule_date')} {item.get('time_slot')}**（剩余号源 {item.get('quota_available', 0)}）"
+        for idx, item in enumerate(doctor_options[:8], start=1)
+    ]
+    prefix = f"{lead}\n\n" if lead else ""
+    return (
+        prefix
+        + f"目前 **{department}** 的 **{doctor_name}** 可预约时段有：\n\n"
+        + "\n".join(lines)
+        + "\n\n你可以直接回复具体日期和时段，例如“2026-04-18 下午”；如果你想让我直接优先选最早可用时段，也可以回复 **最早可用时段**。"
+    )
+
+
 def format_appointment_list(appointments: list[dict], *, empty_hint: str = "当前没有可取消的预约。") -> str:
     if not appointments:
         return empty_hint
