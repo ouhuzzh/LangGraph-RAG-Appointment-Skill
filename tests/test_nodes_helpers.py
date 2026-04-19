@@ -5,6 +5,9 @@ from datetime import date, timedelta
 sys.path.insert(0, r"D:\nageoffer\agentic-rag-for-dummies\project")
 
 from rag_agent.nodes import (  # noqa: E402
+    _confidence_bucket_explanation,
+    _format_reference_lines,
+    _sanitize_final_answer_text,
     _normalize_date,
     _normalize_time_slot,
     _is_explicit_confirmation,
@@ -59,6 +62,34 @@ class NodesHelperTests(unittest.TestCase):
     def test_strip_leading_query_plan_blob_removes_json_prefix(self):
         text = '{"queries": ["呼吸内科", "呼吸内科挂号"]}呼吸内科主要诊治呼吸系统疾病。'
         self.assertEqual(_strip_leading_query_plan_blob(text), "呼吸内科主要诊治呼吸系统疾病。")
+
+    def test_sanitize_final_answer_text_removes_query_plan_and_sources_block(self):
+        text = (
+            '```json\n{"queries": ["高血压注意事项"]}\n```\n'
+            "高血压患者要注意低盐饮食。\n\n---\n**Sources:**\n- file1.pdf\n- file2.txt"
+        )
+        self.assertEqual(_sanitize_final_answer_text(text), "高血压患者要注意低盐饮食。")
+
+    def test_format_reference_lines_uses_user_friendly_labels(self):
+        lines = _format_reference_lines(
+            [
+                {
+                    "title": "高血压管理指南.txt",
+                    "source_type": "clinical_guideline",
+                    "freshness_bucket": "outdated",
+                    "original_url": "https://example.com/guide",
+                }
+            ]
+        )
+        self.assertEqual(
+            lines[0],
+            "- 高血压管理指南.txt（临床指南，时效：较旧） [链接](https://example.com/guide)",
+        )
+
+    def test_confidence_bucket_explanation_is_patient_friendly(self):
+        self.assertIn("较直接", _confidence_bucket_explanation("high", is_medical_request=True))
+        self.assertIn("初步参考", _confidence_bucket_explanation("medium", is_medical_request=True))
+        self.assertIn("通用医学信息", _confidence_bucket_explanation("no_evidence", is_medical_request=True))
 
 
 if __name__ == "__main__":

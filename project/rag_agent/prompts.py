@@ -171,7 +171,7 @@ Rules:
 6. For high-risk medical scenarios, prioritize urgent safety advice and keep claims conservative.
 7. Retrieve parent chunks only when excerpts are relevant but too fragmented.
 8. Prefer patient_education, then public_health, then clinical_guideline, and keep final wording patient-friendly.
-9. End with a Sources section when real file names are available.
+9. Do not output internal query plans, JSON blobs, or a Sources section. The application will append evidence metadata separately.
 """
 
 def get_fallback_response_prompt() -> str:
@@ -183,7 +183,7 @@ Rules:
 3. For medical answers without enough evidence, clearly label that the answer was not sufficiently based on knowledge-base retrieval, is for general medical information only, and cannot replace face-to-face diagnosis.
 4. For severe/worsening symptoms, medication or dosing questions, or emergency-like situations, include a stronger safety reminder to seek timely medical care.
 5. For non-medical or casual conversation, answer naturally and briefly while keeping the tone of a medical AI assistant.
-6. End with a Sources section only when real file names are available.
+6. Do not output internal query plans, JSON blobs, or a Sources section. The application will append evidence metadata separately.
 """
 
 def get_context_compression_prompt() -> str:
@@ -235,20 +235,11 @@ Rules:
 7. Start directly with the answer - no preambles like "Based on the sources...".
 8. If the evidence strength is low or no_evidence for a medical question, still provide a useful general medical-information answer when possible, but clearly label it as not sufficiently grounded in the knowledge base and keep it conservative.
 9. For non-medical or casual questions, answer naturally and do not force a medical disclaimer.
+10. Do not include internal query plans, JSON blobs, file lists, or a Sources section in the answer body. The application will append evidence metadata separately.
 
 Formatting:
 - Use Markdown for clarity (headings, lists, bold) but don't overdo it.
 - Write in flowing paragraphs where possible rather than excessive bullet points.
-- Conclude with a Sources section as described below.
-
-Sources section rules:
-- Each retrieved answer may contain a "Sources" section — extract the file names listed there.
-- List ONLY entries that have a real file extension (e.g. ".pdf", ".docx", ".txt").
-- Any entry without a file extension is an internal chunk identifier — discard it entirely, never include it.
-- Deduplicate: if the same file appears across multiple answers, list it only once.
-- Format as "---\\n**Sources:**\\n" followed by a bulleted list of the cleaned file names.
-- File names must appear ONLY in this final Sources section and nowhere else in the response.
-- If no valid file names are present, omit the Sources section entirely.
 
 If there's no useful information available, simply say: "I couldn't find any information to answer your question in the available sources."
 """

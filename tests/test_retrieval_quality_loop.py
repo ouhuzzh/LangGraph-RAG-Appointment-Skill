@@ -1,11 +1,21 @@
 import sys
 import unittest
 
+from langchain_core.messages import AIMessage
 from langchain_core.documents import Document
 
 sys.path.insert(0, r"D:\nageoffer\agentic-rag-for-dummies\project")
 
+from rag_agent.nodes import grounded_answer_generation  # noqa: E402
 from rag_agent.tools import check_sufficiency, grade_documents, ground_answer, plan_queries  # noqa: E402
+
+
+class _StubLLM:
+    def __init__(self, content: str):
+        self._content = content
+
+    def invoke(self, _messages):
+        return AIMessage(content=self._content)
 
 
 class RetrievalQualityLoopTests(unittest.TestCase):
@@ -77,6 +87,44 @@ class RetrievalQualityLoopTests(unittest.TestCase):
         self.assertTrue(grounded["grounded"])
         self.assertIn("东京", grounded["revised_answer"])
         self.assertNotIn("通用医学信息回答", grounded["revised_answer"])
+
+    def test_grounded_answer_generation_hides_internal_artifacts_and_formats_metadata(self):
+        llm = _StubLLM(
+            '```json\n{"queries": ["高血压注意事项"]}\n```\n'
+            "高血压患者应注意低盐饮食。\n\n---\n**Sources:**\n- internal.pdf"
+        )
+        state = {
+            "agent_answers": [
+                {
+                    "index": 0,
+                    "answer": "高血压患者应注意低盐饮食。",
+                    "confidence_bucket": "high",
+                    "sources": [
+                        {
+                            "title": "高血压管理指南.txt",
+                            "source_type": "clinical_guideline",
+                            "freshness_bucket": "outdated",
+                            "original_url": "https://example.com/guide",
+                        }
+                    ],
+                }
+            ],
+            "originalQuery": "高血压应该注意什么？",
+            "conversation_summary": "",
+            "recent_context": "",
+            "topic_focus": "高血压",
+            "risk_level": "normal",
+        }
+
+        result = grounded_answer_generation(state, llm)
+        content = result["messages"][0].content
+
+        self.assertNotIn('{"queries"', content)
+        self.assertNotIn("**Sources:**", content)
+        self.assertIn("证据强度：`高`", content)
+        self.assertIn("较直接、较匹配的资料", content)
+        self.assertIn("参考来源：", content)
+        self.assertIn("高血压管理指南.txt（临床指南，时效：较旧）", content)
 
 
 if __name__ == "__main__":

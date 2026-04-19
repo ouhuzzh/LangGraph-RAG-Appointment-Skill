@@ -440,10 +440,111 @@ def _format_doctor_slot_selection_message(department: str, doctor_name: str, opt
 
 def _strip_leading_query_plan_blob(text: str) -> str:
     raw = str(text or "").strip()
-    if not raw.startswith("{"):
+    if not raw:
         return raw
-    cleaned = re.sub(r'^\s*\{\s*"queries"\s*:\s*\[[\s\S]*?\]\s*\}\s*', "", raw, count=1)
+    patterns = [
+        r'^\s*```(?:json)?\s*\{\s*"queries"\s*:\s*\[[\s\S]*?\]\s*\}\s*```\s*',
+        r'^\s*\{\s*"queries"\s*:\s*\[[\s\S]*?\]\s*\}\s*',
+    ]
+    cleaned = raw
+    for pattern in patterns:
+        cleaned = re.sub(pattern, "", cleaned, count=1, flags=re.IGNORECASE)
+        if cleaned != raw:
+            break
     return cleaned.strip() or raw
+
+
+def _strip_trailing_sources_block(text: str) -> str:
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return cleaned
+    patterns = [
+        r'\n\s*---\s*\n\s*\*\*Sources:\*\*\s*\n(?:\s*[-*].*(?:\n|$))+?\s*$',
+        r'\n\s*\*\*Sources:\*\*\s*\n(?:\s*[-*].*(?:\n|$))+?\s*$',
+        r'\n\s*参考来源：\s*\n(?:\s*[-*].*(?:\n|$))+?\s*$',
+    ]
+    for pattern in patterns:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip()
+
+
+def _sanitize_final_answer_text(text: str) -> str:
+    cleaned = _strip_leading_query_plan_blob(text)
+    cleaned = _strip_trailing_sources_block(cleaned)
+    return cleaned.strip()
+
+
+def _confidence_bucket_label(confidence_bucket: str) -> str:
+    mapping = {
+        "high": "高",
+        "medium": "中",
+        "low": "低",
+        "no_evidence": "未命中足够证据",
+    }
+    return mapping.get(str(confidence_bucket or "").strip().lower(), "未知")
+
+
+def _confidence_bucket_explanation(confidence_bucket: str, *, is_medical_request: bool = False) -> str:
+    normalized = str(confidence_bucket or "").strip().lower()
+    if normalized == "high":
+        return "当前回答主要依据知识库中较直接、较匹配的资料整理而成。"
+    if normalized == "medium":
+        return "当前回答参考了相关资料，但证据覆盖还不算充分，适合先作为初步参考。"
+    if normalized == "low":
+        return (
+            "当前回答仅参考到少量相关资料，结论应保持保守。"
+            if is_medical_request
+            else "当前回答只参考到有限资料，可作为一般性参考。"
+        )
+    if normalized == "no_evidence":
+        return (
+            "知识库这次没有命中足够直接的相关资料，因此以下内容更偏通用医学信息。"
+            if is_medical_request
+            else "知识库这次没有命中足够直接的相关资料。"
+        )
+    return ""
+
+
+def _source_type_label(source_type: str) -> str:
+    mapping = {
+        "patient_education": "患者教育",
+        "public_health": "公共卫生",
+        "clinical_guideline": "临床指南",
+        "research_article": "研究资料",
+        "unknown": "资料",
+    }
+    normalized = str(source_type or "").strip().lower()
+    return mapping.get(normalized, normalized or "资料")
+
+
+def _freshness_bucket_label(bucket: str) -> str:
+    mapping = {
+        "fresh": "较新",
+        "current": "当前",
+        "outdated": "较旧",
+        "stale": "较旧",
+    }
+    normalized = str(bucket or "").strip().lower()
+    return mapping.get(normalized, "")
+
+
+def _format_reference_lines(sources: list[dict]) -> list[str]:
+    lines = []
+    for item in sources[:3]:
+        title = str(item.get("title") or "未知来源").strip()
+        source_label = _source_type_label(item.get("source_type", ""))
+        freshness_label = _freshness_bucket_label(item.get("freshness_bucket", ""))
+        meta_parts = [source_label]
+        if freshness_label:
+            meta_parts.append(f"时效：{freshness_label}")
+        line = f"- {title}"
+        if meta_parts:
+            line += f"（{'，'.join(meta_parts)}）"
+        original_url = str(item.get("original_url") or "").strip()
+        if original_url:
+            line += f" [链接]({original_url})"
+        lines.append(line)
+    return lines
 
 
 def _format_doctor_options(department: str, normalized_date: str, time_slot: str, doctor_options: list[dict]) -> str:
@@ -2805,7 +2906,7 @@ def _extract_source_citations(messages) -> list[dict]:
 def collect_answer(state: AgentState):
     last_message = state["messages"][-1]
     is_valid = isinstance(last_message, AIMessage) and last_message.content and not last_message.tool_calls
-    answer = _strip_leading_query_plan_blob(last_message.content) if is_valid else "Unable to generate an answer."
+    answer = _sanitize_final_answer_text(last_message.content) if is_valid else "Unable to generate an answer."
     citations = _extract_source_citations(state.get("messages", []))
     confidence_bucket = next((item.get("confidence_bucket") for item in citations if item.get("confidence_bucket")), "")
     if not confidence_bucket:
@@ -2857,14 +2958,7 @@ def grounded_answer_generation(state: State, llm):
     elif "medium" in confidence_levels:
         confidence_bucket = "medium"
 
-    citation_lines = []
-    for item in all_sources[:3]:
-        line = f"- {item.get('title', '未知来源')} [{item.get('source_type', 'unknown')}]"
-        if item.get("freshness_bucket"):
-            line += f" freshness={item['freshness_bucket']}"
-        if item.get("original_url"):
-            line += f" {item['original_url']}"
-        citation_lines.append(line)
+    citation_lines = _format_reference_lines(all_sources)
 
     original_query = state.get("originalQuery", "")
     is_medical_request = _looks_like_medical_request(
@@ -2876,15 +2970,20 @@ def grounded_answer_generation(state: State, llm):
     risk_level = _infer_risk_level(original_query, state.get("risk_level", "normal"))
 
     confidence_note = ""
+    confidence_label = _confidence_bucket_label(confidence_bucket)
+    confidence_explanation = _confidence_bucket_explanation(
+        confidence_bucket,
+        is_medical_request=is_medical_request,
+    )
     if is_medical_request and confidence_bucket in {"no_evidence", "low"}:
-        confidence_note = "\n\n" + _build_medical_fallback_notice(
+        confidence_note = f"\n\n证据强度：`{confidence_label}`。{confidence_explanation}\n\n" + _build_medical_fallback_notice(
             risk_level="high" if _needs_strict_medical_safety(original_query, risk_level) else "normal",
             confidence_bucket=confidence_bucket,
         )
     elif confidence_bucket == "medium":
-        confidence_note = "\n\n证据强度：`medium`。当前回答基于有限但相关的资料。"
+        confidence_note = f"\n\n证据强度：`{confidence_label}`。{confidence_explanation}"
     elif confidence_bucket == "high":
-        confidence_note = "\n\n证据强度：`high`。当前回答来自较为直接的知识库证据。"
+        confidence_note = f"\n\n证据强度：`{confidence_label}`。{confidence_explanation}"
     if any(item.get("freshness_bucket") == "outdated" for item in all_sources):
         confidence_note += "\n\n版本提醒：当前命中了较旧资料，请结合最新指南或线下医生意见一起判断。"
 
@@ -2892,7 +2991,7 @@ def grounded_answer_generation(state: State, llm):
     if citation_lines:
         citation_block = "\n\n参考来源：\n" + "\n".join(citation_lines)
 
-    final_content = _strip_leading_query_plan_blob(synthesis_response.content)
+    final_content = _sanitize_final_answer_text(synthesis_response.content)
     return {
         "messages": [AIMessage(content=f"{final_content}{confidence_note}{citation_block}")],
         "clarification_attempts": 0,
