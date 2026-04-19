@@ -4,7 +4,7 @@ import unittest
 sys.path.insert(0, r"D:\nageoffer\agentic-rag-for-dummies\project")
 
 from db.route_log_store import RouteLogStore  # noqa: E402
-from evaluate_route_quality import _render_markdown_report, _render_text_report  # noqa: E402
+from benchmarks.evaluate_route_quality import _render_markdown_report, _render_text_report  # noqa: E402
 
 
 class RouteQualityReportTests(unittest.TestCase):

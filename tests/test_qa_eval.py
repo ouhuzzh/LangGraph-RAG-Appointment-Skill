@@ -8,7 +8,7 @@ from langchain_core.documents import Document
 sys.path.insert(0, r"D:\nageoffer\agentic-rag-for-dummies\project")
 
 from core.qa_eval import RetrievalQualityEvaluator, load_qa_samples  # noqa: E402
-from evaluate_qa_quality import _render_markdown_report  # noqa: E402
+from benchmarks.evaluate_qa_quality import _render_markdown_report  # noqa: E402
 
 
 FIXTURES_DIR = Path(r"D:\nageoffer\agentic-rag-for-dummies\tests\fixtures")

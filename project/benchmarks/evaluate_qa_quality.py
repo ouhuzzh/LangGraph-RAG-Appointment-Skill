@@ -3,6 +3,11 @@ import json
 import sys
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = PROJECT_ROOT.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import config
 from core.qa_eval import RetrievalQualityEvaluator, load_qa_samples
 from db.appointment_skill_log_store import AppointmentSkillLogStore
@@ -11,8 +16,8 @@ from db.retrieval_log_store import RetrievalLogStore
 from db.vector_db_manager import VectorDbManager
 
 
-DEFAULT_SAMPLES_PATH = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "qa_eval_samples.json"
-DEFAULT_ANSWERS_PATH = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "qa_eval_answers.json"
+DEFAULT_SAMPLES_PATH = REPO_ROOT / "tests" / "fixtures" / "qa_eval_samples.json"
+DEFAULT_ANSWERS_PATH = REPO_ROOT / "tests" / "fixtures" / "qa_eval_answers.json"
 
 
 def _load_answer_map(path: str | None) -> dict:

@@ -4,7 +4,7 @@ import unittest
 sys.path.insert(0, r"D:\nageoffer\agentic-rag-for-dummies\project")
 
 from db.retrieval_log_store import RetrievalLogStore  # noqa: E402
-from evaluate_retrieval_quality import _render_markdown_report, _render_text_report  # noqa: E402
+from benchmarks.evaluate_retrieval_quality import _render_markdown_report, _render_text_report  # noqa: E402
 
 
 class RetrievalLogReportTests(unittest.TestCase):
