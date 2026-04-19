@@ -38,11 +38,12 @@ _QUERY_TYPE_KEYWORDS = {
 }
 
 
-def set_retrieval_context(*, thread_id: str = "", original_query: str = ""):
+def set_retrieval_context(*, thread_id: str = "", original_query: str = "", query_plan=None):
     return _RETRIEVAL_CONTEXT.set(
         {
             "thread_id": str(thread_id or "").strip(),
             "original_query": str(original_query or "").strip(),
+            "query_plan": list(query_plan or []),
         }
     )
 
@@ -57,12 +58,24 @@ def get_retrieval_context() -> dict:
     return dict(value) if isinstance(value, dict) else {}
 
 
+def _doc_score(metadata: dict | None) -> float:
+    metadata = metadata or {}
+    raw = metadata.get("rerank_score")
+    if raw in (None, ""):
+        raw = metadata.get("score")
+    if raw in (None, ""):
+        raw = metadata.get("fusion_score")
+    try:
+        return float(raw or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _confidence_bucket(results: List[Document]) -> str:
     if not results:
         return "no_evidence"
     top_doc = results[0]
-    metadata = top_doc.metadata or {}
-    score = float(metadata.get("rerank_score") or metadata.get("fusion_score") or metadata.get("score") or 0.0)
+    score = _doc_score(top_doc.metadata)
     if score >= 0.85 and len(results) >= 2:
         return "high"
     if score >= 0.72:
@@ -131,7 +144,7 @@ def grade_documents(query: str, docs: List[Document]) -> List[Document]:
     graded = []
     for doc in docs or []:
         metadata = doc.metadata or {}
-        score = float(metadata.get("rerank_score") or metadata.get("fusion_score") or metadata.get("score") or 0.0)
+        score = _doc_score(metadata)
         overlap = _lexical_overlap_score(query, doc)
         if score >= 0.86 or overlap >= 0.55:
             grade = "high"
@@ -154,7 +167,7 @@ def grade_documents(query: str, docs: List[Document]) -> List[Document]:
 def check_sufficiency(query: str, docs: List[Document]) -> dict:
     if not docs:
         return {"is_sufficient": False, "reason": "no_relevant_documents", "retry_query": f"{query} 医学资料"}
-    top_score = float((docs[0].metadata or {}).get("rerank_score") or (docs[0].metadata or {}).get("fusion_score") or (docs[0].metadata or {}).get("score") or 0.0)
+    top_score = _doc_score(docs[0].metadata)
     high_grade_count = sum(1 for doc in docs if (doc.metadata or {}).get("relevance_grade") == "high")
     if high_grade_count >= 1 and top_score >= 0.84:
         return {"is_sufficient": True, "reason": "direct_evidence", "retry_query": ""}
@@ -236,7 +249,7 @@ class ToolFactory:
             priority = layer_priority.get(source_type)
             if priority is None:
                 priority = len(layer_priority) + _SOURCE_TYPE_PRIORITY.get(source_type, 99)
-            score = float(metadata.get("rerank_score") or metadata.get("fusion_score") or metadata.get("score") or 0.0)
+            score = float(metadata.get("fusion_score")) if metadata.get("fusion_score") not in (None, "") else _doc_score(metadata)
             return (priority, -score)
 
         return sorted(results, key=sort_key)
@@ -302,6 +315,42 @@ class ToolFactory:
             fused_docs.append(doc)
         fused_docs.sort(key=lambda item: float((item.metadata or {}).get("fusion_score") or 0.0), reverse=True)
         return fused_docs[:limit]
+
+    @classmethod
+    def _rrf_fuse_ranked_sets(cls, ranked_sets: List[List[Document]], limit: int) -> List[Document]:
+        fused_scores = {}
+        chosen_docs = {}
+        best_raw_scores = {}
+        for result_set in ranked_sets:
+            for rank, doc in enumerate(result_set, start=1):
+                key = cls._doc_key(doc)
+                fused_scores[key] = fused_scores.get(key, 0.0) + (1.0 / (_RRF_K + rank))
+                current_raw = _doc_score(doc.metadata)
+                if key not in chosen_docs or current_raw >= best_raw_scores.get(key, 0.0):
+                    chosen_docs[key] = doc
+                    best_raw_scores[key] = current_raw
+
+        fused_docs = []
+        for key, doc in chosen_docs.items():
+            doc.metadata["fusion_score"] = round(fused_scores[key], 6)
+            if not doc.metadata.get("score"):
+                doc.metadata["score"] = round(best_raw_scores.get(key, 0.0), 6)
+            fused_docs.append(doc)
+        fused_docs.sort(key=lambda item: float((item.metadata or {}).get("fusion_score") or 0.0), reverse=True)
+        return fused_docs[:limit]
+
+    @staticmethod
+    def _normalize_query_plan(query: str, query_plan) -> List[str]:
+        deduped = []
+        seen = set()
+        for item in [query, *(query_plan or [])]:
+            text = re.sub(r"\s+", " ", str(item or "").strip())
+            key = text.lower()
+            if not text or key in seen:
+                continue
+            seen.add(key)
+            deduped.append(text)
+        return deduped[:4]
 
     def _similarity_search_with_optional_filters(self, query: str, limit: int, score_threshold: float, source_types=None, rerank=True) -> List[Document]:
         try:
@@ -428,40 +477,82 @@ class ToolFactory:
             final_confidence_bucket=final_confidence_bucket,
         )
     
-    def _search_child_chunks(self, query: str, limit: int) -> str:
+    def _search_child_chunks(self, query: str, limit: int, query_plan: List[str] | None = None) -> str:
         """Search for the top K most relevant child chunks.
         
         Args:
             query: Search query string
             limit: Maximum number of results to return
+            query_plan: Optional alternate retrieval queries to execute and fuse
         """
         try:
-            query_plan = [query]
-            initial_results = self._layered_similarity_search(query, limit=limit, score_threshold=0.7)
-            results = grade_documents(query, initial_results)
+            context = get_retrieval_context()
+            normalized_plan = self._normalize_query_plan(
+                query,
+                query_plan or context.get("query_plan") or [],
+            )
+            per_query_limit = max(limit * 2, 6) if len(normalized_plan) > 1 else limit
+            ranked_sets = []
+            executed_queries = []
+
+            for planned_query in normalized_plan:
+                executed_queries.append(planned_query)
+                graded = grade_documents(
+                    planned_query,
+                    self._layered_similarity_search(
+                        planned_query,
+                        limit=per_query_limit,
+                        score_threshold=0.7 if planned_query == query else 0.65,
+                    ),
+                )
+                for doc in graded:
+                    metadata = doc.metadata or {}
+                    metadata["matched_query"] = planned_query
+                    doc.metadata = metadata
+                if graded:
+                    ranked_sets.append(
+                        self._sort_docs_by_source_priority(
+                            graded,
+                            preferred_layers=self._preferred_source_layers(query),
+                        )
+                    )
+
+            results = self._sort_docs_by_source_priority(
+                self._dedupe_docs(
+                    self._rrf_fuse_ranked_sets(ranked_sets, per_query_limit) if ranked_sets else []
+                ),
+                preferred_layers=self._preferred_source_layers(query),
+            )[:per_query_limit]
             sufficiency = check_sufficiency(query, results)
             retry_count = 0
             if not sufficiency["is_sufficient"] and sufficiency.get("retry_query"):
                 retry_query = sufficiency["retry_query"]
-                if _normalize_text(retry_query) != _normalize_text(query):
-                    query_plan.append(retry_query)
+                if _normalize_text(retry_query) not in {_normalize_text(item) for item in executed_queries}:
+                    executed_queries.append(retry_query)
                     retry_count = 1
-                    retry_results = grade_documents(
-                        retry_query,
-                        self._layered_similarity_search(retry_query, limit=limit, score_threshold=0.65),
-                    )
-                    results = self._sort_docs_by_source_priority(
-                        self._dedupe_docs(results + retry_results),
+                    retry_results = self._sort_docs_by_source_priority(
+                        grade_documents(
+                            retry_query,
+                            self._layered_similarity_search(retry_query, limit=per_query_limit, score_threshold=0.65),
+                        ),
                         preferred_layers=self._preferred_source_layers(query),
-                    )[:limit]
+                    )
+                    if retry_results:
+                        ranked_sets.append(retry_results)
+                    results = self._sort_docs_by_source_priority(
+                        self._dedupe_docs(
+                            self._rrf_fuse_ranked_sets(ranked_sets, per_query_limit) if ranked_sets else []
+                        ),
+                        preferred_layers=self._preferred_source_layers(query),
+                    )[:per_query_limit]
                     sufficiency = check_sufficiency(query, results)
 
-            confidence_bucket = _confidence_bucket(results)
+            confidence_bucket = _confidence_bucket(results[:limit])
             self._log_retrieval(
                 query,
                 limit,
-                results,
-                query_plan=query_plan,
+                results[:limit],
+                query_plan=executed_queries,
                 graded_doc_count=len(results),
                 sufficiency_result=sufficiency["reason"],
                 retry_count=retry_count,
@@ -471,7 +562,7 @@ class ToolFactory:
                 return _NO_EVIDENCE_RESPONSE
 
             formatted_results = []
-            for doc in results:
+            for doc in results[:limit]:
                 metadata = doc.metadata or {}
                 formatted_results.append(
                     f"Parent ID: {metadata.get('parent_id', '')}\n"
@@ -481,9 +572,10 @@ class ToolFactory:
                     f"Original URL: {metadata.get('original_url', '')}\n"
                     f"Published At: {metadata.get('published_at', '')}\n"
                     f"Freshness Bucket: {metadata.get('freshness_bucket', '')}\n"
-                    f"Score: {float(metadata.get('rerank_score') or metadata.get('fusion_score') or metadata.get('score') or 0.0):.4f}\n"
+                    f"Score: {_doc_score(metadata):.4f}\n"
                     f"Relevance Grade: {metadata.get('relevance_grade', '')}\n"
                     f"Confidence Bucket: {confidence_bucket}\n"
+                    f"Matched Query: {metadata.get('matched_query', query)}\n"
                     f"Content: {doc.page_content.strip()}"
                 )
 

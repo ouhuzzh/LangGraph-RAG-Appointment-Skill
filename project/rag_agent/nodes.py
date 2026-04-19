@@ -2745,7 +2745,7 @@ def orchestrator(state: AgentState, llm_with_tools):
         if is_medical_request:
             retrieval_hint = (
                 "For this medical question, call 'search_child_chunks' first unless the injected context already provides enough evidence. "
-                "Prefer the current question first; if the first retrieval is weak, you may try one alternate query from the retrieval query plan, but avoid repeating the same search."
+                "Pass the retrieval query plan into the tool when available. Prefer the current question first; if the first retrieval is weak, you may try one alternate query from the retrieval query plan, but avoid repeating the same search."
             )
             base_messages.append(HumanMessage(content=retrieval_hint))
         response = llm_with_tools.invoke(base_messages)

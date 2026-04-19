@@ -26,9 +26,17 @@ class FakeCollection:
                 "rerank": rerank,
             }
         )
+        query_key = f"query:{query}"
+        if source_types:
+            source_type = source_types[0]
+            scoped_key = f"{query_key}:{source_type}"
+            if scoped_key in self.docs_by_source:
+                return list(self.docs_by_source.get(scoped_key, []))
         if source_types:
             source_type = source_types[0]
             return list(self.docs_by_source.get(source_type, []))
+        if query_key in self.docs_by_source:
+            return list(self.docs_by_source.get(query_key, []))
         return list(self.docs)
 
     def rerank_candidates(self, query, candidates, top_n):
@@ -42,9 +50,17 @@ class FakeCollection:
                 "source_types": list(source_types or []),
             }
         )
+        query_key = f"query:{query}"
+        if source_types:
+            source_type = source_types[0]
+            scoped_key = f"keyword:{query}:{source_type}"
+            if scoped_key in self.docs_by_source:
+                return list(self.docs_by_source.get(scoped_key, []))
         if source_types:
             source_type = source_types[0]
             return list(self.docs_by_source.get(f"keyword:{source_type}", []))
+        if f"keyword:{query}" in self.docs_by_source:
+            return list(self.docs_by_source.get(f"keyword:{query}", []))
         return list(self.docs_by_source.get("keyword", []))
 
     def log_retrieval(self, **payload):
@@ -189,6 +205,28 @@ class RetrievalSourcePriorityTests(unittest.TestCase):
         self.assertEqual(len(collection.logged), 1)
         self.assertEqual(collection.logged[0]["thread_id"], "thread-log")
         self.assertEqual(collection.logged[0]["query_text"], "高血压怎么办")
+
+    def test_search_child_chunks_uses_query_plan_to_recover_follow_up_query(self):
+        resolved_doc = Document(
+            page_content="高血压患者应注意低盐饮食、规律监测血压。",
+            metadata={"parent_id": "p1", "source": "hypertension.md", "source_type": "patient_education", "score": 0.91},
+        )
+        collection = FakeCollection(
+            docs_by_source={
+                "query:高血压应该注意什么:patient_education": [resolved_doc],
+            }
+        )
+        tool_factory = ToolFactory(collection)
+
+        result = tool_factory._search_child_chunks(
+            "那应该注意什么",
+            limit=1,
+            query_plan=["那应该注意什么", "高血压应该注意什么"],
+        )
+
+        self.assertIn("hypertension.md", result)
+        self.assertIn("Matched Query: 高血压应该注意什么", result)
+        self.assertIn("高血压应该注意什么", collection.logged[0]["query_plan"])
 
 
 if __name__ == "__main__":
