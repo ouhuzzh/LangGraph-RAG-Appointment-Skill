@@ -27,6 +27,31 @@ SYSTEM_NODE_CONFIG = {
     "summarize_history": {"title": "📋 Chat History Summary"},
 }
 
+SESSION_STATE_DEFAULTS = {
+    "intent": "",
+    "risk_level": "normal",
+    "pending_clarification": "",
+    "clarification_target": "",
+    "topic_focus": "",
+    "deferred_user_question": "",
+    "secondary_intent": "",
+    "clarification_attempts": 0,
+    "last_route_reason": "",
+    "recommended_department": "",
+    "appointment_context": {},
+    "appointment_skill_mode": "",
+    "appointment_candidates": [],
+    "selected_doctor": "",
+    "selected_schedule_id": "",
+    "deferred_confirmation_action": "",
+    "skill_last_prompt": "",
+    "last_appointment_no": "",
+    "pending_action_type": "",
+    "pending_action_payload": {},
+    "pending_confirmation_id": "",
+    "pending_candidates": [],
+}
+
 # --- Helpers ---
 
 def make_message(content, *, title=None, node=None):
@@ -306,6 +331,42 @@ class ChatInterface:
 
         return [SystemMessage(content="Conversation state context:\n" + "\n".join(parts))]
 
+    @staticmethod
+    def _graph_state_from_session(thread_id: str, session_state: dict) -> dict:
+        update = {"thread_id": thread_id}
+        for field, default in SESSION_STATE_DEFAULTS.items():
+            value = (session_state or {}).get(field, default)
+            if field == "clarification_attempts":
+                value = int(value or 0)
+            elif value is None:
+                value = [] if isinstance(default, list) else {} if isinstance(default, dict) else default
+            update[field] = value
+        return update
+
+    @staticmethod
+    def _resolved_session_state(latest_values: dict, session_state: dict, user_message: str, clarification_text: str) -> dict:
+        session_state = session_state or {}
+        updated_state = {}
+        for field, default in SESSION_STATE_DEFAULTS.items():
+            if field in latest_values:
+                value = latest_values.get(field)
+            else:
+                value = session_state.get(field, default)
+            if field == "risk_level" and field not in latest_values:
+                value = "normal"
+            if field == "pending_clarification" and field not in latest_values:
+                value = clarification_text or None
+            if field == "clarification_attempts":
+                value = int(value or 0)
+            elif value is None:
+                value = [] if isinstance(default, list) else {} if isinstance(default, dict) else None
+            updated_state[field] = value
+        if "risk_level" not in latest_values:
+            updated_state["risk_level"] = ChatInterface._infer_risk_level(user_message, session_state)
+        if "pending_clarification" not in latest_values:
+            updated_state["pending_clarification"] = clarification_text or None
+        return updated_state
+
     def chat(self, message, history, reveal_diagnostics=False):
         """Generator that streams Gradio chat message dicts."""
         if not self.rag_system.agent_graph:
@@ -338,34 +399,7 @@ class ChatInterface:
                         {"conversation_summary": long_term_summary},
                     )
                 if session_state:
-                    self.rag_system.agent_graph.update_state(
-                        graph_config,
-                        {
-                            "thread_id": thread_id,
-                            "intent": session_state.get("intent", ""),
-                            "risk_level": session_state.get("risk_level", "normal"),
-                            "pending_clarification": session_state.get("pending_clarification") or "",
-                            "clarification_target": session_state.get("clarification_target") or "",
-                            "topic_focus": session_state.get("topic_focus") or "",
-                            "deferred_user_question": session_state.get("deferred_user_question") or "",
-                            "secondary_intent": session_state.get("secondary_intent") or "",
-                            "clarification_attempts": int(session_state.get("clarification_attempts") or 0),
-                            "last_route_reason": session_state.get("last_route_reason") or "",
-                            "recommended_department": session_state.get("recommended_department") or "",
-                            "appointment_context": session_state.get("appointment_context") or {},
-                            "appointment_skill_mode": session_state.get("appointment_skill_mode") or "",
-                            "appointment_candidates": session_state.get("appointment_candidates") or [],
-                            "selected_doctor": session_state.get("selected_doctor") or "",
-                            "selected_schedule_id": session_state.get("selected_schedule_id") or "",
-                            "deferred_confirmation_action": session_state.get("deferred_confirmation_action") or "",
-                            "skill_last_prompt": session_state.get("skill_last_prompt") or "",
-                            "last_appointment_no": session_state.get("last_appointment_no") or "",
-                            "pending_action_type": session_state.get("pending_action_type") or "",
-                            "pending_action_payload": session_state.get("pending_action_payload") or {},
-                            "pending_confirmation_id": session_state.get("pending_confirmation_id") or "",
-                            "pending_candidates": session_state.get("pending_candidates") or [],
-                        },
-                    )
+                    self.rag_system.agent_graph.update_state(graph_config, self._graph_state_from_session(thread_id, session_state))
                 if not session_state:
                     self.rag_system.agent_graph.update_state(graph_config, {"thread_id": thread_id})
                 stream_input = {"messages": [*state_messages, *stored_messages, HumanMessage(content=user_message)]}
@@ -399,129 +433,7 @@ class ChatInterface:
                     if conversation_summary:
                         self.rag_system.summary_store.save_summary(thread_id, conversation_summary, recent_count)
 
-            resolved_intent = latest_values.get("intent", session_state.get("intent"))
-
-            if "risk_level" in latest_values:
-                resolved_risk_level = latest_values.get("risk_level")
-            else:
-                resolved_risk_level = self._infer_risk_level(user_message, session_state)
-
-            if "pending_clarification" in latest_values:
-                resolved_pending = latest_values.get("pending_clarification") or None
-            else:
-                resolved_pending = clarification_text or None
-
-            resolved_clarification_target = latest_values.get(
-                "clarification_target",
-                session_state.get("clarification_target"),
-            ) or None
-            resolved_topic_focus = latest_values.get("topic_focus", session_state.get("topic_focus")) or None
-            resolved_deferred_user_question = latest_values.get(
-                "deferred_user_question",
-                session_state.get("deferred_user_question"),
-            ) or None
-            resolved_secondary_intent = latest_values.get(
-                "secondary_intent",
-                session_state.get("secondary_intent"),
-            ) or None
-            resolved_clarification_attempts = int(latest_values.get(
-                "clarification_attempts",
-                session_state.get("clarification_attempts") or 0,
-            ) or 0)
-            resolved_last_route_reason = latest_values.get(
-                "last_route_reason",
-                session_state.get("last_route_reason"),
-            ) or None
-
-            if "recommended_department" in latest_values:
-                resolved_department = latest_values.get("recommended_department") or None
-            else:
-                resolved_department = session_state.get("recommended_department")
-
-            if "appointment_context" in latest_values:
-                resolved_appointment_context = latest_values.get("appointment_context") or {}
-            else:
-                resolved_appointment_context = session_state.get("appointment_context") or {}
-
-            if "appointment_skill_mode" in latest_values:
-                resolved_appointment_skill_mode = latest_values.get("appointment_skill_mode") or ""
-            else:
-                resolved_appointment_skill_mode = session_state.get("appointment_skill_mode") or ""
-
-            if "appointment_candidates" in latest_values:
-                resolved_appointment_candidates = latest_values.get("appointment_candidates") or []
-            else:
-                resolved_appointment_candidates = session_state.get("appointment_candidates") or []
-
-            if "selected_doctor" in latest_values:
-                resolved_selected_doctor = latest_values.get("selected_doctor") or ""
-            else:
-                resolved_selected_doctor = session_state.get("selected_doctor") or ""
-
-            if "selected_schedule_id" in latest_values:
-                resolved_selected_schedule_id = latest_values.get("selected_schedule_id") or ""
-            else:
-                resolved_selected_schedule_id = session_state.get("selected_schedule_id") or ""
-
-            if "deferred_confirmation_action" in latest_values:
-                resolved_deferred_confirmation_action = latest_values.get("deferred_confirmation_action") or ""
-            else:
-                resolved_deferred_confirmation_action = session_state.get("deferred_confirmation_action") or ""
-
-            if "skill_last_prompt" in latest_values:
-                resolved_skill_last_prompt = latest_values.get("skill_last_prompt") or ""
-            else:
-                resolved_skill_last_prompt = session_state.get("skill_last_prompt") or ""
-
-            if "last_appointment_no" in latest_values:
-                resolved_last_appointment_no = latest_values.get("last_appointment_no") or None
-            else:
-                resolved_last_appointment_no = session_state.get("last_appointment_no")
-
-            if "pending_action_type" in latest_values:
-                resolved_pending_action_type = latest_values.get("pending_action_type") or ""
-            else:
-                resolved_pending_action_type = session_state.get("pending_action_type") or ""
-
-            if "pending_action_payload" in latest_values:
-                resolved_pending_action_payload = latest_values.get("pending_action_payload") or {}
-            else:
-                resolved_pending_action_payload = session_state.get("pending_action_payload") or {}
-
-            if "pending_confirmation_id" in latest_values:
-                resolved_pending_confirmation_id = latest_values.get("pending_confirmation_id") or ""
-            else:
-                resolved_pending_confirmation_id = session_state.get("pending_confirmation_id") or ""
-
-            if "pending_candidates" in latest_values:
-                resolved_pending_candidates = latest_values.get("pending_candidates") or []
-            else:
-                resolved_pending_candidates = session_state.get("pending_candidates") or []
-
-            updated_state = {
-                "intent": resolved_intent,
-                "risk_level": resolved_risk_level,
-                "pending_clarification": resolved_pending,
-                "clarification_target": resolved_clarification_target,
-                "topic_focus": resolved_topic_focus,
-                "deferred_user_question": resolved_deferred_user_question,
-                "secondary_intent": resolved_secondary_intent,
-                "clarification_attempts": resolved_clarification_attempts,
-                "last_route_reason": resolved_last_route_reason,
-                "recommended_department": resolved_department,
-                "appointment_context": resolved_appointment_context,
-                "appointment_skill_mode": resolved_appointment_skill_mode,
-                "appointment_candidates": resolved_appointment_candidates,
-                "selected_doctor": resolved_selected_doctor,
-                "selected_schedule_id": resolved_selected_schedule_id,
-                "deferred_confirmation_action": resolved_deferred_confirmation_action,
-                "skill_last_prompt": resolved_skill_last_prompt,
-                "last_appointment_no": resolved_last_appointment_no,
-                "pending_action_type": resolved_pending_action_type,
-                "pending_action_payload": resolved_pending_action_payload,
-                "pending_confirmation_id": resolved_pending_confirmation_id,
-                "pending_candidates": resolved_pending_candidates,
-            }
+            updated_state = self._resolved_session_state(latest_values, session_state, user_message, clarification_text)
             if updated_state != (session_state or {}):
                 self.rag_system.session_memory.set_state(thread_id, updated_state)
 
@@ -535,14 +447,14 @@ class ChatInterface:
                     {
                         "thread_id": thread_id,
                         "user_query": user_message,
-                        "primary_intent": latest_values.get("primary_intent", resolved_intent) or "",
-                        "secondary_intent": resolved_secondary_intent or "",
+                        "primary_intent": latest_values.get("primary_intent", updated_state.get("intent")) or "",
+                        "secondary_intent": updated_state.get("secondary_intent") or "",
                         "decision_source": latest_values.get("decision_source", "") or "",
-                        "route_reason": latest_values.get("route_reason", resolved_last_route_reason or "") or "",
+                        "route_reason": latest_values.get("route_reason", updated_state.get("last_route_reason") or "") or "",
                         "had_pending_state": had_pending_state,
                         "extra_metadata": {
-                            "topic_focus": resolved_topic_focus or "",
-                            "deferred_user_question": resolved_deferred_user_question or "",
+                            "topic_focus": updated_state.get("topic_focus") or "",
+                            "deferred_user_question": updated_state.get("deferred_user_question") or "",
                         },
                     }
                 )

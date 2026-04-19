@@ -4,7 +4,10 @@ from datetime import date, timedelta
 
 sys.path.insert(0, r"D:\nageoffer\agentic-rag-for-dummies\project")
 
+import config  # noqa: E402
+from langchain_core.messages import AIMessage, HumanMessage  # noqa: E402
 from rag_agent.nodes import (  # noqa: E402
+    _build_recent_context,
     _confidence_bucket_explanation,
     _format_reference_lines,
     _sanitize_final_answer_text,
@@ -90,6 +93,27 @@ class NodesHelperTests(unittest.TestCase):
         self.assertIn("较直接", _confidence_bucket_explanation("high", is_medical_request=True))
         self.assertIn("初步参考", _confidence_bucket_explanation("medium", is_medical_request=True))
         self.assertIn("通用医学信息", _confidence_bucket_explanation("no_evidence", is_medical_request=True))
+
+    def test_build_recent_context_uses_configured_turn_window(self):
+        original_turns = config.RECENT_CONTEXT_TURNS
+        config.RECENT_CONTEXT_TURNS = 3
+        try:
+            messages = [
+                HumanMessage(content="第1轮用户"),
+                AIMessage(content="第1轮助手"),
+                HumanMessage(content="第2轮用户"),
+                AIMessage(content="第2轮助手"),
+                HumanMessage(content="第3轮用户"),
+                AIMessage(content="第3轮助手"),
+                HumanMessage(content="当前问题"),
+            ]
+            recent = _build_recent_context(messages)
+        finally:
+            config.RECENT_CONTEXT_TURNS = original_turns
+
+        self.assertIn("第1轮用户", recent)
+        self.assertIn("第3轮助手", recent)
+        self.assertNotIn("当前问题", recent)
 
 
 if __name__ == "__main__":

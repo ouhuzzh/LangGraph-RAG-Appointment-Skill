@@ -6,7 +6,7 @@ from langchain_core.documents import Document
 
 sys.path.insert(0, r"D:\nageoffer\agentic-rag-for-dummies\project")
 
-from rag_agent.nodes import grounded_answer_generation  # noqa: E402
+from rag_agent.nodes import answer_grounding_check, grounded_answer_generation  # noqa: E402
 from rag_agent.tools import check_sufficiency, grade_documents, ground_answer, plan_queries  # noqa: E402
 
 
@@ -125,6 +125,22 @@ class RetrievalQualityLoopTests(unittest.TestCase):
         self.assertIn("较直接、较匹配的资料", content)
         self.assertIn("参考来源：", content)
         self.assertIn("高血压管理指南.txt（临床指南，时效：较旧）", content)
+
+    def test_answer_grounding_check_prefers_real_evidence_score_over_fixed_bucket_defaults(self):
+        state = {
+            "messages": [AIMessage(content="高血压患者可以先注意低盐饮食。")],
+            "agent_answers": [{"confidence_bucket": "high"}],
+            "grounding_evidence_score": 0.71,
+            "originalQuery": "高血压应该注意什么？",
+            "conversation_summary": "",
+            "recent_context": "",
+            "topic_focus": "高血压",
+            "risk_level": "normal",
+        }
+
+        result = answer_grounding_check(state, llm=None)
+
+        self.assertIn("知识库证据有限", result["messages"][0].content)
 
 
 if __name__ == "__main__":

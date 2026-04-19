@@ -5,10 +5,15 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 # --- Directory Configuration ---
 _BASE_DIR = os.path.dirname(os.path.dirname(__file__))
+_RUNTIME_DIR = os.path.join(_BASE_DIR, "runtime")
 
 MARKDOWN_DIR = os.path.join(_BASE_DIR, "markdown_docs")
 PARENT_STORE_PATH = os.path.join(_BASE_DIR, "parent_store")
 QDRANT_DB_PATH = os.path.join(_BASE_DIR, "qdrant_db")
+LANGGRAPH_CHECKPOINT_PATH = os.environ.get(
+    "LANGGRAPH_CHECKPOINT_PATH",
+    os.path.join(_RUNTIME_DIR, "langgraph_checkpoints.pkl"),
+)
 VECTOR_DIMENSION = int(os.environ.get("VECTOR_DIMENSION", "1024"))
 
 # --- Qdrant Configuration ---
@@ -62,6 +67,7 @@ REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 REDIS_DB = int(os.environ.get("REDIS_DB", "0"))
 REDIS_TTL_SECONDS = int(os.environ.get("REDIS_TTL_SECONDS", "86400"))
 SHORT_TERM_WINDOW_SIZE = int(os.environ.get("SHORT_TERM_WINDOW_SIZE", "12"))
+RECENT_CONTEXT_TURNS = int(os.environ.get("RECENT_CONTEXT_TURNS", "3"))
 SUMMARY_REFRESH_THRESHOLD = int(os.environ.get("SUMMARY_REFRESH_THRESHOLD", "4"))
 HIGH_RISK_KEYWORDS = [
     "胸痛",
@@ -86,6 +92,7 @@ MAX_ITERATIONS = 10
 GRAPH_RECURSION_LIMIT = 50
 BASE_TOKEN_THRESHOLD = 4000
 TOKEN_GROWTH_FACTOR = 0.9
+ENABLE_PERSISTENT_GRAPH_CHECKPOINT = os.environ.get("ENABLE_PERSISTENT_GRAPH_CHECKPOINT", "true").lower() == "true"
 
 # --- Text Splitter Configuration ---
 CHILD_CHUNK_SIZE = 500

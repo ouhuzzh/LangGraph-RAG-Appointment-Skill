@@ -32,20 +32,30 @@ def route_after_query_plan(state: State):
     planned_queries = state.get("planned_queries") or state.get("rewrittenQuestions") or []
     if isinstance(planned_queries, str):
         planned_queries = [planned_queries]
+    primary_query = next((query for query in planned_queries if str(query).strip()), "") or state.get("originalQuery") or state.get("primary_user_query") or ""
+    deduped_plan = []
+    seen = set()
+    for item in planned_queries or [primary_query]:
+        text = str(item or "").strip()
+        key = text.lower()
+        if not text or key in seen:
+            continue
+        seen.add(key)
+        deduped_plan.append(text)
+
     return [
         Send(
             "agent",
             {
-                "question": query,
-                "question_index": idx,
-                "query_plan": list(planned_queries),
+                "question": primary_query,
+                "question_index": 0,
+                "query_plan": deduped_plan or ([primary_query] if primary_query else []),
                 "messages": [],
                 "context_summary": summary,
                 "recent_context": recent_context,
                 "topic_focus": topic_focus,
             },
         )
-        for idx, query in enumerate(planned_queries)
     ]
 
 
@@ -84,7 +94,14 @@ def route_after_orchestrator_call(state: AgentState) -> Literal["tools", "fallba
 
 
 def route_after_action(state: State) -> Literal["prepare_secondary_turn", "__end__"]:
-    if state.get("secondary_intent") and state.get("deferred_user_question") and not state.get("pending_clarification") and not state.get("pending_action_type"):
+    if (
+        state.get("secondary_intent")
+        and state.get("deferred_user_question")
+        and not state.get("pending_clarification")
+        and not state.get("pending_action_type")
+        and not state.get("pending_candidates")
+        and not state.get("deferred_confirmation_action")
+    ):
         return "prepare_secondary_turn"
     return "__end__"
 

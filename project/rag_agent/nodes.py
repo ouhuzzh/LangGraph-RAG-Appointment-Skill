@@ -18,6 +18,7 @@ from .schemas import (
 )
 from .prompts import *
 from utils import estimate_context_tokens
+import config
 from config import BASE_TOKEN_THRESHOLD, TOKEN_GROWTH_FACTOR, HIGH_RISK_KEYWORDS
 from db.appointment_skill_log_store import AppointmentSkillLogStore
 from services.appointment_skill import AppointmentSkill
@@ -608,7 +609,9 @@ def _should_use_last_appointment(user_query: str) -> bool:
     return any(token in normalized for token in hints)
 
 
-def _build_recent_context(messages, keep_turns: int = 2, *, exclude_latest_user: bool = True) -> str:
+def _build_recent_context(messages, keep_turns: int | None = None, *, exclude_latest_user: bool = True) -> str:
+    if keep_turns is None:
+        keep_turns = max(int(getattr(config, "RECENT_CONTEXT_TURNS", 3) or 3), 1)
     recent_messages = [
         msg for msg in (messages or [])
         if isinstance(msg, (HumanMessage, AIMessage)) and not getattr(msg, "tool_calls", None)
@@ -2712,6 +2715,7 @@ def orchestrator(state: AgentState, llm_with_tools):
     recent_context = state.get("recent_context", "").strip()
     topic_focus = state.get("topic_focus", "").strip()
     question = str(state.get("question") or "").strip()
+    query_plan = [str(item).strip() for item in (state.get("query_plan") or []) if str(item).strip()]
     is_medical_request = _looks_like_medical_request(
         question,
         conversation_summary=context_summary,
@@ -2731,15 +2735,23 @@ def orchestrator(state: AgentState, llm_with_tools):
         [HumanMessage(content=f"[TOPIC FOCUS]\n\n{topic_focus}")]
         if topic_focus else []
     )
+    query_plan_injection = (
+        [HumanMessage(content="[RETRIEVAL QUERY PLAN]\n\n" + "\n".join(f"- {item}" for item in query_plan))]
+        if query_plan else []
+    )
     if not state.get("messages"):
         human_msg = HumanMessage(content=question)
-        base_messages = [sys_msg] + summary_injection + recent_context_injection + topic_focus_injection + [human_msg]
+        base_messages = [sys_msg] + summary_injection + recent_context_injection + topic_focus_injection + query_plan_injection + [human_msg]
         if is_medical_request:
-            base_messages.append(HumanMessage(content="For this medical question, call 'search_child_chunks' first unless the injected context already provides enough evidence."))
+            retrieval_hint = (
+                "For this medical question, call 'search_child_chunks' first unless the injected context already provides enough evidence. "
+                "Prefer the current question first; if the first retrieval is weak, you may try one alternate query from the retrieval query plan, but avoid repeating the same search."
+            )
+            base_messages.append(HumanMessage(content=retrieval_hint))
         response = llm_with_tools.invoke(base_messages)
         return {"messages": [human_msg, response], "tool_call_count": len(response.tool_calls or []), "iteration_count": 1}
 
-    response = llm_with_tools.invoke([sys_msg] + summary_injection + recent_context_injection + topic_focus_injection + state["messages"])
+    response = llm_with_tools.invoke([sys_msg] + summary_injection + recent_context_injection + topic_focus_injection + query_plan_injection + state["messages"])
     tool_calls = response.tool_calls if hasattr(response, "tool_calls") else []
     return {"messages": [response], "tool_call_count": len(tool_calls) if tool_calls else 0, "iteration_count": 1}
 
@@ -2868,6 +2880,7 @@ def _extract_source_citations(messages) -> list[dict]:
     citations = []
     seen = set()
     current_confidence = ""
+    current_evidence_score = None
     for message in messages or []:
         if not isinstance(message, ToolMessage):
             continue
@@ -2875,18 +2888,33 @@ def _extract_source_citations(messages) -> list[dict]:
         confidence_match = re.search(r"Confidence Bucket:\s*(\w+)", text, re.IGNORECASE)
         if confidence_match and not current_confidence:
             current_confidence = confidence_match.group(1).strip().lower()
+        score_match = re.search(r"Score:\s*([0-9]*\.?[0-9]+)", text, re.IGNORECASE)
+        if score_match:
+            try:
+                score_value = float(score_match.group(1))
+            except ValueError:
+                score_value = None
+            if score_value is not None and current_evidence_score is None:
+                current_evidence_score = score_value
         for block in text.split("\n\n"):
             title_match = re.search(r"Source Title:\s*(.+)", block)
             source_type_match = re.search(r"Source Type:\s*(.+)", block)
             url_match = re.search(r"Original URL:\s*(.+)", block)
             source_match = re.search(r"File Name:\s*(.+)", block)
             freshness_match = re.search(r"Freshness Bucket:\s*(.+)", block)
+            score_match = re.search(r"Score:\s*([0-9]*\.?[0-9]+)", block, re.IGNORECASE)
             if not any((title_match, source_match)):
                 continue
             title = (title_match.group(1).strip() if title_match else source_match.group(1).strip())
             source_type = source_type_match.group(1).strip() if source_type_match else "unknown"
             original_url = url_match.group(1).strip() if url_match else ""
             freshness_bucket = freshness_match.group(1).strip().lower() if freshness_match else ""
+            evidence_score = current_evidence_score
+            if score_match:
+                try:
+                    evidence_score = float(score_match.group(1))
+                except ValueError:
+                    pass
             key = (title, source_type, original_url, freshness_bucket)
             if key in seen:
                 continue
@@ -2898,6 +2926,7 @@ def _extract_source_citations(messages) -> list[dict]:
                     "original_url": original_url,
                     "confidence_bucket": current_confidence or "",
                     "freshness_bucket": freshness_bucket,
+                    "evidence_score": evidence_score,
                 }
             )
     return citations
@@ -2911,6 +2940,11 @@ def collect_answer(state: AgentState):
     confidence_bucket = next((item.get("confidence_bucket") for item in citations if item.get("confidence_bucket")), "")
     if not confidence_bucket:
         confidence_bucket = "no_evidence" if any("NO_EVIDENCE" in str(msg.content or "") for msg in state.get("messages", []) if isinstance(msg, ToolMessage)) else "low"
+    evidence_scores = [
+        float(item.get("evidence_score"))
+        for item in citations
+        if item.get("evidence_score") is not None
+    ]
     return {
         "final_answer": answer,
         "agent_answers": [{
@@ -2919,6 +2953,7 @@ def collect_answer(state: AgentState):
             "answer": answer,
             "query_plan": state.get("query_plan", []),
             "confidence_bucket": confidence_bucket,
+            "evidence_score": max(evidence_scores) if evidence_scores else None,
             "sources": citations[:3],
         }]
     }
@@ -2939,10 +2974,17 @@ def grounded_answer_generation(state: State, llm):
     all_sources = []
     seen_sources = set()
     confidence_levels = []
+    evidence_scores = []
     for answer in sorted_answers:
         bucket = str(answer.get("confidence_bucket") or "").strip().lower()
         if bucket:
             confidence_levels.append(bucket)
+        score = answer.get("evidence_score")
+        if score is not None:
+            try:
+                evidence_scores.append(float(score))
+            except (TypeError, ValueError):
+                pass
         for item in answer.get("sources") or []:
             key = (item.get("title", ""), item.get("source_type", ""), item.get("original_url", ""))
             if key in seen_sources:
@@ -2957,6 +2999,7 @@ def grounded_answer_generation(state: State, llm):
         confidence_bucket = "low"
     elif "medium" in confidence_levels:
         confidence_bucket = "medium"
+    aggregate_evidence_score = max(evidence_scores) if evidence_scores else None
 
     citation_lines = _format_reference_lines(all_sources)
 
@@ -2995,6 +3038,7 @@ def grounded_answer_generation(state: State, llm):
     return {
         "messages": [AIMessage(content=f"{final_content}{confidence_note}{citation_block}")],
         "clarification_attempts": 0,
+        "grounding_evidence_score": aggregate_evidence_score,
     }
 
 
@@ -3006,13 +3050,20 @@ def answer_grounding_check(state: State, llm):
         for item in state.get("agent_answers") or []
         if str(item.get("confidence_bucket") or "").strip()
     ]
+    evidence_score = state.get("grounding_evidence_score")
     pseudo_docs = []
-    if "no_evidence" in confidence_levels:
-        pseudo_docs = []
-    elif "low" in confidence_levels:
-        pseudo_docs = [Document(page_content="", metadata={"score": 0.68})]
-    else:
-        pseudo_docs = [Document(page_content="", metadata={"score": 0.88})]
+    if evidence_score is not None:
+        try:
+            pseudo_docs = [Document(page_content="", metadata={"score": float(evidence_score)})]
+        except (TypeError, ValueError):
+            pseudo_docs = []
+    if not pseudo_docs:
+        if "no_evidence" in confidence_levels:
+            pseudo_docs = []
+        elif "low" in confidence_levels:
+            pseudo_docs = [Document(page_content="", metadata={"score": 0.68})]
+        else:
+            pseudo_docs = [Document(page_content="", metadata={"score": 0.88})]
     original_query = state.get("originalQuery", "")
     risk_level = _infer_risk_level(original_query, state.get("risk_level", "normal"))
     grounded = ground_answer(

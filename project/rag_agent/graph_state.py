@@ -53,6 +53,7 @@ class State(MessagesState):
     pending_confirmation_id: str = ""
     pending_candidates: List[dict] = []
     rewrittenQuestions: List[str] = []
+    grounding_evidence_score: float | None = None
     agent_answers: Annotated[List[dict], accumulate_or_reset] = []
 
 class AgentState(MessagesState):

@@ -3,15 +3,23 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.prebuilt import ToolNode
 from functools import partial
 
+import config
 from .graph_state import State
 from .nodes import *
 from .edges import *
+from .persistent_checkpointer import PersistentInMemorySaver
+
+
+def _build_checkpointer():
+    if config.ENABLE_PERSISTENT_GRAPH_CHECKPOINT:
+        return PersistentInMemorySaver(config.LANGGRAPH_CHECKPOINT_PATH)
+    return InMemorySaver()
 
 def create_agent_graph(llm, tools_list, appointment_service=None):
     llm_with_tools = llm.bind_tools(tools_list)
     tool_node = ToolNode(tools_list)
 
-    checkpointer = InMemorySaver()
+    checkpointer = _build_checkpointer()
 
     print("Compiling agent graph...")
     agent_builder = StateGraph(AgentState)

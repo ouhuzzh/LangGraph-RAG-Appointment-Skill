@@ -111,6 +111,10 @@ class RoutingEdgeTests(unittest.TestCase):
         payload = sends[0].arg
         self.assertEqual(payload["question"], "高血压应该注意什么")
         self.assertEqual(payload["recent_context"], "User: 高血压会头晕吗\nAssistant: 有时会。")
+        self.assertEqual(
+            payload["query_plan"],
+            ["高血压应该注意什么"],
+        )
 
     def test_route_after_action_prepares_secondary_turn_when_primary_is_done(self):
         decision = route_after_action(
@@ -119,10 +123,37 @@ class RoutingEdgeTests(unittest.TestCase):
                 "deferred_user_question": "我这个咳嗽还要看吗",
                 "pending_clarification": "",
                 "pending_action_type": "",
+                "pending_candidates": [],
+                "deferred_confirmation_action": "",
             }
         )
 
         self.assertEqual(decision, "prepare_secondary_turn")
+
+    def test_route_after_action_blocks_secondary_turn_when_candidates_or_deferred_confirmation_exist(self):
+        with_candidates = route_after_action(
+            {
+                "secondary_intent": "medical_rag",
+                "deferred_user_question": "我这个咳嗽还要看吗",
+                "pending_clarification": "",
+                "pending_action_type": "",
+                "pending_candidates": [{"appointment_no": "APT001"}],
+                "deferred_confirmation_action": "",
+            }
+        )
+        with_deferred_confirmation = route_after_action(
+            {
+                "secondary_intent": "medical_rag",
+                "deferred_user_question": "我这个咳嗽还要看吗",
+                "pending_clarification": "",
+                "pending_action_type": "",
+                "pending_candidates": [],
+                "deferred_confirmation_action": "resume_after_confirmation",
+            }
+        )
+
+        self.assertEqual(with_candidates, "__end__")
+        self.assertEqual(with_deferred_confirmation, "__end__")
 
     def test_prepare_secondary_turn_resets_secondary_state(self):
         update = prepare_secondary_turn(
