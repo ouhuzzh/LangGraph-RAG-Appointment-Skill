@@ -7,6 +7,7 @@ import config
 from core.qa_eval import RetrievalQualityEvaluator, load_qa_samples
 from db.appointment_skill_log_store import AppointmentSkillLogStore
 from db.route_log_store import RouteLogStore
+from db.retrieval_log_store import RetrievalLogStore
 from db.vector_db_manager import VectorDbManager
 
 
@@ -217,6 +218,10 @@ def _safe_operational_metrics() -> dict:
         metrics["route_log_metrics"] = RouteLogStore().summarize_recent(limit=200)
     except Exception:
         metrics["route_log_metrics"] = None
+    try:
+        metrics["retrieval_log_metrics"] = RetrievalLogStore().summarize_recent(limit=200)
+    except Exception:
+        metrics["retrieval_log_metrics"] = None
     try:
         metrics["appointment_skill_metrics"] = AppointmentSkillLogStore().summarize_recent(limit=200)
     except Exception:

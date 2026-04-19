@@ -382,6 +382,7 @@ class ChatInterface:
         thread_id     = self.rag_system.thread_id
         user_message  = message.strip()
         session_state = self.rag_system.session_memory.get_state(thread_id)
+        checkpoint_resumed = bool(current_state.next)
 
         try:
             retrieval_context_token = set_retrieval_context(thread_id=thread_id, original_query=user_message)
@@ -443,6 +444,8 @@ class ChatInterface:
                 or (session_state or {}).get("deferred_user_question")
             )
             try:
+                route_reason = latest_values.get("route_reason", updated_state.get("last_route_reason") or "") or ""
+                secondary_turn_executed = str(route_reason).startswith("resume_secondary:")
                 self.route_log_store.save_log(
                     {
                         "thread_id": thread_id,
@@ -450,11 +453,15 @@ class ChatInterface:
                         "primary_intent": latest_values.get("primary_intent", updated_state.get("intent")) or "",
                         "secondary_intent": updated_state.get("secondary_intent") or "",
                         "decision_source": latest_values.get("decision_source", "") or "",
-                        "route_reason": latest_values.get("route_reason", updated_state.get("last_route_reason") or "") or "",
+                        "route_reason": route_reason,
                         "had_pending_state": had_pending_state,
                         "extra_metadata": {
                             "topic_focus": updated_state.get("topic_focus") or "",
                             "deferred_user_question": updated_state.get("deferred_user_question") or "",
+                            "checkpoint_resumed": checkpoint_resumed,
+                            "secondary_turn_executed": secondary_turn_executed,
+                            "pending_action_type": (session_state or {}).get("pending_action_type") or "",
+                            "pending_clarification": bool((session_state or {}).get("pending_clarification")),
                         },
                     }
                 )

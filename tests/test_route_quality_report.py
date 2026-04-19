@@ -40,6 +40,8 @@ class RouteQualityReportTests(unittest.TestCase):
         self.assertEqual(summary["sample_count"], 2)
         self.assertEqual(summary["compound_request_rate"], 0.5)
         self.assertEqual(summary["pending_resume_rate"], 0.5)
+        self.assertEqual(summary["checkpoint_resume_rate"], 0.0)
+        self.assertEqual(summary["secondary_turn_completion_rate"], 0.0)
         self.assertEqual(summary["deferred_question_rate"], 0.5)
         self.assertEqual(summary["intent_distribution"]["medical_rag"], 1)
         self.assertEqual(summary["intent_distribution"]["cancel_appointment"], 1)
@@ -50,6 +52,8 @@ class RouteQualityReportTests(unittest.TestCase):
                 "sample_count": 2,
                 "compound_request_rate": 0.5,
                 "pending_resume_rate": 0.5,
+                "checkpoint_resume_rate": 0.5,
+                "secondary_turn_completion_rate": 0.5,
                 "deferred_question_rate": 0.5,
                 "intent_distribution": {"medical_rag": 1, "cancel_appointment": 1},
                 "secondary_intent_distribution": {"none": 1, "medical_rag": 1},
@@ -65,7 +69,7 @@ class RouteQualityReportTests(unittest.TestCase):
                     "decision_source": "rule",
                     "route_reason": "explicit_cancel_rule+medical_question_rule",
                     "had_pending_state": True,
-                    "extra_metadata": {"topic_focus": "咳嗽", "deferred_user_question": "我这个咳嗽还要看吗"},
+                    "extra_metadata": {"topic_focus": "咳嗽", "deferred_user_question": "我这个咳嗽还要看吗", "checkpoint_resumed": True, "secondary_turn_executed": True},
                 }
             ],
         }
@@ -75,6 +79,7 @@ class RouteQualityReportTests(unittest.TestCase):
 
         self.assertIn("Route Quality Summary", text)
         self.assertIn("compound_request_rate", text)
+        self.assertIn("checkpoint_resume_rate", text)
         self.assertIn("# Route Quality Report", markdown)
         self.assertIn("## Recent Route Events", markdown)
         self.assertIn("cancel_appointment", markdown)

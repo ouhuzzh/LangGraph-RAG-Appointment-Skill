@@ -96,6 +96,8 @@ class RouteLogStore:
                 "sample_count": 0,
                 "compound_request_rate": 0.0,
                 "pending_resume_rate": 0.0,
+                "checkpoint_resume_rate": 0.0,
+                "secondary_turn_completion_rate": 0.0,
                 "deferred_question_rate": 0.0,
                 "intent_distribution": {},
                 "secondary_intent_distribution": {},
@@ -115,6 +117,12 @@ class RouteLogStore:
             "sample_count": total,
             "compound_request_rate": _ratio(sum(1 for item in events if item.get("secondary_intent"))),
             "pending_resume_rate": _ratio(sum(1 for item in events if item.get("had_pending_state"))),
+            "checkpoint_resume_rate": _ratio(
+                sum(1 for item in events if (item.get("extra_metadata") or {}).get("checkpoint_resumed"))
+            ),
+            "secondary_turn_completion_rate": _ratio(
+                sum(1 for item in events if (item.get("extra_metadata") or {}).get("secondary_turn_executed"))
+            ),
             "deferred_question_rate": _ratio(
                 sum(1 for item in events if (item.get("extra_metadata") or {}).get("deferred_user_question"))
             ),
