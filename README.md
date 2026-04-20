@@ -1,110 +1,116 @@
+<div align="center">
+
 # Medical Agentic Assistant
 
-LangGraph-powered medical consultation and appointment assistant with:
+**A stateful medical RAG assistant built with LangGraph, hybrid retrieval, session memory, and semi-controlled appointment skills.**
 
-- medical RAG over guideline-style documents
-- multi-turn memory and stateful dialogue recovery
-- department recommendation and booking / cancellation workflows
-- semi-controlled appointment execution (`preview -> explicit confirm -> execute`)
-- hybrid retrieval, answer grounding, and low-evidence safety fallback
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+![LangGraph](https://img.shields.io/badge/LangGraph-stateful%20workflow-1f6feb)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-pgvector-4169E1?logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-session%20memory-DC382D?logo=redis&logoColor=white)
+![Gradio](https://img.shields.io/badge/UI-Gradio-F97316)
+[![License: MIT](https://img.shields.io/badge/License-MIT-2ea043.svg)](LICENSE)
+![Prompt Tokens](https://img.shields.io/badge/Prompt%20Tokens%20P95--27.4%25-0f766e)
+![Precision@5](https://img.shields.io/badge/Precision%405-0.83-1d4ed8)
 
-> Note: the public UI is still evolving. The repository home page intentionally focuses on architecture, workflow, and benchmark notes instead of outdated UI recordings.
+**Medical QA · Triage · Appointment Skill · Cancellation Workflow · Low-Evidence Safety Fallback**
 
-## At a Glance
+[Quick Start](#quick-start) • [Benchmark Snapshot](#benchmark-snapshot) • [Architecture](#architecture-overview) • [Documentation](#documentation)
 
-- **Workflow-aware assistant**
-  - not just question answering, but also booking, cancellation, clarification recovery, and interruption-safe state transitions
-- **Production-style architecture**
-  - LangGraph routing, Redis-backed session memory, PostgreSQL / pgvector storage, and explicit workflow safety controls
-- **Measured improvements**
-  - retrieval and memory benchmarks are included in-repo instead of relying only on qualitative examples
+</div>
 
-## Why This Repo Exists
+![Demo](assets/demo.gif)
 
-Most open-source RAG demos stop at "upload a document and ask questions." This project goes one layer deeper:
+This project is designed to feel closer to a **real assistant product** than a single-path RAG demo:
 
-- combines **medical Q&A** and **workflow execution** in one conversation system
-- keeps **dialogue state** across interruptions, clarifications, and pending confirmations
-- treats booking and cancellation as **safe, stateful skills** instead of free-form agent actions
-- includes **benchmark and regression tooling** for routing, retrieval, memory, and answer quality
+- medical questions are routed through a retrieval-aware answer pipeline
+- appointment and cancellation are handled as **controlled skills**, not free-form tool writes
+- conversation state survives interruptions, clarifications, and pending confirmations
+- when evidence is weak, the assistant can still answer with a **clearly labeled general-medical fallback**
 
-This makes it closer to a real assistant product than a single-path chatbot demo.
+> The public UI is still evolving. To keep the repository homepage stable, the demo above focuses on product behaviors and backend capabilities rather than a fast-changing frontend skin.
 
-## Tech Stack
+## Why This Repo Is Interesting
 
-- **Orchestration**: LangGraph, LangChain
-- **LLM / embeddings**: OpenAI-compatible providers, DeepSeek, Ollama-compatible setups
-- **Storage**: PostgreSQL, pgvector, Redis
-- **UI**: Gradio
-- **Evaluation**: in-repo benchmark and regression scripts under `project/benchmarks/`
+Most RAG demos stop at "upload files, ask questions."
 
-## Core Capabilities
+This project goes further by combining:
 
-- **Unified intent routing**
-  - rule-first plus LLM fallback routing for `medical_rag`, `triage`, `appointment`, `cancel_appointment`, and clarification recovery
-- **Hybrid memory**
-  - Redis short-term context, LLM conversation summary, and persisted structured session state
-- **Medical retrieval pipeline**
-  - parent-child chunking, dense+sparse hybrid retrieval, query rewrite, RRF fusion, rerank, and grounding checks
-- **Appointment skill**
-  - department / doctor / availability discovery, booking preview, cancellation preview, and explicit confirmation before execution
-- **Safety fallback**
-  - when KB evidence is weak, the assistant can still provide a conservative general medical answer with a clear disclaimer
+- **medical question answering**
+- **stateful workflow execution**
+- **session memory and interruption recovery**
+- **retrieval quality evaluation**
+- **controlled appointment actions instead of free-form tool writes**
 
-## Architecture Snapshot
+That makes it closer to a real assistant product than a single-path chatbot demo.
 
-```text
-User -> ChatInterface -> LangGraph Router
-                     -> medical_rag -> rewrite -> retrieve -> grounded answer
-                     -> triage -> department recommendation
-                     -> appointment skill -> discovery / planning / confirm
-                     -> cancel skill -> target resolution / preview / confirm
-```
+## Highlights
 
-Key backend areas:
-
-- `project/core/`
-  - system bootstrap, chat interface, document ingestion, observability
-- `project/rag_agent/`
-  - LangGraph nodes, routing logic, prompts, schemas, retrieval tools
-- `project/services/appointment_skill/`
-  - booking discovery, planning, and controlled execution
-- `project/db/`
-  - PostgreSQL / pgvector storage, retrieval logs, route logs, schema helpers
-- `project/benchmarks/`
-  - benchmark and evaluation entrypoints
-
-## What Makes This Different From a Typical RAG Demo
-
-- it supports **stateful business actions**, not only retrieval
-- it keeps **pending confirmations** and resumes them after unrelated turns
-- it separates **discovery**, **planning**, and **execution** for appointment workflows
-- it includes **low-evidence fallback behavior** instead of only "no answer" responses
-- it ships with **benchmark scripts and regression tests** for more than just chat happy paths
+| Area | What this project does |
+|------|-------------------------|
+| **Routing** | Uses LangGraph to unify `medical_rag`, `triage`, `appointment`, `cancel_appointment`, clarification recovery, and pending-state continuation |
+| **Memory** | Combines Redis short-term context, conversation summary, topic focus, and persisted workflow state |
+| **Retrieval** | Uses parent-child chunking, dense+sparse hybrid retrieval, query rewrite, RRF fusion, rerank, and grounding checks |
+| **Workflow safety** | Treats booking/cancellation as a controlled skill with `preview -> explicit confirm -> execute` |
+| **Fallback behavior** | If evidence is weak, the system can still answer general medical questions with a visible disclaimer instead of hard refusal |
+| **Evaluation** | Includes in-repo benchmark and regression scripts for routing, retrieval, memory, and answer quality |
 
 ## Benchmark Snapshot
 
-Current internal benchmark snapshots in this repo:
+Current benchmark snapshots included in this repository:
 
-- **Prompt token reduction**
-  - hybrid memory reduced long-dialogue prompt tokens by **27.4% at P95**
+- **Long-dialogue token efficiency**
+  - hybrid memory reduced prompt tokens by **27.4% at P95**
 - **Retrieval precision**
-  - on the bundled NHC/WHO benchmark setup, **Precision@5 improved from 0.68 to 0.83**
+  - on the bundled NHC/WHO-style benchmark setup, **Precision@5 improved from 0.68 to 0.83**
 
-Related scripts:
+Related benchmark entrypoints:
 
 - `project/benchmarks/evaluate_memory_token_benchmark.py`
 - `project/benchmarks/evaluate_medical_rag_benchmark.py`
 - `project/benchmarks/evaluate_offline_answer_benchmark.py`
 - `project/benchmarks/evaluate_acceptance_report.py`
 
-## Typical Conversation Behaviors
+## Core Capabilities
 
-### Medical QA with retrieval
+### 1. Medical RAG
+
+- answers medical questions against a local knowledge base
+- supports rewrite, retrieval fusion, rerank, and evidence-aware answer generation
+- degrades gracefully to a conservative general-medical answer when retrieval evidence is weak
+
+### 2. Triage and Department Recommendation
+
+- supports symptom-to-department guidance
+- can reuse recommended department context in later booking turns
+
+### 3. Appointment Skill
+
+- supports department / doctor / availability discovery
+- supports booking preview and cancellation preview
+- requires explicit confirmation before any actual write operation
+- keeps pending confirmation state even if the conversation is interrupted
+
+### 4. Multi-Turn Memory
+
+- keeps recent context in session memory
+- persists structured workflow state for resume / interruption recovery
+- uses summaries to reduce token growth in longer dialogues
+
+## Typical Behaviors
+
+### Medical QA with evidence
 
 ```text
 User: 高血压应该注意什么？
-Assistant: 先结合知识库证据给出生活方式、监测和就医建议，并附来源信息。
+Assistant: 结合知识库证据给出生活方式、监测和复诊建议，并附来源信息。
+```
+
+### Low-evidence fallback
+
+```text
+User: 感冒发烧怎么办？
+Assistant: 即使检索证据不足，也先提供通用医学信息，并明确说明这次回答未充分基于知识库，仅供一般参考，症状加重需及时就医。
 ```
 
 ### Appointment preview and confirmation
@@ -116,7 +122,7 @@ User: 确认预约
 Assistant: 再执行实际预约写入
 ```
 
-### Interruption recovery
+### Interruption-safe workflow recovery
 
 ```text
 User: 我要挂呼吸内科张医生明天下午的号
@@ -125,6 +131,69 @@ User: 对了，咳嗽三天了需要拍片吗？
 Assistant: 先回答医学问题，同时保留待确认预约状态
 User: 确认预约
 Assistant: 恢复之前的预约并执行
+```
+
+## Architecture Overview
+
+```text
+User
+  -> ChatInterface
+  -> LangGraph analyze_turn / routing
+      -> medical_rag
+          -> rewrite query
+          -> hybrid retrieval
+          -> rerank / grounding
+          -> answer
+      -> triage
+          -> department recommendation
+      -> appointment skill
+          -> discovery
+          -> planning / preview
+          -> confirm / execute
+      -> cancel skill
+          -> target resolution
+          -> preview
+          -> confirm / execute
+```
+
+### Key backend areas
+
+- `project/core/`
+  - system bootstrap, chat interface, medical source import, observability, evaluation helpers
+- `project/rag_agent/`
+  - LangGraph nodes, routing logic, prompts, state schemas, retrieval tools
+- `project/services/appointment_skill/`
+  - appointment discovery, planning, dialog policy, and controlled execution
+- `project/db/`
+  - PostgreSQL / pgvector storage, route logs, retrieval logs, import history, schema helpers
+- `project/memory/`
+  - Redis-backed session memory and summary storage
+- `project/benchmarks/`
+  - benchmark entrypoints and acceptance-style evaluation scripts
+
+## Tech Stack
+
+- **Orchestration**: LangGraph, LangChain
+- **LLM / embeddings**: OpenAI-compatible providers, DeepSeek, Ollama-compatible setups
+- **Storage**: PostgreSQL, pgvector, Redis
+- **Interface**: Gradio
+- **Evaluation**: in-repo benchmark and regression scripts
+
+## Project Structure
+
+```text
+project/
+  app.py                     # app entrypoint
+  config.py                  # environment-driven configuration
+  core/                      # bootstrap, chat interface, ingestion, observability
+  rag_agent/                 # LangGraph graph, nodes, prompts, retrieval tools
+  services/appointment_skill/# discovery / planning / action workflow package
+  db/                        # schema helpers, vector store, route/retrieval logs
+  memory/                    # Redis session memory and summaries
+  ui/                        # Gradio app and styling
+  benchmarks/                # retrieval, memory, route, answer-quality benchmarks
+tests/                       # regression and integration tests
+docs/                        # setup notes and supplemental guides
 ```
 
 ## Quick Start
@@ -143,7 +212,7 @@ pip install -r requirements.txt
 Copy-Item project\.env.example project\.env
 ```
 
-Fill in at least:
+Then fill in at least:
 
 - model provider credentials
 - PostgreSQL connection settings
@@ -163,33 +232,11 @@ You will typically need:
 .\venv\Scripts\python.exe project\app.py
 ```
 
-Then open:
+Open:
 
 - [http://localhost:7860](http://localhost:7860)
 
-## Data and Knowledge Base Notes
-
-This repo does **not** commit local runtime knowledge-base artifacts such as:
-
-- `markdown_docs/`
-- `parent_store/`
-- `qdrant_db/`
-- `runtime/`
-
-Those are treated as disposable local state.
-
-Medical source import helpers and manifests live under:
-
-- `project/import_medical_sources.py`
-- `project/core/medical_source_ingest.py`
-- `project/core/manifests/`
-
-Additional notes:
-
-- [Medical Import Guide](docs/MEDICAL_IMPORT.md)
-- [Medical Sources Guide](docs/MEDICAL_SOURCES.md)
-
-## Testing
+## Testing and Benchmarks
 
 Basic validation:
 
@@ -206,9 +253,41 @@ Example benchmark runs:
 .\venv\Scripts\python.exe project\benchmarks\evaluate_acceptance_report.py --json
 ```
 
+## Data and Knowledge Base Notes
+
+This repo does **not** commit local runtime knowledge-base artifacts such as:
+
+- `markdown_docs/`
+- `parent_store/`
+- `qdrant_db/`
+- `runtime/`
+
+These are treated as disposable local state.
+
+Medical source import helpers and manifests live under:
+
+- `project/import_medical_sources.py`
+- `project/core/medical_source_ingest.py`
+- `project/core/manifests/`
+
+## Documentation
+
+English:
+
+- [Medical Import Guide](docs/MEDICAL_IMPORT.md)
+- [Medical Sources Guide](docs/MEDICAL_SOURCES.md)
+- [project/README.md](project/README.md)
+
+Chinese:
+
+- [项目导读](docs/PROJECT_GUIDE_CN.md)
+- [项目时序图与流程走读](docs/PROJECT_SEQUENCE_CN.md)
+- [PostgreSQL 初始化说明](docs/POSTGRES_SETUP_CN.md)
+- [评测说明](docs/QA_EVAL.md)
+
 ## Safety and Scope
 
-This project is an **engineering demo for medical information assistance and workflow orchestration**.
+This repository is an **engineering demo for medical information assistance and workflow orchestration**.
 
 It is **not** a medical device and does **not** replace licensed clinicians or in-person diagnosis.
 
@@ -218,19 +297,23 @@ The assistant is designed to:
 - require explicit confirmation before appointment writes
 - provide disclaimer-backed fallback answers when knowledge-base evidence is weak
 
+## What Makes It Different From a Typical RAG Demo
+
+- it supports **stateful business actions**, not only retrieval
+- it preserves **pending confirmations** across unrelated turns
+- it separates **discovery**, **planning**, and **execution** for appointment workflows
+- it includes **low-evidence fallback behavior** instead of only refusal
+- it ships with **benchmark scripts and regression coverage** beyond chat happy paths
+
 ## Roadmap
 
-- better public demo data and setup automation
-- stronger answer-level evaluation coverage
-- more polished UI for public-facing demos
-- deeper skill modularization for appointment and reschedule flows
+- better public demo setup and sample data
+- stronger answer-level evaluation and reporting
+- more polished public-facing UI
+- deeper appointment / reschedule skill modularization
 
 ## Contributing
 
 If you want to contribute, start here:
 
 - [CONTRIBUTING.md](CONTRIBUTING.md)
-
-For more implementation detail, see:
-
-- [project/README.md](project/README.md)
