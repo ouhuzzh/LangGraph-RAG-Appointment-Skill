@@ -8,7 +8,7 @@ LangGraph-powered medical consultation and appointment assistant with:
 - semi-controlled appointment execution (`preview -> explicit confirm -> execute`)
 - hybrid retrieval, answer grounding, and low-evidence safety fallback
 
-![Demo](assets/demo.gif)
+> Note: the public UI is still evolving. The repository home page intentionally focuses on architecture, workflow, and benchmark notes instead of outdated UI recordings.
 
 ## At a Glance
 
