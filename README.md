@@ -19,7 +19,9 @@
 
 </div>
 
-![Demo](assets/demo.gif)
+![Illustrated workflow demo](assets/demo.gif)
+
+> Illustrated workflow demo only. This GIF is a concept-style capability preview, not a live recording of the current UI.
 
 This project is designed to feel closer to a **real assistant product** than a single-path RAG demo:
 
@@ -28,7 +30,7 @@ This project is designed to feel closer to a **real assistant product** than a s
 - conversation state survives interruptions, clarifications, and pending confirmations
 - when evidence is weak, the assistant can still answer with a **clearly labeled general-medical fallback**
 
-> The public UI is still evolving. To keep the repository homepage stable, the demo above focuses on product behaviors and backend capabilities rather than a fast-changing frontend skin.
+> The public UI is still evolving. To keep the repository homepage stable, the illustrated demo above focuses on product behaviors and backend capabilities rather than a fast-changing frontend skin.
 
 ## Why This Repo Is Interesting
 
