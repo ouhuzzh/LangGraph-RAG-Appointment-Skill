@@ -10,6 +10,15 @@ LangGraph-powered medical consultation and appointment assistant with:
 
 ![Demo](assets/demo.gif)
 
+## At a Glance
+
+- **Workflow-aware assistant**
+  - not just question answering, but also booking, cancellation, clarification recovery, and interruption-safe state transitions
+- **Production-style architecture**
+  - LangGraph routing, Redis-backed session memory, PostgreSQL / pgvector storage, and explicit workflow safety controls
+- **Measured improvements**
+  - retrieval and memory benchmarks are included in-repo instead of relying only on qualitative examples
+
 ## Why This Repo Exists
 
 Most open-source RAG demos stop at "upload a document and ask questions." This project goes one layer deeper:
@@ -20,6 +29,14 @@ Most open-source RAG demos stop at "upload a document and ask questions." This p
 - includes **benchmark and regression tooling** for routing, retrieval, memory, and answer quality
 
 This makes it closer to a real assistant product than a single-path chatbot demo.
+
+## Tech Stack
+
+- **Orchestration**: LangGraph, LangChain
+- **LLM / embeddings**: OpenAI-compatible providers, DeepSeek, Ollama-compatible setups
+- **Storage**: PostgreSQL, pgvector, Redis
+- **UI**: Gradio
+- **Evaluation**: in-repo benchmark and regression scripts under `project/benchmarks/`
 
 ## Core Capabilities
 
@@ -56,6 +73,14 @@ Key backend areas:
   - PostgreSQL / pgvector storage, retrieval logs, route logs, schema helpers
 - `project/benchmarks/`
   - benchmark and evaluation entrypoints
+
+## What Makes This Different From a Typical RAG Demo
+
+- it supports **stateful business actions**, not only retrieval
+- it keeps **pending confirmations** and resumes them after unrelated turns
+- it separates **discovery**, **planning**, and **execution** for appointment workflows
+- it includes **low-evidence fallback behavior** instead of only "no answer" responses
+- it ships with **benchmark scripts and regression tests** for more than just chat happy paths
 
 ## Benchmark Snapshot
 
@@ -209,4 +234,3 @@ If you want to contribute, start here:
 For more implementation detail, see:
 
 - [project/README.md](project/README.md)
-
