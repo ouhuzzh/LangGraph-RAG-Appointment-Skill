@@ -8,6 +8,7 @@ qdrant_db/
 markdown_docs/
 parent_store/
 output/
+.playwright-cli/
 reports/
 __pycache__/
 *.py[cod]

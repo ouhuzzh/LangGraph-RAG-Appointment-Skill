@@ -19,9 +19,9 @@
 
 </div>
 
-![Illustrated workflow demo](assets/demo.gif)
+![Real UI workflow demo](assets/demo.gif)
 
-> Illustrated workflow demo only. This GIF is a concept-style capability preview, not a live recording of the current UI.
+> Real UI capture from a local demo environment. This GIF shows the current chat interface walking through the booking discovery flow.
 
 This project is designed to feel closer to a **real assistant product** than a single-path RAG demo:
 
@@ -30,7 +30,7 @@ This project is designed to feel closer to a **real assistant product** than a s
 - conversation state survives interruptions, clarifications, and pending confirmations
 - when evidence is weak, the assistant can still answer with a **clearly labeled general-medical fallback**
 
-> The public UI is still evolving. To keep the repository homepage stable, the illustrated demo above focuses on product behaviors and backend capabilities rather than a fast-changing frontend skin.
+> The public UI is still evolving. The demo above is a real local capture, but the exact visual style may continue to change as the frontend is polished.
 
 ## Why This Repo Is Interesting
 
