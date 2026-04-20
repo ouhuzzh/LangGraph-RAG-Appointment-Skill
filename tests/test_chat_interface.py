@@ -5,7 +5,7 @@ from langchain_core.messages import AIMessage
 
 sys.path.insert(0, r"D:\nageoffer\agentic-rag-for-dummies\project")
 
-from core.chat_interface import ChatInterface  # noqa: E402
+from core.chat_interface import ChatInterface, SILENT_NODES  # noqa: E402
 
 
 class FakeGraphState:
@@ -161,6 +161,21 @@ class ChatInterfaceTests(unittest.TestCase):
 
         self.assertEqual(len(visible), 1)
         self.assertIn("正在整理答案", visible[0]["content"])
+
+    def test_extract_latest_state_assistant_sanitizes_query_plan_prefix(self):
+        latest_values = {
+            "messages": [
+                AIMessage(content='{"queries": ["高血压患者应该注意哪些事项"]}高血压患者要注意低盐饮食。')
+            ]
+        }
+
+        extracted = ChatInterface._extract_latest_state_assistant(latest_values)
+
+        self.assertEqual(extracted, "高血压患者要注意低盐饮食。")
+
+    def test_final_answer_nodes_are_silent_in_streaming_ui(self):
+        self.assertIn("grounded_answer_generation", SILENT_NODES)
+        self.assertIn("answer_grounding_check", SILENT_NODES)
 
 
 if __name__ == "__main__":

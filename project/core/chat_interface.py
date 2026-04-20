@@ -4,9 +4,15 @@ import re
 import config
 from db.route_log_store import RouteLogStore
 from langchain_core.messages import HumanMessage, AIMessage, AIMessageChunk, ToolMessage, SystemMessage
+from rag_agent.nodes import _sanitize_final_answer_text
 from rag_agent.tools import reset_retrieval_context, set_retrieval_context
 
-SILENT_NODES = {"rewrite_query", "intent_router"}
+SILENT_NODES = {
+    "rewrite_query",
+    "intent_router",
+    "grounded_answer_generation",
+    "answer_grounding_check",
+}
 SYSTEM_NODES = {"summarize_history", "rewrite_query"}
 APPOINTMENT_UPDATE_HINTS = ("改", "换", "预约", "挂号", "医生", "科", "时间", "时段")
 CANCEL_UPDATE_HINTS = ("取消", "退号", "预约号", "第", "appointment", "cancel")
@@ -156,13 +162,13 @@ class ChatInterface:
     def _extract_final_assistant_text(response_messages):
         for message in reversed(response_messages):
             if message.get("role") == "assistant" and "metadata" not in message and message.get("content", "").strip():
-                return message["content"].strip()
+                return _sanitize_final_answer_text(message["content"].strip())
         return ""
 
     @staticmethod
     def _extract_all_visible_assistant_texts(response_messages):
         return [
-            message.get("content", "").strip()
+            _sanitize_final_answer_text(message.get("content", "").strip())
             for message in response_messages
             if message.get("role") == "assistant" and "metadata" not in message and message.get("content", "").strip()
         ]
@@ -173,7 +179,7 @@ class ChatInterface:
             if isinstance(message, AIMessage):
                 content = str(message.content or "").strip()
                 if content and not getattr(message, "tool_calls", None):
-                    return content
+                    return _sanitize_final_answer_text(content)
         return ""
 
     @staticmethod
