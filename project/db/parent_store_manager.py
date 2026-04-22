@@ -21,14 +21,27 @@ class ParentStoreManager:
 
     @staticmethod
     def _document_info_from_metadata(metadata: Dict) -> Dict:
-        source_name = metadata.get("source", "unknown.pdf")
+        metadata = dict(metadata or {})
+        source_name = metadata.get("source", "unknown.md")
         source_path = Path(source_name)
-        document_no = build_document_no(source_name)
+        source_key = str(metadata.get("source_key") or f"local:{source_name}").strip()
+        document_no = str(metadata.get("document_no") or build_document_no(source_key)).strip()
         return {
             "document_no": document_no,
             "title": metadata.get("title") or source_name,
-            "source_name": source_name,
-            "file_type": metadata.get("file_type") or source_path.suffix.lstrip(".") or "pdf",
+            "source_name": metadata.get("source_name") or source_name,
+            "source_key": source_key,
+            "file_type": metadata.get("file_type") or source_path.suffix.lstrip(".") or "md",
+            "doc_type": metadata.get("doc_type") or metadata.get("source_type") or "",
+            "department": metadata.get("department") or "",
+            "authority_level": metadata.get("authority_level") or "",
+            "source_url": metadata.get("source_url") or metadata.get("original_url") or "",
+            "content_hash": metadata.get("content_hash") or "",
+            "sync_status": metadata.get("sync_status") or "active",
+            "is_active": str(metadata.get("is_active", "true")).strip().lower() not in {"false", "0", "no"},
+            "last_synced_at": metadata.get("last_synced_at"),
+            "deleted_at": metadata.get("deleted_at"),
+            "metadata": metadata,
         }
 
     def _ensure_document(self, conn, metadata: Dict) -> int:
@@ -36,26 +49,90 @@ class ParentStoreManager:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO documents (document_no, title, source_name, file_type, metadata)
-                VALUES (%s, %s, %s, %s, %s::jsonb)
-                ON CONFLICT (document_no)
-                DO UPDATE SET
-                    title = EXCLUDED.title,
-                    source_name = EXCLUDED.source_name,
-                    file_type = EXCLUDED.file_type,
-                    metadata = EXCLUDED.metadata,
-                    updated_at = NOW()
-                RETURNING id
+                SELECT id
+                FROM documents
+                WHERE source_key = %s OR document_no = %s
+                ORDER BY CASE WHEN source_key = %s THEN 0 ELSE 1 END
+                LIMIT 1
                 """,
                 (
+                    info["source_key"],
                     info["document_no"],
-                    info["title"],
-                    info["source_name"],
-                    info["file_type"],
-                    json.dumps(metadata, ensure_ascii=False),
+                    info["source_key"],
                 ),
             )
             row = cur.fetchone()
+            if row:
+                cur.execute(
+                    """
+                    UPDATE documents
+                    SET title = %s,
+                        source_name = %s,
+                        source_key = %s,
+                        file_type = %s,
+                        doc_type = %s,
+                        department = %s,
+                        authority_level = %s,
+                        source_url = %s,
+                        content_hash = %s,
+                        sync_status = %s,
+                        is_active = %s,
+                        last_synced_at = COALESCE(%s, last_synced_at, NOW()),
+                        deleted_at = %s,
+                        metadata = %s::jsonb,
+                        updated_at = NOW()
+                    WHERE id = %s
+                    RETURNING id
+                    """,
+                    (
+                        info["title"],
+                        info["source_name"],
+                        info["source_key"],
+                        info["file_type"],
+                        info["doc_type"] or None,
+                        info["department"] or None,
+                        info["authority_level"] or None,
+                        info["source_url"] or None,
+                        info["content_hash"] or None,
+                        info["sync_status"],
+                        info["is_active"],
+                        info["last_synced_at"],
+                        info["deleted_at"],
+                        json.dumps(info["metadata"], ensure_ascii=False),
+                        row[0],
+                    ),
+                )
+                row = cur.fetchone()
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO documents (
+                        document_no, title, source_name, source_key, file_type, doc_type, department,
+                        authority_level, source_url, content_hash, sync_status, is_active,
+                        last_synced_at, deleted_at, metadata
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, NOW()), %s, %s::jsonb)
+                    RETURNING id
+                    """,
+                    (
+                        info["document_no"],
+                        info["title"],
+                        info["source_name"],
+                        info["source_key"],
+                        info["file_type"],
+                        info["doc_type"] or None,
+                        info["department"] or None,
+                        info["authority_level"] or None,
+                        info["source_url"] or None,
+                        info["content_hash"] or None,
+                        info["sync_status"],
+                        info["is_active"],
+                        info["last_synced_at"],
+                        info["deleted_at"],
+                        json.dumps(info["metadata"], ensure_ascii=False),
+                    ),
+                )
+                row = cur.fetchone()
         return row[0]
 
     def save(self, parent_id: str, content: str, metadata: Dict) -> None:

@@ -357,11 +357,14 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
             knowledge_status["message"],
             f"本地 Markdown：{stats.get('local_markdown_files', 0)}",
             f"数据库文档：{stats.get('documents', 0)}",
+            f"已下线文档：{stats.get('inactive_documents', 0)}",
             f"父块数：{stats.get('parent_chunks', 0)}",
             f"子块数：{stats.get('child_chunks', 0)}",
         ]
         if stats.get("last_bootstrap_result"):
             lines.append(f"最近补建结果：{stats['last_bootstrap_result']}")
+        if stats.get("last_sync_result"):
+            lines.append(f"最近同步结果：{stats['last_sync_result']}")
         if knowledge_status.get("last_error"):
             lines.append(f"最近错误：{knowledge_status['last_error']}")
         return "\n".join(lines)
@@ -390,12 +393,13 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
   {_badge(system_status['state'])}{_badge(knowledge_status['status'])}
   <p style="margin-top:12px;">{html.escape(intro)}</p>
   <p style="margin-top:8px;">{html.escape(kb_note)}</p>
-  <div class="metric-grid">
+    <div class="metric-grid">
     <div class="metric"><span class="metric-label">知识库资料</span><span class="metric-value">{stats.get('documents', 0)}</span><span class="metric-note">已登记文档</span></div>
     <div class="metric"><span class="metric-label">可检索片段</span><span class="metric-value">{stats.get('child_chunks', 0)}</span><span class="metric-note">用于回答的内容块</span></div>
     <div class="metric"><span class="metric-label">最近补建</span><span class="metric-value">{html.escape(knowledge_status['status'])}</span><span class="metric-note">{html.escape(stats.get('last_bootstrap_result') or '暂无新的补建记录')}</span></div>
     <div class="metric"><span class="metric-label">当前会话</span><span class="metric-value">强记忆</span><span class="metric-note">会尽量保留最近话题、科室建议和预约状态</span></div>
   </div>
+  <p style="margin-top:12px;">{html.escape(stats.get('last_sync_result') or '最近还没有新的同步结果。')}</p>
 </div>
 """.strip()
 
@@ -414,12 +418,13 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
   <h2>把资料导进来，也要让状态一眼能看懂</h2>
   {_badge(knowledge_status['status'])}
   <p style="margin-top:12px;">{html.escape(note)}</p>
-  <div class="metric-grid">
+    <div class="metric-grid">
     <div class="metric"><span class="metric-label">本地 Markdown</span><span class="metric-value">{stats.get('local_markdown_files', 0)}</span><span class="metric-note">已经落在本地目录里的资料</span></div>
     <div class="metric"><span class="metric-label">数据库文档</span><span class="metric-value">{stats.get('documents', 0)}</span><span class="metric-note">已经登记进知识库</span></div>
     <div class="metric"><span class="metric-label">父块 / 子块</span><span class="metric-value">{stats.get('parent_chunks', 0)} / {stats.get('child_chunks', 0)}</span><span class="metric-note">索引结构</span></div>
     <div class="metric"><span class="metric-label">最近任务数</span><span class="metric-value">{len(stats.get('recent_imports') or [])}</span><span class="metric-note">包含导入和补建记录</span></div>
   </div>
+  <p style="margin-top:12px;">{html.escape(stats.get('last_sync_result') or '最近还没有新的同步结果。')}</p>
 </div>
 """.strip()
 
@@ -434,7 +439,14 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
 """.strip()
         items = []
         for item in recent_imports[:6]:
-            bits = [f"写入 {item.get('written', 0)}", f"跳过 {item.get('skipped', 0)}", f"失败 {item.get('failed', 0)}", f"索引新增 {item.get('index_added', 0)}"]
+            bits = [
+                f"新增 {item.get('written', 0)}",
+                f"更新 {item.get('updated', 0)}",
+                f"下线 {item.get('deactivated', 0)}",
+                f"未变化 {item.get('unchanged', 0)}",
+                f"失败 {item.get('failed', 0)}",
+                f"索引新增 {item.get('index_added', 0)}",
+            ]
             if item.get("downloaded") is not None:
                 bits.insert(0, f"下载 {item.get('downloaded', 0)}")
             extra = ""
@@ -514,30 +526,18 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
         if not files:
             return (None,) + refresh_status_panel()
 
-        started_at = time.perf_counter()
         report = doc_manager.add_documents_with_report(
             files,
             progress_callback=lambda p, desc: progress(p, desc=desc),
         )
 
         rag_system.refresh_knowledge_base_status()
-        rag_system.record_import_event(
-            {
-                "source": "manual_upload",
-                "label": "手动上传",
-                "status": "completed" if report["skipped"] == 0 else "completed_with_skips",
-                "written": report["added"],
-                "skipped": report["skipped"],
-                "failed": 0,
-                "downloaded": report["processed"],
-                "duration_ms": round((time.perf_counter() - started_at) * 1000, 2),
-                "note": "来自本地工作区的 PDF / Markdown 上传。",
-                "index_added": report["added"],
-                "failure_details": report["skipped_details"],
-            }
-        )
+        rag_system.record_import_event(report["sync_event"])
         rag_system.start_knowledge_base_bootstrap()
-        gr.Info(f"已处理 {report['processed']} 个文件：新增 {report['added']}，跳过 {report['skipped']}。")
+        gr.Info(
+            f"已处理 {report['processed']} 个文件：新增 {report['added']}，更新 {report['updated']}，"
+            f"未变化 {report['unchanged']}，失败 {report['failed']}。"
+        )
         return (None,) + refresh_status_panel()
 
     def clear_handler():
@@ -547,50 +547,29 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
         return refresh_status_panel()
 
     def official_import_handler(source, limit, overwrite):
-        started_at = time.perf_counter()
-        result, index_result = doc_manager.import_official_source(
+        result = doc_manager.sync_official_source(
             source=source,
             limit=int(limit),
-            overwrite=bool(overwrite),
-            index_after_import=True,
+            trigger_type="manual",
         )
         rag_system.refresh_knowledge_base_status()
         rag_system.start_knowledge_base_bootstrap()
-        rag_system.record_import_event(
-            {
-                "source": source,
-                "label": {
-                    "medlineplus": "MedlinePlus 导入",
-                    "nhc": "国家卫健委导入",
-                    "who": "WHO 导入",
-                }.get(source, source),
-                "status": "completed" if result.failed == 0 else "completed_with_failures",
-                "downloaded": result.downloaded,
-                "written": result.written,
-                "skipped": result.skipped,
-                "failed": result.failed,
-                "duration_ms": round((time.perf_counter() - started_at) * 1000, 2),
-                "index_added": index_result["added"],
-                "index_skipped": index_result["skipped"],
-                "conversion_details": list(result.conversion_details),
-                "failure_details": list(result.failure_details),
-                "note": f"来源地址：{result.discovered_url}",
-            }
-        )
+        rag_system.record_import_event(result.to_event())
         gr.Info(
-            f"官方导入完成：来源 {source}，写入 {result.written}，跳过 {result.skipped}，失败 {result.failed}，索引新增 {index_result['added']}。"
+            f"官方同步完成：来源 {source}，新增 {result.written}，更新 {result.updated}，下线 {result.deactivated}，未变化 {result.unchanged}。"
         )
         summary = (
             f"来源：{source}\n"
             f"下载：{result.downloaded}\n"
-            f"写入：{result.written}\n"
-            f"跳过：{result.skipped}\n"
+            f"新增：{result.written}\n"
+            f"更新：{result.updated}\n"
+            f"下线：{result.deactivated}\n"
+            f"未变化：{result.unchanged}\n"
             f"失败：{result.failed}\n"
-            f"索引处理：{index_result['processed']}\n"
-            f"索引新增：{index_result['added']}\n"
-            f"索引跳过：{index_result['skipped']}\n"
-            f"入口：{result.discovered_url}\n"
-            f"耗时：{round((time.perf_counter() - started_at) * 1000, 2)} ms"
+            f"索引新增：{result.index_added}\n"
+            f"索引跳过：{result.index_skipped}\n"
+            f"范围：{result.scope}\n"
+            f"耗时：{result.duration_ms} ms"
         )
         if result.conversion_details:
             summary += "\n转换详情：\n- " + "\n- ".join(result.conversion_details[:3])
@@ -742,19 +721,19 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
                     with gr.Column(scale=1):
                         with gr.Group(elem_classes=["card-shell"]):
                             gr.Markdown("### 上传你自己的资料")
-                            gr.Markdown('<p class="diag-note">支持 PDF 和 Markdown。同名文件不会被静默覆盖，系统会明确告诉你是新增还是跳过。</p>')
+                            gr.Markdown('<p class="diag-note">支持 PDF 和 Markdown。同名文件默认按更新处理，系统会明确告诉你是新增、更新还是未变化。</p>')
                             files_input = gr.File(
                                 label="选择 PDF / Markdown",
                                 file_count="multiple",
                                 type="filepath",
                                 height=180,
                             )
-                            add_btn = gr.Button("添加到知识库", variant="primary")
+                            add_btn = gr.Button("同步到知识库", variant="primary")
                             
                     with gr.Column(scale=1):
                         with gr.Group(elem_classes=["card-shell"]):
                             gr.Markdown("### 一键导入官方资料")
-                            gr.Markdown('<p class="diag-note">适合先快速搭一个可靠底座，再逐步补自己的资料。</p>')
+                            gr.Markdown('<p class="diag-note">适合先快速搭一个可靠底座。系统会比对内容变化，并对失效来源做下线处理。</p>')
                             with gr.Row():
                                 official_source = gr.Dropdown(
                                     choices=[
@@ -766,9 +745,9 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
                                     label="官方来源",
                                 )
                                 official_limit = gr.Number(value=5, precision=0, minimum=1, maximum=100, label="数量")
-                            official_overwrite = gr.Checkbox(value=False, label="覆盖已存在的本地 Markdown")
-                            official_import_btn = gr.Button("导入官方资料", variant="secondary")
-                            official_import_result = gr.Textbox(value="", label="导入结果", interactive=False, lines=2)
+                            official_overwrite = gr.Checkbox(value=False, label="保留此开关占位（当前默认按同步替换）")
+                            official_import_btn = gr.Button("同步官方资料", variant="secondary")
+                            official_import_result = gr.Textbox(value="", label="同步结果", interactive=False, lines=2)
 
                 with gr.Row():
                     with gr.Column(scale=1):

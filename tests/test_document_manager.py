@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from langchain_core.documents import Document
 
@@ -126,12 +127,24 @@ class DocumentManagerTests(unittest.TestCase):
         duplicate_source = duplicate_source_dir / "duplicate.md"
         duplicate_source.write_text("# Updated\n\nworld", encoding="utf-8")
 
-        report = manager.add_documents_with_report([str(duplicate_source)])
+        fake_sync_result = mock.Mock(
+            added=0,
+            updated=1,
+            unchanged=0,
+            deactivated=0,
+            skipped=0,
+            failure_details=[],
+            conversion_details=[],
+        )
+        fake_sync_result.to_event.return_value = {"source": "local", "written": 0, "updated": 1, "deactivated": 0, "unchanged": 0}
+        with mock.patch("core.document_manager.KnowledgeBaseSyncService") as sync_cls:
+            sync_cls.return_value.sync_local_documents.return_value = fake_sync_result
+            report = manager.add_documents_with_report([str(duplicate_source)])
 
         self.assertEqual(report["added"], 0)
-        self.assertEqual(report["skipped"], 1)
-        self.assertIn("同名 Markdown 已存在", report["skipped_details"][0])
-        self.assertEqual(existing.read_text(encoding="utf-8"), "# Existing\n\nhello")
+        self.assertEqual(report["updated"], 1)
+        self.assertEqual(report["unchanged"], 0)
+        self.assertEqual(existing.read_text(encoding="utf-8"), "# Updated\n\nworld")
 
 
 if __name__ == "__main__":

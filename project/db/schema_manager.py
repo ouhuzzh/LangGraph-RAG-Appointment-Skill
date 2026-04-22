@@ -164,6 +164,90 @@ class SchemaManager:
                 """,
             ],
         ),
+        (
+            "006_knowledge_base_sync",
+            "Add updatable knowledge-base sync fields and richer import task metrics.",
+            [
+                """
+                ALTER TABLE documents
+                ADD COLUMN IF NOT EXISTS source_key VARCHAR(256)
+                """,
+                """
+                ALTER TABLE documents
+                ADD COLUMN IF NOT EXISTS content_hash VARCHAR(128)
+                """,
+                """
+                ALTER TABLE documents
+                ADD COLUMN IF NOT EXISTS sync_status VARCHAR(32) NOT NULL DEFAULT 'active'
+                """,
+                """
+                ALTER TABLE documents
+                ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE
+                """,
+                """
+                ALTER TABLE documents
+                ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMP
+                """,
+                """
+                ALTER TABLE documents
+                ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP
+                """,
+                """
+                UPDATE documents
+                SET source_key = CASE
+                    WHEN lower(coalesce(metadata->>'source', source_name, '')) LIKE 'medlineplus-%'
+                        THEN 'official:medlineplus:' || split_part(coalesce(metadata->>'source', source_name, document_no), '.', 1)
+                    WHEN lower(coalesce(metadata->>'source', source_name, '')) LIKE 'who-%'
+                        OR lower(coalesce(source_url, metadata->>'original_url', '')) LIKE '%who.int%'
+                        THEN 'official:who:' || split_part(coalesce(metadata->>'source', source_name, document_no), '.', 1)
+                    WHEN lower(coalesce(metadata->>'source', source_name, '')) LIKE 'nhc-%'
+                        OR lower(coalesce(source_url, metadata->>'original_url', '')) LIKE '%gov.cn%'
+                        THEN 'official:nhc:' || split_part(coalesce(metadata->>'source', source_name, document_no), '.', 1)
+                    ELSE 'local:' || CASE
+                        WHEN coalesce(metadata->>'source', '') <> '' THEN metadata->>'source'
+                        WHEN coalesce(source_name, '') ~ '\\.[A-Za-z0-9]+$' THEN source_name
+                        ELSE document_no || '.md'
+                    END
+                END
+                WHERE coalesce(source_key, '') = ''
+                """,
+                """
+                UPDATE documents
+                SET sync_status = coalesce(nullif(sync_status, ''), 'active'),
+                    is_active = coalesce(is_active, TRUE),
+                    last_synced_at = coalesce(last_synced_at, updated_at, created_at, NOW())
+                """,
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_documents_source_key
+                ON documents(source_key)
+                WHERE source_key IS NOT NULL
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_documents_is_active
+                ON documents(is_active)
+                """,
+                """
+                ALTER TABLE import_task_logs
+                ADD COLUMN IF NOT EXISTS updated INTEGER NOT NULL DEFAULT 0
+                """,
+                """
+                ALTER TABLE import_task_logs
+                ADD COLUMN IF NOT EXISTS deactivated INTEGER NOT NULL DEFAULT 0
+                """,
+                """
+                ALTER TABLE import_task_logs
+                ADD COLUMN IF NOT EXISTS unchanged INTEGER NOT NULL DEFAULT 0
+                """,
+                """
+                ALTER TABLE import_task_logs
+                ADD COLUMN IF NOT EXISTS trigger_type VARCHAR(32) NOT NULL DEFAULT 'manual'
+                """,
+                """
+                ALTER TABLE import_task_logs
+                ADD COLUMN IF NOT EXISTS scope VARCHAR(128) NOT NULL DEFAULT ''
+                """,
+            ],
+        ),
     ]
 
     def __init__(self, conninfo: str):
@@ -234,6 +318,8 @@ class SchemaManager:
                           'idx_appointments_patient_status_date',
                           'idx_chat_sessions_patient_id',
                           'idx_documents_source_name',
+                          'uq_documents_source_key',
+                          'idx_documents_is_active',
                           'idx_import_task_logs_created_at',
                           'idx_route_logs_created_at',
                           'idx_route_logs_thread_id',

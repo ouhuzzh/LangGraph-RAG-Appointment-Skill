@@ -341,6 +341,8 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
         self.assertIn("uq_chat_session_summaries_thread_type", schema_status["indexes"])
         self.assertIn("idx_child_chunks_embedding_cosine", schema_status["indexes"])
         self.assertIn("idx_import_task_logs_created_at", schema_status["indexes"])
+        self.assertIn("uq_documents_source_key", schema_status["indexes"])
+        self.assertIn("idx_documents_is_active", schema_status["indexes"])
         self.assertIn("idx_route_logs_created_at", schema_status["indexes"])
         self.assertIn("idx_appointment_skill_logs_created_at", schema_status["indexes"])
         self.assertIn("001_summary_dedup_and_indexes", schema_status["versions"])
@@ -348,6 +350,7 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
         self.assertIn("003_import_task_logs", schema_status["versions"])
         self.assertIn("004_route_logs", schema_status["versions"])
         self.assertIn("005_appointment_skill_and_retrieval_quality", schema_status["versions"])
+        self.assertIn("006_knowledge_base_sync", schema_status["versions"])
 
     def test_import_task_store_round_trip(self):
         self.vector_db.create_collection(config.CHILD_COLLECTION)
@@ -359,12 +362,17 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
                 "status": "completed",
                 "downloaded": 2,
                 "written": 1,
+                "updated": 1,
+                "deactivated": 0,
+                "unchanged": 1,
                 "skipped": 1,
                 "failed": 0,
                 "index_added": 1,
                 "index_skipped": 0,
                 "duration_ms": 123.45,
                 "note": unique_note,
+                "trigger_type": "manual",
+                "scope": "official:medlineplus",
                 "conversion_details": ["method=pymupdf4llm"],
                 "failure_details": [],
             }
@@ -487,7 +495,7 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
 
         self.assertEqual(result["added"], 1)
         self.assertTrue(any(self.document_no in match.metadata.get("source", "") for match in matches))
-        self.assertIn(build_document_no(f"{self.document_no}.pdf"), rag.vector_db.get_indexed_document_nos())
+        self.assertIn(build_document_no(f"local:{self.document_no}.md"), rag.vector_db.get_indexed_document_nos())
         self.assertEqual(rag.get_knowledge_base_status()["status"], "ready")
 
     def test_live_qa_eval_fixture_samples_score_expected_sources(self):

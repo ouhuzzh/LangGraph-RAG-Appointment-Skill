@@ -59,6 +59,15 @@ VECTOR_INDEX_LISTS = int(os.environ.get("VECTOR_INDEX_LISTS", "100"))
 AUTO_BOOTSTRAP_KNOWLEDGE_BASE = os.environ.get("AUTO_BOOTSTRAP_KNOWLEDGE_BASE", "true").lower() == "true"
 STATUS_REFRESH_SECONDS = float(os.environ.get("STATUS_REFRESH_SECONDS", "2"))
 RECENT_IMPORT_TASK_LIMIT = int(os.environ.get("RECENT_IMPORT_TASK_LIMIT", "8"))
+ENABLE_KB_SYNC_SCHEDULER = os.environ.get("ENABLE_KB_SYNC_SCHEDULER", "true").lower() == "true"
+KB_SYNC_INTERVAL_HOURS = int(os.environ.get("KB_SYNC_INTERVAL_HOURS", "24"))
+KB_SYNC_OFFICIAL_SOURCES = [
+    item.strip().lower()
+    for item in os.environ.get("KB_SYNC_OFFICIAL_SOURCES", "medlineplus,nhc,who").split(",")
+    if item.strip()
+]
+KB_SOFT_DELETE_MISSING = os.environ.get("KB_SOFT_DELETE_MISSING", "true").lower() == "true"
+KB_REPLACE_LOCAL_DUPLICATES = os.environ.get("KB_REPLACE_LOCAL_DUPLICATES", "true").lower() == "true"
 
 # --- Redis Configuration ---
 REDIS_ENABLED = os.environ.get("REDIS_ENABLED", "true").lower() == "true"

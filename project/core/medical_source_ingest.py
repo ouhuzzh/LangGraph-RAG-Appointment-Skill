@@ -148,6 +148,23 @@ class MedicalImportResult:
     written_files: list[Path] = field(default_factory=list)
 
 
+@dataclass
+class StandardDocumentRecord:
+    source_key: str
+    entry_id: str
+    output_filename: str
+    title: str
+    source_name: str
+    source_url: str
+    markdown_body: str
+    published_at: str = ""
+    fetched_at: str = ""
+    freshness_bucket: str = "unknown"
+    source_type: str = "general"
+    file_type: str = "md"
+    metadata: dict = field(default_factory=dict)
+
+
 class MedlinePlusXmlImporter:
     index_url = "https://medlineplus.gov/xml.html"
 
@@ -248,6 +265,36 @@ class MedlinePlusXmlImporter:
             topic.body_markdown,
         ]
         return "\n\n".join(section for section in sections if section.strip()) + "\n"
+
+    def build_sync_records(self, limit: int | None = None) -> tuple[str, list[StandardDocumentRecord]]:
+        archive_url, archive_bytes = self.fetch_latest_archive()
+        xml_text = self.extract_xml_text(archive_bytes)
+        topics = self.parse_topics(xml_text, limit=limit)
+        fetched_at = datetime.now().strftime("%Y-%m-%d")
+        records = []
+        for topic in topics:
+            records.append(
+                StandardDocumentRecord(
+                    source_key=f"official:medlineplus:{topic.source_id}",
+                    entry_id=topic.source_id,
+                    output_filename=f"{topic.source_id}.md",
+                    title=topic.title,
+                    source_name="MedlinePlus",
+                    source_url=topic.source_url,
+                    markdown_body=topic.body_markdown,
+                    fetched_at=fetched_at,
+                    freshness_bucket="current",
+                    source_type="patient_education",
+                    file_type="md",
+                    metadata={
+                        "language": "en",
+                        "summary": topic.summary,
+                        "categories": list(topic.categories),
+                        "related_terms": list(topic.related_terms),
+                    },
+                )
+            )
+        return archive_url, records
 
     def write_topics(self, topics: list[ImportedMedicalDocument], output_dir: str | Path, overwrite: bool = False) -> tuple[int, int, list[Path]]:
         output_path = Path(output_dir)
@@ -389,6 +436,56 @@ class NhcPdfWhitelistImporter:
             written_files=written_files,
         )
 
+    def build_sync_records(self, limit: int | None = None) -> tuple[str, list[StandardDocumentRecord], list[str], list[str]]:
+        entries = self.load_manifest()
+        if limit is not None:
+            entries = entries[:limit]
+
+        fetched_at = datetime.now().strftime("%Y-%m-%d")
+        records = []
+        conversion_details = []
+        failure_details = []
+        for entry in entries:
+            stem = entry.get("id") or f"nhc-{_slugify(entry['title'])}"
+            try:
+                pdf_bytes = self._download_pdf_bytes(entry)
+                body_markdown, conversion_result = self._convert_pdf_bytes_to_markdown(pdf_bytes, stem)
+                detail = (
+                    f"{entry.get('title', stem)} | method={conversion_result.method_used} "
+                    f"chars={conversion_result.extracted_char_count} "
+                    f"scan_like={'yes' if conversion_result.scan_like else 'no'}"
+                )
+                if conversion_result.warnings:
+                    detail += f" | warnings={' ; '.join(conversion_result.warnings[:2])}"
+                conversion_details.append(detail)
+                published_at = _derive_published_at(entry)
+                records.append(
+                    StandardDocumentRecord(
+                        source_key=f"official:nhc:{stem}",
+                        entry_id=stem,
+                        output_filename=f"{stem}.md",
+                        title=entry["title"],
+                        source_name="国家卫生健康委员会",
+                        source_url=entry.get("page_url", entry["pdf_url"]),
+                        markdown_body=_collapse_text(body_markdown),
+                        published_at=published_at,
+                        fetched_at=fetched_at,
+                        freshness_bucket=_freshness_bucket(published_at),
+                        source_type=entry.get("document_type", "clinical_guideline"),
+                        file_type="pdf",
+                        metadata={
+                            "language": "zh",
+                            "pdf_url": entry["pdf_url"],
+                            "department": entry.get("department", ""),
+                            "tags": list(entry.get("tags") or []),
+                        },
+                    )
+                )
+            except Exception as exc:
+                print(f"Failed to build NHC sync record '{entry.get('title', stem)}': {exc}")
+                failure_details.append(f"{entry.get('title', stem)}: {exc}")
+        return str(self.manifest_path), records, conversion_details, failure_details
+
 
 class WhoHtmlWhitelistImporter:
     def __init__(self, session=None, manifest_path: str | Path | None = None):
@@ -489,3 +586,45 @@ class WhoHtmlWhitelistImporter:
             failure_details=failure_details,
             written_files=written_files,
         )
+
+    def build_sync_records(self, limit: int | None = None) -> tuple[str, list[StandardDocumentRecord], list[str]]:
+        entries = self.load_manifest()
+        if limit is not None:
+            entries = entries[:limit]
+
+        fetched_at = datetime.now().strftime("%Y-%m-%d")
+        records = []
+        failure_details = []
+        for entry in entries:
+            stem = entry.get("id") or f"who-{_slugify(entry['title'])}"
+            try:
+                html_text = self._download_html(entry)
+                article_html = self._extract_article_html(html_text)
+                body_markdown = html_to_markdown(article_html)
+                if not body_markdown:
+                    raise ValueError("WHO article content was empty after HTML conversion.")
+                published_at = _derive_published_at(entry)
+                records.append(
+                    StandardDocumentRecord(
+                        source_key=f"official:who:{stem}",
+                        entry_id=stem,
+                        output_filename=f"{stem}.md",
+                        title=entry["title"],
+                        source_name="World Health Organization",
+                        source_url=entry["url"],
+                        markdown_body=_collapse_text(body_markdown),
+                        published_at=published_at,
+                        fetched_at=fetched_at,
+                        freshness_bucket=_freshness_bucket(published_at),
+                        source_type=entry.get("document_type", "public_health"),
+                        file_type="html",
+                        metadata={
+                            "language": "en",
+                            "tags": list(entry.get("tags") or []),
+                        },
+                    )
+                )
+            except Exception as exc:
+                print(f"Failed to build WHO sync record '{entry.get('title', stem)}': {exc}")
+                failure_details.append(f"{entry.get('title', stem)}: {exc}")
+        return str(self.manifest_path), records, failure_details

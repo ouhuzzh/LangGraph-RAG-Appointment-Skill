@@ -27,12 +27,14 @@ class RAGSystem:
         self.summary_store = SummaryStore()
         self.appointment_service = AppointmentService()
         self.observability = Observability()
+        self.document_manager = None
         self.agent_graph = None
         self.thread_id = str(uuid.uuid4())
         self.recursion_limit = config.GRAPH_RECURSION_LIMIT
         self._initialize_lock = threading.Lock()
         self._bootstrap_lock = threading.Lock()
         self._bootstrap_thread = None
+        self._sync_thread = None
         self._initialize_thread = None
         self._startup_status = {
             "state": "not_started",
@@ -47,9 +49,11 @@ class RAGSystem:
             "stats": {
                 "local_markdown_files": 0,
                 "documents": 0,
+                "inactive_documents": 0,
                 "parent_chunks": 0,
                 "child_chunks": 0,
                 "last_bootstrap_result": "",
+                "last_sync_result": "",
                 "recent_imports": [],
             },
         }
@@ -127,17 +131,24 @@ class RAGSystem:
             pass
         history.insert(0, payload)
         self._knowledge_base_status["stats"]["recent_imports"] = history[:config.RECENT_IMPORT_TASK_LIMIT]
+        scope = payload.get("scope") or payload.get("source") or ""
+        self._knowledge_base_status["stats"]["last_sync_result"] = (
+            f"{payload.get('label', scope)} | 新增 {payload.get('written', 0)} | "
+            f"更新 {payload.get('updated', 0)} | 下线 {payload.get('deactivated', 0)} | "
+            f"未变化 {payload.get('unchanged', 0)}"
+        )
 
     def refresh_knowledge_base_status(self):
         from core.document_manager import DocumentManager
 
-        doc_manager = DocumentManager(self)
+        doc_manager = getattr(self, "document_manager", None) or DocumentManager(self)
         local_stats = doc_manager.get_local_document_stats()
         db_stats = self.vector_db.get_collection_stats()
         stats = {
             **local_stats,
             **db_stats,
             "last_bootstrap_result": self._knowledge_base_status["stats"].get("last_bootstrap_result", ""),
+            "last_sync_result": self._knowledge_base_status["stats"].get("last_sync_result", ""),
             "recent_imports": list(self._knowledge_base_status["stats"].get("recent_imports", [])),
         }
         try:
@@ -164,7 +175,7 @@ class RAGSystem:
         from core.document_manager import DocumentManager
 
         with self._bootstrap_lock:
-            doc_manager = DocumentManager(self)
+            doc_manager = getattr(self, "document_manager", None) or DocumentManager(self)
             local_stats = doc_manager.get_local_document_stats()
             if local_stats["local_markdown_files"] == 0:
                 self._set_startup_step("knowledge_base_bootstrap", "completed", "当前没有本地文档，无需补建。")
@@ -216,6 +227,38 @@ class RAGSystem:
         )
         self._bootstrap_thread.start()
 
+    def _knowledge_base_sync_loop(self):
+        interval_seconds = max(int(config.KB_SYNC_INTERVAL_HOURS), 1) * 3600
+        while True:
+            time.sleep(interval_seconds)
+            try:
+                doc_manager = getattr(self, "document_manager", None)
+                if doc_manager is None:
+                    from core.document_manager import DocumentManager
+
+                    doc_manager = DocumentManager(self)
+                results = doc_manager.sync_all_sources(trigger_type="scheduler")
+                for result in results:
+                    self.record_import_event(result.to_event())
+                self.refresh_knowledge_base_status()
+            except Exception as exc:
+                self._knowledge_base_status["last_error"] = str(exc)
+                self._knowledge_base_status["stats"]["last_sync_result"] = f"后台同步失败：{exc}"
+
+    def start_knowledge_base_sync_scheduler(self):
+        if not config.ENABLE_KB_SYNC_SCHEDULER:
+            return
+        if not self.is_ready():
+            return
+        if self._sync_thread and self._sync_thread.is_alive():
+            return
+        self._sync_thread = threading.Thread(
+            target=self._knowledge_base_sync_loop,
+            name="kb-sync-scheduler",
+            daemon=True,
+        )
+        self._sync_thread.start()
+
     def start_background_initialize(self):
         if self._initialize_thread and self._initialize_thread.is_alive():
             return
@@ -232,6 +275,7 @@ class RAGSystem:
         with self._initialize_lock:
             if self.agent_graph is not None:
                 self.start_knowledge_base_bootstrap()
+                self.start_knowledge_base_sync_scheduler()
                 return
 
             self._set_startup_status("preparing", "正在检查数据库与模型依赖。")
@@ -255,6 +299,7 @@ class RAGSystem:
                 self._set_startup_step("knowledge_base_bootstrap", "completed", "知识库状态检查完成。")
                 self._set_startup_status("ready", "系统已就绪。")
                 self.start_knowledge_base_bootstrap()
+                self.start_knowledge_base_sync_scheduler()
             except Exception as exc:
                 self._set_startup_status("failed", "系统初始化失败。", last_error=str(exc))
                 for key in ("database_check", "model_init", "graph_compile"):

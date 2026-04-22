@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import config
 import psycopg
 import httpx
@@ -23,6 +24,36 @@ def _build_embedding_text(doc):
     if context_parts:
         return "\n".join(context_parts) + "\n\n" + doc.page_content
     return doc.page_content
+
+
+def _document_info_from_metadata(metadata):
+    metadata = dict(metadata or {})
+    source_value = str(metadata.get("source") or metadata.get("title") or "unknown.md").strip()
+    source_path = Path(source_value)
+    source_key = str(metadata.get("source_key") or f"local:{source_value}").strip()
+    document_no = str(metadata.get("document_no") or build_document_no(source_key)).strip()
+    file_type = str(
+        metadata.get("file_type")
+        or source_path.suffix.lstrip(".")
+        or "md"
+    ).strip().lower()
+    return {
+        "document_no": document_no,
+        "title": metadata.get("title") or source_path.stem or source_value,
+        "source_name": metadata.get("source_name") or source_value,
+        "source_key": source_key,
+        "file_type": file_type,
+        "doc_type": metadata.get("doc_type") or metadata.get("source_type") or "",
+        "department": metadata.get("department") or "",
+        "authority_level": metadata.get("authority_level") or "",
+        "source_url": metadata.get("source_url") or metadata.get("original_url") or "",
+        "content_hash": metadata.get("content_hash") or "",
+        "sync_status": metadata.get("sync_status") or "active",
+        "is_active": str(metadata.get("is_active", "true")).strip().lower() not in {"false", "0", "no"},
+        "last_synced_at": metadata.get("last_synced_at"),
+        "deleted_at": metadata.get("deleted_at"),
+        "metadata": metadata,
+    }
 
 
 class PgVectorCollection:
@@ -123,37 +154,94 @@ class PgVectorCollection:
             conn.commit()
 
     def _get_document_id(self, cur, metadata, cache=None):
-        source_name = metadata.get("source", "unknown.pdf")
-        document_no = build_document_no(source_name)
-        if cache is not None and document_no in cache:
-            return cache[document_no]
+        info = _document_info_from_metadata(metadata)
+        cache_key = info["source_key"] or info["document_no"]
+        if cache is not None and cache_key in cache:
+            return cache[cache_key]
         cur.execute(
             """
-            SELECT id FROM documents WHERE document_no = %s
+            SELECT id
+            FROM documents
+            WHERE source_key = %s OR document_no = %s
+            ORDER BY CASE WHEN source_key = %s THEN 0 ELSE 1 END
+            LIMIT 1
             """,
-            (document_no,),
+            (info["source_key"], info["document_no"], info["source_key"]),
         )
         row = cur.fetchone()
-        if not row:
+        if row:
             cur.execute(
                 """
-                INSERT INTO documents (document_no, title, source_name, file_type, metadata)
-                VALUES (%s, %s, %s, %s, %s::jsonb)
-                ON CONFLICT (document_no)
-                DO UPDATE SET updated_at = NOW()
+                UPDATE documents
+                SET title = %s,
+                    source_name = %s,
+                    source_key = %s,
+                    file_type = %s,
+                    doc_type = %s,
+                    department = %s,
+                    authority_level = %s,
+                    source_url = %s,
+                    content_hash = %s,
+                    sync_status = %s,
+                    is_active = %s,
+                    last_synced_at = COALESCE(%s, last_synced_at, NOW()),
+                    deleted_at = %s,
+                    metadata = %s::jsonb,
+                    updated_at = NOW()
+                WHERE id = %s
                 RETURNING id
                 """,
                 (
-                    document_no,
-                    metadata.get("title") or source_name,
-                    source_name,
-                    metadata.get("file_type") or (source_name.rsplit(".", 1)[-1].lower() if "." in source_name else "pdf"),
-                    json.dumps(metadata, ensure_ascii=False),
+                    info["title"],
+                    info["source_name"],
+                    info["source_key"],
+                    info["file_type"],
+                    info["doc_type"] or None,
+                    info["department"] or None,
+                    info["authority_level"] or None,
+                    info["source_url"] or None,
+                    info["content_hash"] or None,
+                    info["sync_status"],
+                    info["is_active"],
+                    info["last_synced_at"],
+                    info["deleted_at"],
+                    json.dumps(info["metadata"], ensure_ascii=False),
+                    row[0],
+                ),
+            )
+            row = cur.fetchone()
+        else:
+            cur.execute(
+                """
+                INSERT INTO documents (
+                    document_no, title, source_name, source_key, file_type, doc_type, department,
+                    authority_level, source_url, content_hash, sync_status, is_active,
+                    last_synced_at, deleted_at, metadata
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, NOW()), %s, %s::jsonb)
+                RETURNING id
+                """,
+                (
+                    info["document_no"],
+                    info["title"],
+                    info["source_name"],
+                    info["source_key"],
+                    info["file_type"],
+                    info["doc_type"] or None,
+                    info["department"] or None,
+                    info["authority_level"] or None,
+                    info["source_url"] or None,
+                    info["content_hash"] or None,
+                    info["sync_status"],
+                    info["is_active"],
+                    info["last_synced_at"],
+                    info["deleted_at"],
+                    json.dumps(info["metadata"], ensure_ascii=False),
                 ),
             )
             row = cur.fetchone()
         if cache is not None:
-            cache[document_no] = row[0]
+            cache[cache_key] = row[0]
         return row[0]
 
     def add_documents(self, documents):
@@ -208,8 +296,9 @@ class PgVectorCollection:
         source_types = [str(item).strip().lower() for item in (source_types or []) if str(item).strip()]
         where_clauses = []
         params = []
+        where_clauses.append("coalesce(d.is_active, true) = true")
         if source_types:
-            where_clauses.append("lower(coalesce(metadata->>'source_type', '')) = ANY(%s)")
+            where_clauses.append("lower(coalesce(c.metadata->>'source_type', '')) = ANY(%s)")
             params.append(source_types)
         where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
@@ -218,12 +307,13 @@ class PgVectorCollection:
                 cur.execute(
                     f"""
                     SELECT
-                        content,
-                        metadata,
-                        1 - (embedding <=> CAST(%s AS vector)) AS score
-                    FROM child_chunks
+                        c.content,
+                        c.metadata,
+                        1 - (c.embedding <=> CAST(%s AS vector)) AS score
+                    FROM child_chunks c
+                    JOIN documents d ON d.id = c.document_id
                     {where_sql}
-                    ORDER BY embedding <=> CAST(%s AS vector)
+                    ORDER BY c.embedding <=> CAST(%s AS vector)
                     LIMIT %s
                     """,
                     [_vector_literal(query_embedding), *params, _vector_literal(query_embedding), fetch_limit],
@@ -248,10 +338,10 @@ class PgVectorCollection:
     def keyword_search(self, query, k=4, source_types=None):
         fetch_limit = max(config.KEYWORD_FETCH_K, k)
         source_types = [str(item).strip().lower() for item in (source_types or []) if str(item).strip()]
-        where_clauses = ["tsv @@ websearch_to_tsquery('simple', %s)"]
+        where_clauses = ["coalesce(d.is_active, true) = true", "c.tsv @@ websearch_to_tsquery('simple', %s)"]
         params = [query]
         if source_types:
-            where_clauses.append("lower(coalesce(metadata->>'source_type', '')) = ANY(%s)")
+            where_clauses.append("lower(coalesce(c.metadata->>'source_type', '')) = ANY(%s)")
             params.append(source_types)
         where_sql = f"WHERE {' AND '.join(where_clauses)}"
 
@@ -261,12 +351,13 @@ class PgVectorCollection:
                     cur.execute(
                         f"""
                         SELECT
-                            content,
-                            metadata,
-                            ts_rank_cd(tsv, websearch_to_tsquery('simple', %s)) AS keyword_score
-                        FROM child_chunks
+                            c.content,
+                            c.metadata,
+                            ts_rank_cd(c.tsv, websearch_to_tsquery('simple', %s)) AS keyword_score
+                        FROM child_chunks c
+                        JOIN documents d ON d.id = c.document_id
                         {where_sql}
-                        ORDER BY keyword_score DESC, id
+                        ORDER BY keyword_score DESC, c.id
                         LIMIT %s
                         """,
                         [query, *params, fetch_limit],
@@ -275,13 +366,15 @@ class PgVectorCollection:
                     cur.execute(
                         f"""
                         SELECT
-                            content,
-                            metadata,
-                            ts_rank_cd(tsv, plainto_tsquery('simple', %s)) AS keyword_score
-                        FROM child_chunks
-                        WHERE tsv @@ plainto_tsquery('simple', %s)
-                        {"AND lower(coalesce(metadata->>'source_type', '')) = ANY(%s)" if source_types else ""}
-                        ORDER BY keyword_score DESC, id
+                            c.content,
+                            c.metadata,
+                            ts_rank_cd(c.tsv, plainto_tsquery('simple', %s)) AS keyword_score
+                        FROM child_chunks c
+                        JOIN documents d ON d.id = c.document_id
+                        WHERE coalesce(d.is_active, true) = true
+                          AND c.tsv @@ plainto_tsquery('simple', %s)
+                        {"AND lower(coalesce(c.metadata->>'source_type', '')) = ANY(%s)" if source_types else ""}
+                        ORDER BY keyword_score DESC, c.id
                         LIMIT %s
                         """,
                         [query, query, *([source_types] if source_types else []), fetch_limit],
@@ -342,22 +435,24 @@ class VectorDbManager:
                 cur.execute(
                     """
                     SELECT
-                        (SELECT COUNT(*) FROM documents),
+                        (SELECT COUNT(*) FROM documents WHERE coalesce(is_active, true) = true),
+                        (SELECT COUNT(*) FROM documents WHERE coalesce(is_active, true) = false),
                         (SELECT COUNT(*) FROM parent_chunks),
                         (SELECT COUNT(*) FROM child_chunks)
                     """
                 )
-                row = cur.fetchone() or (0, 0, 0)
+                row = cur.fetchone() or (0, 0, 0, 0)
         return {
             "documents": int(row[0]),
-            "parent_chunks": int(row[1]),
-            "child_chunks": int(row[2]),
+            "inactive_documents": int(row[1]),
+            "parent_chunks": int(row[2]),
+            "child_chunks": int(row[3]),
         }
 
     def get_indexed_document_nos(self):
         with self._connect() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT document_no FROM documents")
+                cur.execute("SELECT document_no FROM documents WHERE coalesce(is_active, true) = true")
                 return {row[0] for row in cur.fetchall()}
 
     def get_schema_status(self):
