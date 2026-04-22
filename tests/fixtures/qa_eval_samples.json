@@ -1,0 +1,347 @@
+[
+  {
+    "id": "patient-hypertension-symptoms",
+    "category": "patient_education",
+    "difficulty": "easy",
+    "tags": ["baseline", "symptom"],
+    "question": "高血压一般有什么症状，平时要注意什么？",
+    "transcript_turns": [
+      "User: 我最近血压有点高，想先了解一下。",
+      "Assistant: 可以，我先介绍常见症状和日常注意事项。",
+      "User: 高血压一般有什么症状，平时要注意什么？"
+    ],
+    "expected_source_type": "patient_education",
+    "expected_source_contains": ["patient_hypertension_education"],
+    "expected_retrieval_keywords": ["高血压", "症状", "生活方式"],
+    "expected_answer_keywords": ["高血压", "症状", "低盐饮食"],
+    "preferred_answer_style": "patient_friendly",
+    "must_not_clarify": true,
+    "expected_primary_intent": "medical_rag",
+    "note": "患者教育问题应优先命中患者向资料，而不是临床方案。"
+  },
+  {
+    "id": "follow-up-hypertension-precautions",
+    "category": "follow_up",
+    "difficulty": "medium",
+    "tags": ["follow_up", "context"],
+    "question": "那应该注意什么？",
+    "conversation_summary": "用户刚刚在询问高血压的常见症状和日常管理。",
+    "search_query": "高血压平时应该注意什么",
+    "transcript_turns": [
+      "User: 高血压会头晕吗？",
+      "Assistant: 有些患者会出现头晕或头痛。",
+      "User: 那应该注意什么？"
+    ],
+    "expected_source_type": "patient_education",
+    "expected_source_contains": ["patient_hypertension_education"],
+    "expected_retrieval_keywords": ["高血压", "低盐饮食", "生活方式"],
+    "expected_answer_keywords": ["高血压", "低盐饮食", "复诊"],
+    "preferred_answer_style": "patient_friendly",
+    "must_not_clarify": true,
+    "expected_primary_intent": "medical_rag",
+    "note": "这条样本代表上下文跟进问句，评估入口使用预期改写后的搜索语句。"
+  },
+  {
+    "id": "patient-hypertension-seek-care",
+    "category": "patient_education",
+    "difficulty": "medium",
+    "tags": ["safety", "seek_care"],
+    "question": "如果高血压时突然胸痛或者呼吸困难，该怎么办？",
+    "search_query": "高血压 胸痛 呼吸困难 什么时候就医",
+    "transcript_turns": [
+      "User: 我家里老人有高血压。",
+      "Assistant: 如果出现危险信号，需要尽快就医。",
+      "User: 如果高血压时突然胸痛或者呼吸困难，该怎么办？"
+    ],
+    "expected_source_type": "patient_education",
+    "expected_source_contains": ["patient_hypertension_education"],
+    "expected_retrieval_keywords": ["胸痛", "呼吸困难", "尽快就医"],
+    "expected_answer_keywords": ["胸痛", "呼吸困难", "尽快就医"],
+    "expected_safety_keywords": ["胸痛", "呼吸困难", "尽快就医"],
+    "preferred_answer_style": "patient_friendly",
+    "must_not_clarify": true,
+    "expected_primary_intent": "medical_rag",
+    "note": "安全相关患者教育问题应直接给出就医提醒。"
+  },
+  {
+    "id": "public-health-flu-prevention",
+    "category": "public_health",
+    "difficulty": "easy",
+    "tags": ["baseline", "prevention"],
+    "question": "流感怎么预防，疫苗和传播风险要注意什么？",
+    "transcript_turns": [
+      "User: 最近身边很多人感冒发烧。",
+      "Assistant: 预防流感要关注传播和疫苗。",
+      "User: 流感怎么预防，疫苗和传播风险要注意什么？"
+    ],
+    "expected_source_type": "public_health",
+    "expected_source_contains": ["public_health_flu_prevention"],
+    "expected_retrieval_keywords": ["流感", "疫苗", "传播"],
+    "expected_answer_keywords": ["流感", "疫苗", "通风"],
+    "preferred_answer_style": "patient_friendly",
+    "must_not_clarify": true,
+    "expected_primary_intent": "medical_rag",
+    "note": "公共卫生问题应优先命中防控和传播资料。"
+  },
+  {
+    "id": "public-health-flu-high-risk",
+    "category": "public_health",
+    "difficulty": "medium",
+    "tags": ["risk_group"],
+    "question": "哪些人更应该重视流感预防？",
+    "search_query": "流感 高风险人群 预防 早期就医",
+    "transcript_turns": [
+      "User: 我家里有老人和小孩。",
+      "Assistant: 这类人群要特别重视流感防护。",
+      "User: 哪些人更应该重视流感预防？"
+    ],
+    "expected_source_type": "public_health",
+    "expected_source_contains": ["public_health_flu_prevention"],
+    "expected_retrieval_keywords": ["老年人", "婴幼儿", "孕妇"],
+    "expected_answer_keywords": ["老年人", "婴幼儿", "孕妇"],
+    "preferred_answer_style": "patient_friendly",
+    "must_not_clarify": true,
+    "expected_primary_intent": "medical_rag",
+    "note": "命中公共卫生文档中的高风险人群段落。"
+  },
+  {
+    "id": "public-health-flu-cluster-followup",
+    "category": "follow_up",
+    "difficulty": "medium",
+    "tags": ["follow_up", "public_health"],
+    "question": "如果办公室里很多人都发热咳嗽，应该怎么处理？",
+    "search_query": "流感 聚集性发热 呼吸道症状 筛查 健康管理",
+    "transcript_turns": [
+      "User: 最近办公室有不少人发烧咳嗽。",
+      "Assistant: 这时候要注意聚集性传播风险。",
+      "User: 如果办公室里很多人都发热咳嗽，应该怎么处理？"
+    ],
+    "expected_source_type": "public_health",
+    "expected_source_contains": ["public_health_flu_prevention"],
+    "expected_retrieval_keywords": ["聚集性发热", "呼吸道症状", "筛查"],
+    "expected_answer_keywords": ["公共卫生提示", "筛查", "健康管理"],
+    "expected_safety_keywords": ["筛查", "健康管理"],
+    "preferred_answer_style": "patient_friendly",
+    "must_not_clarify": true,
+    "expected_primary_intent": "medical_rag",
+    "note": "代表公共卫生 follow-up 场景。"
+  },
+  {
+    "id": "clinical-guideline-hypertension-dosing",
+    "category": "clinical_guideline",
+    "difficulty": "hard",
+    "tags": ["baseline", "guideline"],
+    "question": "高血压诊疗方案里初始治疗和剂量调整一般怎么考虑？",
+    "transcript_turns": [
+      "User: 我想理解高血压诊疗方案的大框架。",
+      "Assistant: 可以从初始治疗和剂量调整理解。",
+      "User: 高血压诊疗方案里初始治疗和剂量调整一般怎么考虑？"
+    ],
+    "expected_source_type": "clinical_guideline",
+    "expected_source_contains": ["clinical_guideline_hypertension_treatment"],
+    "expected_retrieval_keywords": ["诊疗方案", "剂量", "治疗目标"],
+    "expected_answer_keywords": ["诊疗方案", "剂量", "复诊"],
+    "preferred_answer_style": "clinical",
+    "must_not_clarify": false,
+    "expected_primary_intent": "medical_rag",
+    "note": "诊疗方案类问题应优先命中临床指南层。"
+  },
+  {
+    "id": "clinical-guideline-hypertension-followup-goals",
+    "category": "clinical_guideline",
+    "difficulty": "hard",
+    "tags": ["follow_up", "guideline"],
+    "question": "那复诊的时候医生一般会关注什么？",
+    "conversation_summary": "用户正在询问高血压治疗方案、剂量调整和复诊逻辑。",
+    "search_query": "高血压 复诊 治疗目标 不良反应",
+    "transcript_turns": [
+      "User: 高血压药物开始治疗后怎么慢慢调剂量？",
+      "Assistant: 一般需要根据复诊结果和耐受性逐步调整。",
+      "User: 那复诊的时候医生一般会关注什么？"
+    ],
+    "expected_source_type": "clinical_guideline",
+    "expected_source_contains": ["clinical_guideline_hypertension_treatment"],
+    "expected_retrieval_keywords": ["复诊", "治疗目标", "不良反应"],
+    "expected_answer_keywords": ["复诊", "治疗目标", "不良反应"],
+    "preferred_answer_style": "clinical",
+    "must_not_clarify": true,
+    "expected_primary_intent": "medical_rag",
+    "note": "代表指南 follow-up 场景。"
+  },
+  {
+    "id": "clinical-guideline-patient-friendly-boundary",
+    "category": "clinical_guideline",
+    "difficulty": "medium",
+    "tags": ["boundary", "patient_friendly"],
+    "question": "临床指南是不是就可以直接当成给患者的说明？",
+    "search_query": "临床指南 面向患者 解释 更易懂 表述",
+    "transcript_turns": [
+      "User: 我在看高血压指南。",
+      "Assistant: 指南更适合理解规范化诊疗逻辑。",
+      "User: 临床指南是不是就可以直接当成给患者的说明？"
+    ],
+    "expected_source_type": "clinical_guideline",
+    "expected_source_contains": ["clinical_guideline_hypertension_treatment"],
+    "expected_retrieval_keywords": ["临床指南", "面向患者", "更易懂"],
+    "expected_answer_keywords": ["临床指南", "更易懂", "患者"],
+    "preferred_answer_style": "patient_friendly",
+    "must_not_clarify": true,
+    "expected_primary_intent": "medical_rag",
+    "note": "验证系统能识别指南文档中对患者表达边界的说明。"
+  },
+  {
+    "id": "no-evidence-rare-condition",
+    "category": "no_evidence",
+    "difficulty": "medium",
+    "tags": ["no_evidence"],
+    "question": "月球低重力综合征怎么治疗？",
+    "preferred_answer_style": "no_evidence",
+    "transcript_turns": [
+      "User: 我想问一个比较罕见的问题。",
+      "Assistant: 可以，我会先看看知识库里有没有相关资料。",
+      "User: 月球低重力综合征怎么治疗？"
+    ],
+    "expected_no_evidence": true,
+    "must_not_clarify": false,
+    "expected_primary_intent": "medical_rag",
+    "note": "知识库没有相关内容时，应明确落到 no-evidence。"
+  },
+  {
+    "id": "compound-cancel-then-medical",
+    "category": "compound_request",
+    "difficulty": "medium",
+    "tags": ["compound", "cancel", "follow_up"],
+    "question": "取消刚才那个预约，然后我这个咳嗽还要看吗？",
+    "search_query": "咳嗽 什么时候需要就医",
+    "expected_source_type": "patient_education",
+    "expected_primary_intent": "cancel_appointment",
+    "expected_secondary_intent": "medical_rag",
+    "note": "显式取消应优先，医学问题作为次意图保留。"
+  },
+  {
+    "id": "compound-booking-then-medical",
+    "category": "compound_request",
+    "difficulty": "medium",
+    "tags": ["compound", "appointment"],
+    "question": "帮我挂呼吸内科，另外高血压药还要不要继续吃？",
+    "search_query": "高血压 药 继续吃 要不要",
+    "expected_source_type": "patient_education",
+    "expected_primary_intent": "appointment",
+    "expected_secondary_intent": "medical_rag",
+    "note": "预约优先，医学问题应被安全延后。"
+  },
+  {
+    "id": "compound-triage-then-booking",
+    "category": "compound_request",
+    "difficulty": "medium",
+    "tags": ["compound", "triage", "appointment"],
+    "question": "我胸闷挂什么科，顺便帮我预约明天下午。",
+    "search_query": "胸闷 挂什么科 呼吸困难",
+    "expected_source_type": "patient_education",
+    "expected_primary_intent": "triage",
+    "expected_secondary_intent": "appointment",
+    "note": "先分诊再预约。"
+  },
+  {
+    "id": "followup-topic-focus-urgent",
+    "category": "follow_up",
+    "difficulty": "medium",
+    "tags": ["topic_focus", "follow_up"],
+    "question": "这种情况要紧吗？",
+    "conversation_summary": "",
+    "transcript_turns": [
+      "User: 我最近高血压有点头晕。",
+      "Assistant: 高血压有时会导致头晕，也要注意血压波动。",
+      "User: 这种情况要紧吗？"
+    ],
+    "search_query": "高血压 头晕 严重吗 什么时候就医",
+    "expected_source_type": "patient_education",
+    "expected_primary_intent": "medical_rag",
+    "must_not_clarify": true,
+    "note": "没有 summary 时也要靠 recent context 接住。"
+  },
+  {
+    "id": "followup-topic-focus-review",
+    "category": "follow_up",
+    "difficulty": "medium",
+    "tags": ["topic_focus", "follow_up"],
+    "question": "那复诊的时候要看什么？",
+    "conversation_summary": "",
+    "transcript_turns": [
+      "User: 高血压药开始吃以后多久复诊比较常见？",
+      "Assistant: 一般会根据血压控制和不良反应安排复诊。",
+      "User: 那复诊的时候要看什么？"
+    ],
+    "search_query": "高血压 复诊 治疗目标 不良反应",
+    "expected_source_type": "clinical_guideline",
+    "expected_primary_intent": "medical_rag",
+    "must_not_clarify": true,
+    "note": "短追问需要 topic_focus 配合 recent context。"
+  },
+  {
+    "id": "admin-booking-direct",
+    "category": "routing",
+    "difficulty": "easy",
+    "tags": ["appointment"],
+    "question": "帮我挂呼吸内科，明天下午。",
+    "search_query": "呼吸内科 预约",
+    "expected_primary_intent": "appointment",
+    "note": "纯预约请求不应误进 medical_rag。"
+  },
+  {
+    "id": "admin-cancel-direct",
+    "category": "routing",
+    "difficulty": "easy",
+    "tags": ["cancel"],
+    "question": "帮我取消预约号 APT12345。",
+    "search_query": "取消 预约号",
+    "expected_primary_intent": "cancel_appointment",
+    "note": "纯取消请求应直达取消链路。"
+  },
+  {
+    "id": "triage-direct-question",
+    "category": "routing",
+    "difficulty": "easy",
+    "tags": ["triage"],
+    "question": "胸闷一般挂什么科？",
+    "search_query": "胸闷 挂什么科",
+    "expected_primary_intent": "triage",
+    "note": "问科室问题不应进医学检索。"
+  },
+  {
+    "id": "mixed-medical-with-booking-keyword",
+    "category": "routing",
+    "difficulty": "medium",
+    "tags": ["mixed"],
+    "question": "预约前高血压药还要不要吃？",
+    "search_query": "高血压 药 继续吃 要不要",
+    "expected_source_type": "patient_education",
+    "expected_primary_intent": "medical_rag",
+    "must_not_clarify": true,
+    "note": "带预约关键词的医学问题仍应走 medical_rag。"
+  },
+  {
+    "id": "compound-public-health-after-booking",
+    "category": "compound_request",
+    "difficulty": "medium",
+    "tags": ["compound", "public_health"],
+    "question": "帮我预约明天上午，然后流感疫苗现在还建议打吗？",
+    "search_query": "流感 疫苗 预防",
+    "expected_source_type": "public_health",
+    "expected_primary_intent": "appointment",
+    "expected_secondary_intent": "medical_rag",
+    "note": "预约优先，公共卫生问题作为次意图。"
+  },
+  {
+    "id": "compound-triage-followup-medical",
+    "category": "compound_request",
+    "difficulty": "medium",
+    "tags": ["compound", "triage", "medical"],
+    "question": "我发烧咳嗽挂什么科，然后流感怎么预防？",
+    "search_query": "流感 怎么预防 疫苗 传播",
+    "expected_source_type": "public_health",
+    "expected_primary_intent": "triage",
+    "expected_secondary_intent": "medical_rag",
+    "note": "先分诊，后公共卫生解释。"
+  }
+]

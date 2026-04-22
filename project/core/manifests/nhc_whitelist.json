@@ -1,0 +1,38 @@
+[
+  {
+    "id": "nhc-influenza-2025",
+    "title": "流行性感冒诊疗方案（2025年版）",
+    "document_type": "clinical_guideline",
+    "department": "国家卫生健康委员会办公厅",
+    "page_url": "https://www.nhc.gov.cn/ylyjs/zcwj/202501/f8fcecca59a048bebc4a71847ce57594.shtml",
+    "pdf_url": "https://www.nhc.gov.cn/ylyjs/zcwj/202501/f8fcecca59a048bebc4a71847ce57594/files/1741764832851_94226.pdf",
+    "tags": ["呼吸", "流感", "诊疗方案", "2025"]
+  },
+  {
+    "id": "nhc-covid19-10th",
+    "title": "新型冠状病毒感染诊疗方案（试行第十版）",
+    "document_type": "clinical_guideline",
+    "department": "国家卫生健康委员会办公厅",
+    "page_url": "https://www.nhc.gov.cn/ylyjs/gzdt/202301/6338a7b72d6d45cab2ac5e8af6b87b23.shtml",
+    "pdf_url": "https://www.nhc.gov.cn/ylyjs/gzdt/202301/6338a7b72d6d45cab2ac5e8af6b87b23/files/1734003027700_62929.pdf",
+    "tags": ["呼吸", "新冠", "诊疗方案", "第十版"]
+  },
+  {
+    "id": "nhc-influenza-2019",
+    "title": "流行性感冒诊疗方案（2019年版）",
+    "document_type": "clinical_guideline",
+    "department": "国家卫生健康委员会办公厅",
+    "page_url": "https://www.nhc.gov.cn/yzygj/c100068/201911/910682dff2364d0a89dfa93218effb58.shtml",
+    "pdf_url": "https://www.nhc.gov.cn/yzygj/c100068/201911/910682dff2364d0a89dfa93218effb58/files/1732872172733_44775.pdf",
+    "tags": ["呼吸", "流感", "诊疗方案", "2019"]
+  },
+  {
+    "id": "nhc-children-mycoplasma-2025",
+    "title": "儿童肺炎支原体肺炎诊疗指南（2025年版）",
+    "document_type": "clinical_guideline",
+    "department": "国家卫生健康委员会",
+    "page_url": "https://www.nhc.gov.cn/yzygj/c100068/202509/19e7145436b049a68d4ba8c2060dfa56.shtml",
+    "pdf_url": "https://www.nhc.gov.cn/yzygj/c100068/202509/19e7145436b049a68d4ba8c2060dfa56/files/%E5%84%BF%E7%AB%A5%E8%82%BA%E7%82%8E%E6%94%AF%E5%8E%9F%E4%BD%93%E8%82%BA%E7%82%8E%E8%AF%8A%E7%96%97%E6%8C%87%E5%8D%97%EF%BC%882025%E5%B9%B4%E7%89%88%EF%BC%89.pdf",
+    "tags": ["儿科", "呼吸", "肺炎支原体", "诊疗指南", "2025"]
+  }
+]

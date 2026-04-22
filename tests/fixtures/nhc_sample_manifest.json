@@ -1,0 +1,11 @@
+[
+  {
+    "id": "nhc-sample-guideline",
+    "title": "样例诊疗指南",
+    "document_type": "clinical_guideline",
+    "department": "国家卫生健康委员会",
+    "page_url": "https://www.nhc.gov.cn/sample/page.shtml",
+    "pdf_url": "https://www.nhc.gov.cn/sample/files/sample.pdf",
+    "tags": ["样例", "指南"]
+  }
+]

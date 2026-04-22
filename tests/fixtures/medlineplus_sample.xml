@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<health-topics language="English">
+  <health-topic>
+    <title>Asthma</title>
+    <url>https://medlineplus.gov/asthma.html</url>
+    <meta-desc>Asthma is a chronic lung condition.</meta-desc>
+    <group>Respiratory Diseases</group>
+    <also-called>Reactive airway disease</also-called>
+    <full-summary>
+      <p>Asthma affects the airways and can cause wheezing.</p>
+      <p>Patients may need inhaled medicines and follow-up.</p>
+      <ul>
+        <li>Common symptom: cough</li>
+        <li>Urgent sign: severe shortness of breath</li>
+      </ul>
+    </full-summary>
+  </health-topic>
+  <health-topic>
+    <title>Chronic Cough</title>
+    <url>https://medlineplus.gov/chroniccough.html</url>
+    <meta-desc>Cough lasting more than eight weeks needs evaluation.</meta-desc>
+    <group>Respiratory Diseases</group>
+    <full-summary>
+      <p>Chronic cough should be evaluated by a clinician.</p>
+    </full-summary>
+  </health-topic>
+</health-topics>
