@@ -8,6 +8,19 @@
 
 现在除了命令行，你也可以直接在 Documents 页通过 `Import Official Docs` 按钮导入官方资料。
 
+Documents 页的本地上传支持：
+
+- 默认支持：Markdown、PDF、TXT、HTML
+- 安装可选依赖后支持：DOCX、PPTX、XLSX 等 `unstructured` 可解析格式
+
+安装可选多格式解析依赖：
+
+```powershell
+.\venv\Scripts\python.exe -m pip install -r requirements-unstructured.txt
+```
+
+实现策略是：PDF 继续优先使用项目已有的 PyMuPDF / OCR 回退链路；其他办公文档格式走 `unstructured` 解析成 Markdown，再进入统一的知识库同步、hash 比对和索引更新流程。
+
 只下载并生成 Markdown：
 
 ```powershell
@@ -62,6 +75,8 @@
   - `MedlinePlus XML` 官方批量源
   - `国家卫健委 PDF` 白名单导入
   - `WHO Fact Sheets` 白名单导入
+  - 本地 Markdown / PDF / TXT / HTML 上传
+  - 可选 `unstructured` 多格式解析
 - 已具备：
   - 自动发现最新 XML 压缩包链接
   - XML 解析
@@ -72,6 +87,7 @@
   - WHO 页面正文抽取与 Markdown 转换
   - 写入本地 `markdown_docs/`
   - 可选直接索引进知识库
+  - 同名文档按 source_key + content_hash 做新增、更新、未变化判断
 
 ## 后续建议
 

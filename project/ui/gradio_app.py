@@ -721,9 +721,9 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
                     with gr.Column(scale=1):
                         with gr.Group(elem_classes=["card-shell"]):
                             gr.Markdown("### 上传你自己的资料")
-                            gr.Markdown('<p class="diag-note">支持 PDF 和 Markdown。同名文件默认按更新处理，系统会明确告诉你是新增、更新还是未变化。</p>')
+                            gr.Markdown('<p class="diag-note">支持 PDF、Markdown、TXT、HTML；安装 unstructured 后可扩展 DOCX、PPTX、XLSX 等格式。同名文件默认按更新处理。</p>')
                             files_input = gr.File(
-                                label="选择 PDF / Markdown",
+                                label="选择文档",
                                 file_count="multiple",
                                 type="filepath",
                                 height=180,

@@ -1,7 +1,7 @@
 import shutil
 import sys
-import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from unittest import mock
 
@@ -69,7 +69,10 @@ class FakeRagSystem:
 
 class DocumentManagerTests(unittest.TestCase):
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp(prefix="doc-manager-")
+        temp_root = Path(r"D:\nageoffer\agentic-rag-for-dummies\runtime\test_tmp")
+        temp_root.mkdir(parents=True, exist_ok=True)
+        self.temp_dir = str(temp_root / f"doc-manager-{uuid.uuid4().hex}")
+        Path(self.temp_dir).mkdir(parents=True, exist_ok=True)
 
     def tearDown(self):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
@@ -145,6 +148,31 @@ class DocumentManagerTests(unittest.TestCase):
         self.assertEqual(report["updated"], 1)
         self.assertEqual(report["unchanged"], 0)
         self.assertEqual(existing.read_text(encoding="utf-8"), "# Updated\n\nworld")
+
+    def test_add_documents_with_report_accepts_txt_via_multiformat_parser(self):
+        rag_system = FakeRagSystem()
+        manager = DocumentManager(rag_system)
+        manager.markdown_dir = Path(self.temp_dir)
+        text_source = Path(self.temp_dir) / "source.txt"
+        text_source.write_text("高血压患者应规律监测血压。", encoding="utf-8")
+
+        fake_sync_result = mock.Mock(
+            added=1,
+            updated=0,
+            unchanged=0,
+            deactivated=0,
+            skipped=0,
+            failure_details=[],
+            conversion_details=[],
+        )
+        fake_sync_result.to_event.return_value = {"source": "local", "written": 1, "updated": 0, "deactivated": 0, "unchanged": 0}
+        with mock.patch("core.document_manager.KnowledgeBaseSyncService") as sync_cls:
+            sync_cls.return_value.sync_local_documents.return_value = fake_sync_result
+            report = manager.add_documents_with_report([str(text_source)])
+
+        self.assertEqual(report["added"], 1)
+        self.assertTrue((Path(self.temp_dir) / "source.md").exists())
+        self.assertIn("plain_text_fallback", report["conversion_details"][0])
 
 
 if __name__ == "__main__":

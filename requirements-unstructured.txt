@@ -1,0 +1,4 @@
+# Optional dependencies for multi-format document parsing.
+# Install only when you need DOCX/PPTX/XLSX/HTML parsing through unstructured:
+#   .\venv\Scripts\python.exe -m pip install -r requirements-unstructured.txt
+unstructured[docx,pptx,xlsx,html]>=0.16.0

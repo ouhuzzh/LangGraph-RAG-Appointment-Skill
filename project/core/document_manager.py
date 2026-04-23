@@ -1,6 +1,7 @@
 from pathlib import Path
 import shutil
 import config
+from core.document_parsers import supported_upload_extensions, unstructured_to_markdown
 from core.knowledge_base_sync import KnowledgeBaseSyncService
 from utils import clear_directory_contents, pdf_to_markdown
 
@@ -75,7 +76,8 @@ class DocumentManager:
             return {"processed": 0, "added": 0, "updated": 0, "unchanged": 0, "deactivated": 0, "skipped": 0, "failed": 0, "skipped_details": [], "failure_details": [], "conversion_details": []}
 
         document_paths = [document_paths] if isinstance(document_paths, str) else document_paths
-        document_paths = [p for p in document_paths if p and Path(p).suffix.lower() in [".pdf", ".md"]]
+        allowed_extensions = supported_upload_extensions()
+        document_paths = [p for p in document_paths if p and Path(p).suffix.lower() in allowed_extensions]
 
         if not document_paths:
             return {"processed": 0, "added": 0, "updated": 0, "unchanged": 0, "deactivated": 0, "skipped": 0, "failed": 0, "skipped_details": [], "failure_details": [], "conversion_details": []}
@@ -91,14 +93,15 @@ class DocumentManager:
                 progress_callback((i + 1) / len(document_paths), f"Processing {source_path.name}")
 
             try:
-                if source_path.suffix.lower() == ".md":
+                suffix = source_path.suffix.lower()
+                if suffix == ".md":
                     md_path = self.markdown_dir / source_path.name
                     if source_path.resolve() != md_path.resolve():
                         if md_path.exists() and not config.KB_REPLACE_LOCAL_DUPLICATES:
                             failure_details.append(f"{source_path.name}: 检测到同名 Markdown，当前配置禁止自动替换。")
                             continue
                         shutil.copyfile(source_path, md_path)
-                else:
+                elif suffix == ".pdf":
                     md_target = self.markdown_dir / f"{source_path.stem}.md"
                     if md_target.exists() and not config.KB_REPLACE_LOCAL_DUPLICATES:
                         failure_details.append(f"{source_path.name}: 检测到同名 Markdown，当前配置禁止自动替换。")
@@ -109,6 +112,20 @@ class DocumentManager:
                         f"{source_path.name}: method={conversion_result.method_used} "
                         f"chars={conversion_result.extracted_char_count} "
                         f"scan_like={'yes' if conversion_result.scan_like else 'no'}"
+                    )
+                    if conversion_result.warnings:
+                        detail += f" | warnings={' ; '.join(conversion_result.warnings[:2])}"
+                    conversion_details.append(detail)
+                else:
+                    md_target = self.markdown_dir / f"{source_path.stem}.md"
+                    if md_target.exists() and not config.KB_REPLACE_LOCAL_DUPLICATES:
+                        failure_details.append(f"{source_path.name}: 检测到同名 Markdown，当前配置禁止自动替换。")
+                        continue
+                    conversion_result = unstructured_to_markdown(str(source_path), self.markdown_dir)
+                    md_path = conversion_result.output_path
+                    detail = (
+                        f"{source_path.name}: method={conversion_result.method_used} "
+                        f"chars={conversion_result.extracted_char_count}"
                     )
                     if conversion_result.warnings:
                         detail += f" | warnings={' ; '.join(conversion_result.warnings[:2])}"
