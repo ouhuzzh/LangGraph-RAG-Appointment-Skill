@@ -199,12 +199,15 @@ project/
   db/                        # schema helpers, vector store, route/retrieval logs
   memory/                    # Redis session memory and summaries
   ui/                        # Gradio app and styling
-  api/                       # FastAPI endpoints for split frontend/backend mode
+  api/                       # FastAPI app, route modules, SSE helpers, API DTOs
   benchmarks/                # retrieval, memory, route, answer-quality benchmarks
-frontend/                    # React/Vite user chat frontend
-  src/components/            # chat UI components
+frontend/                    # React/Vite user chat and Documents frontend
+  src/pages/                 # Chat and Documents page composition
+  src/hooks/                 # chat, system-status, and Documents state hooks
+  src/components/            # reusable UI components
   src/lib/                   # API and SSE helpers
   src/constants/             # frontend constants and status mapping
+scripts/                     # local smoke and maintenance scripts
 tests/                       # regression and integration tests
 docs/                        # setup notes and supplemental guides
 ```
@@ -285,7 +288,7 @@ Open:
 
 - [http://127.0.0.1:5173](http://127.0.0.1:5173)
 
-The React frontend is the user-facing chat client. The Gradio app remains useful for document management, official source sync, and diagnostics.
+The React frontend is the user-facing chat and lightweight knowledge-base client. The Gradio app remains useful for advanced document management, official source sync diagnostics, and development debugging.
 
 ## Testing and Benchmarks
 
@@ -294,6 +297,7 @@ Basic validation:
 ```powershell
 .\venv\Scripts\python.exe -m compileall project tests
 .\venv\Scripts\python.exe -m unittest discover -s tests -v
+.\scripts\smoke_split_app.ps1 -SkipChat
 ```
 
 Example benchmark runs:
