@@ -1,14 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  Activity,
-  Database,
-  Loader2,
-  MessageCircle,
-  RefreshCw,
-  Send,
-  Stethoscope,
-  Trash2,
-} from "lucide-react";
+import Sidebar from "./components/Sidebar";
+import ChatHeader from "./components/ChatHeader";
+import MessageList from "./components/MessageList";
+import Composer from "./components/Composer";
+import ClearConfirmDialog from "./components/ClearConfirmDialog";
 
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL;
 const browserApiBaseUrl =
@@ -17,20 +12,6 @@ const browserApiBaseUrl =
     : "http://127.0.0.1:8000";
 const fallbackApiBaseUrl = "http://127.0.0.1:8000";
 const THREAD_KEY = "medical_assistant_thread_id";
-
-const starterPrompts = [
-  "高血压应该注意什么？",
-  "我咳嗽三天了，挂什么科？",
-  "我想挂呼吸内科的号",
-  "取消刚才的预约",
-];
-
-function statusTone(value) {
-  if (["ready", "completed"].includes(value)) return "good";
-  if (["failed", "error"].includes(value)) return "bad";
-  if (["no_documents", "pending_rebuild"].includes(value)) return "warn";
-  return "info";
-}
 
 async function readJson(response) {
   if (!response.ok) {
@@ -48,7 +29,9 @@ export default function App() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState("");
   const [apiBaseUrl, setApiBaseUrl] = useState(configuredApiBaseUrl || browserApiBaseUrl);
-  const chatEndRef = useRef(null);
+  const [isConnected, setIsConnected] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const sourceRef = useRef(null);
   const streamDoneRef = useRef(false);
 
@@ -57,10 +40,6 @@ export default function App() {
     refreshStatus();
     return () => sourceRef.current?.close();
   }, []);
-
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, isStreaming]);
 
   useEffect(() => {
     if (!threadId) return;
@@ -72,13 +51,15 @@ export default function App() {
     try {
       const payload = threadId ? { thread_id: threadId } : {};
       const data = await apiFetchJson("/api/chat/session", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
       setThreadId(data.thread_id);
       localStorage.setItem(THREAD_KEY, data.thread_id);
-    } catch (err) {
+      setIsConnected(true);
+    } catch {
+      setIsConnected(false);
       setError("无法连接后端服务，请确认 FastAPI 已启动。");
     }
   }
@@ -86,9 +67,17 @@ export default function App() {
   async function loadHistory(activeThreadId = threadId) {
     if (!activeThreadId) return;
     try {
-      const data = await apiFetchJson(`/api/chat/history?thread_id=${encodeURIComponent(activeThreadId)}`);
-      setMessages(data.messages || []);
-    } catch (err) {
+      const data = await apiFetchJson(
+        `/api/chat/history?thread_id=${encodeURIComponent(activeThreadId)}`
+      );
+      setMessages(
+        (data.messages || []).map((m, i) => ({
+          id: m.id ?? `hist-${i}`,
+          timestamp: m.timestamp ?? Date.now() + i,
+          ...m,
+        }))
+      );
+    } catch {
       setError("历史会话暂时无法读取。");
     }
   }
@@ -97,26 +86,39 @@ export default function App() {
     try {
       const data = await apiFetchJson("/api/system/status");
       setStatus(data);
-    } catch (err) {
+      setIsConnected(true);
+    } catch {
+      setIsConnected(false);
       setError("系统状态暂时无法读取。");
     }
   }
 
+  function handleClearClick() {
+    setClearDialogOpen(true);
+  }
+
   async function clearChat() {
+    setClearDialogOpen(false);
     if (!threadId) return;
     sourceRef.current?.close();
     setIsStreaming(false);
     try {
       await apiFetchJson("/api/chat/clear", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ thread_id: threadId }),
-        });
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ thread_id: threadId }),
+      });
       setMessages([]);
       setError("");
-    } catch (err) {
+    } catch {
       setError("清空会话失败，请稍后再试。");
     }
+  }
+
+  function stopStreaming() {
+    sourceRef.current?.close();
+    streamDoneRef.current = true;
+    setIsStreaming(false);
   }
 
   function sendMessage(text = input) {
@@ -128,7 +130,12 @@ export default function App() {
     setError("");
     setInput("");
     setIsStreaming(true);
-    setMessages((prev) => [...prev, { role: "user", content }, { role: "assistant", content: "" }]);
+    const now = Date.now();
+    setMessages((prev) => [
+      ...prev,
+      { id: `u-${now}`, role: "user", content, timestamp: now },
+      { id: `a-${now}`, role: "assistant", content: "", timestamp: now + 1 },
+    ]);
 
     const url = `${apiBaseUrl}/api/chat/stream?thread_id=${encodeURIComponent(threadId)}&message=${encodeURIComponent(content)}`;
     const source = new EventSource(url);
@@ -186,11 +193,6 @@ export default function App() {
     };
   }
 
-  function handleSubmit(event) {
-    event.preventDefault();
-    sendMessage();
-  }
-
   async function apiFetchJson(path, options) {
     const firstUrl = `${apiBaseUrl}${path}`;
     try {
@@ -206,119 +208,58 @@ export default function App() {
     }
   }
 
-  const systemState = status?.state || "preparing";
-  const kbState = status?.knowledge_base?.status || "not_checked";
-  const stats = status?.knowledge_base?.stats || {};
-
   return (
-    <main className="app">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark">
-            <Stethoscope size={24} />
-          </div>
-          <div>
-            <h1>宁和医疗助手</h1>
-            <p>医疗咨询与预约挂号</p>
-          </div>
-        </div>
-
-        <section className="status-panel">
-          <div className="section-title">
-            <Activity size={18} />
-            <span>系统状态</span>
-            <button className="icon-button" type="button" title="刷新状态" onClick={refreshStatus}>
-              <RefreshCw size={16} />
-            </button>
-          </div>
-          <div className={`status-pill ${statusTone(systemState)}`}>{systemState}</div>
-          <p>{status?.message || "正在读取系统状态。"}</p>
-        </section>
-
-        <section className="status-panel">
-          <div className="section-title">
-            <Database size={18} />
-            <span>知识库</span>
-          </div>
-          <div className={`status-pill ${statusTone(kbState)}`}>{kbState}</div>
-          <div className="metric-row">
-            <span>文档</span>
-            <strong>{stats.documents ?? 0}</strong>
-          </div>
-          <div className="metric-row">
-            <span>片段</span>
-            <strong>{stats.child_chunks ?? 0}</strong>
-          </div>
-          <p>{status?.knowledge_base?.message || "知识库状态读取中。"}</p>
-        </section>
-
-        <div className="sidebar-actions">
-          <a href="http://127.0.0.1:7860" target="_blank" rel="noreferrer">
-            Gradio 后台
-          </a>
-          <button type="button" onClick={clearChat}>
-            <Trash2 size={16} />
-            清空会话
-          </button>
-        </div>
-      </aside>
+    <div className="app">
+      <Sidebar
+        status={status}
+        onClear={handleClearClick}
+        onRefresh={refreshStatus}
+        mobileOpen={sidebarOpen}
+        onMobileClose={() => setSidebarOpen(false)}
+      />
 
       <section className="chat-shell">
-        <header className="chat-header">
-          <div>
-            <span className="eyebrow">User Chat</span>
-            <h2>直接说你的问题</h2>
+        <ChatHeader
+          threadId={threadId}
+          isConnected={isConnected}
+          onMenuClick={() => setSidebarOpen(true)}
+        />
+
+        <MessageList
+          messages={messages}
+          isStreaming={isStreaming}
+          onSendMessage={sendMessage}
+        />
+
+        {error && (
+          <div className="error-bar" role="alert">
+            <span>{error}</span>
+            <button
+              type="button"
+              className="error-bar__close"
+              onClick={() => setError("")}
+              aria-label="关闭错误提示"
+            >
+              ×
+            </button>
           </div>
-          <div className="thread-chip" title={threadId}>
-            {threadId ? `thread ${threadId.slice(0, 8)}` : "creating"}
-          </div>
-        </header>
+        )}
 
-        <div className="message-list">
-          {messages.length === 0 ? (
-            <div className="empty-state">
-              <MessageCircle size={38} />
-              <p>可以问医学常识、症状分诊，也可以直接说挂号或取消预约。</p>
-              <div className="prompt-grid">
-                {starterPrompts.map((prompt) => (
-                  <button key={prompt} type="button" onClick={() => sendMessage(prompt)}>
-                    {prompt}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : (
-            messages.map((message, index) => (
-              <article className={`message ${message.role}`} key={`${message.role}-${index}`}>
-                <div className="bubble">
-                  {message.content || (message.role === "assistant" && isStreaming ? <Loader2 className="spin" size={18} /> : "")}
-                </div>
-              </article>
-            ))
-          )}
-          <div ref={chatEndRef} />
-        </div>
-
-        {error ? <div className="error-bar">{error}</div> : null}
-
-        <form className="composer" onSubmit={handleSubmit}>
-          <textarea
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                sendMessage();
-              }
-            }}
-            placeholder="输入症状、医学问题或挂号需求..."
-            rows={1}
-          />
-          <button type="submit" disabled={!input.trim() || isStreaming || !threadId} title="发送">
-            {isStreaming ? <Loader2 className="spin" size={20} /> : <Send size={20} />}
-          </button>
-        </form>
+        <Composer
+          input={input}
+          onChange={setInput}
+          onSubmit={sendMessage}
+          onStop={stopStreaming}
+          isStreaming={isStreaming}
+          disabled={!threadId}
+        />
       </section>
-    </main>
+
+      <ClearConfirmDialog
+        open={clearDialogOpen}
+        onConfirm={clearChat}
+        onCancel={() => setClearDialogOpen(false)}
+      />
+    </div>
   );
 }
