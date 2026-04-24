@@ -1,248 +1,192 @@
 <div align="center">
 
-# Medical Agentic Assistant
+# LangGraph Medical RAG + Appointment Skill
 
-**A stateful medical RAG assistant built with LangGraph, hybrid retrieval, session memory, and semi-controlled appointment skills.**
+**A production-style medical assistant demo with RAG, stateful workflows, memory, and controlled appointment actions.**
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-![LangGraph](https://img.shields.io/badge/LangGraph-stateful%20workflow-1f6feb)
+![LangGraph](https://img.shields.io/badge/LangGraph-stateful%20agent-1f6feb)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-pgvector-4169E1?logo=postgresql&logoColor=white)
 ![Redis](https://img.shields.io/badge/Redis-session%20memory-DC382D?logo=redis&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/Frontend-React%20%2B%20Vite-61DAFB?logo=react&logoColor=111827)
 ![Gradio](https://img.shields.io/badge/Admin-Gradio-F97316)
 [![License: MIT](https://img.shields.io/badge/License-MIT-2ea043.svg)](LICENSE)
-![Prompt Tokens](https://img.shields.io/badge/Prompt%20Tokens%20P95--27.4%25-0f766e)
-![Precision@5](https://img.shields.io/badge/Precision%405-0.83-1d4ed8)
 
-**Medical QA · Triage · Appointment Skill · Cancellation Workflow · Low-Evidence Safety Fallback**
+**Medical QA · Hybrid Retrieval · Session Memory · Appointment Booking · Cancellation · Knowledge Base Sync**
 
-[Quick Start](#quick-start) • [Benchmark Snapshot](#benchmark-snapshot) • [Architecture](#architecture-overview) • [Documentation](#documentation)
+[Quick Start](#quick-start) · [Architecture](#architecture) · [Benchmarks](#benchmarks) · [API](#api-surface) · [Docs](#documentation)
 
 </div>
 
-![Real UI workflow demo](assets/demo.gif)
+![Current React UI demo](assets/demo.gif)
 
-> Real UI capture from a local demo environment. This GIF shows the current chat interface walking through the booking discovery flow.
+> The GIF above is captured from the current React/Vite frontend. The public user app is React + FastAPI; Gradio is kept as an admin/debug console.
 
-This project is designed to feel closer to a **real assistant product** than a single-path RAG demo:
+## Why This Project Exists
 
-- medical questions are routed through a retrieval-aware answer pipeline
-- appointment and cancellation are handled as **controlled skills**, not free-form tool writes
-- conversation state survives interruptions, clarifications, and pending confirmations
-- when evidence is weak, the assistant can still answer with a **clearly labeled general-medical fallback**
+Most RAG demos answer one question from a few documents. This project is closer to a real assistant product:
 
-> The public UI is still evolving. The demo above is a real local capture, but the exact visual style may continue to change as the frontend is polished.
+- It answers medical questions with retrieval, evidence checks, citations, and safe fallback behavior.
+- It manages multi-turn state with Redis memory, summaries, topic focus, and pending workflow state.
+- It handles appointment/cancellation as a controlled skill: discover options, prepare a preview, then require explicit confirmation.
+- It supports a continuously updateable knowledge base through local upload, official-source sync, soft delete, and re-indexing.
+- It ships with regression tests and benchmark scripts for routing, memory, retrieval, and answer quality.
 
-## Why This Repo Is Interesting
+## Feature Highlights
 
-Most RAG demos stop at "upload files, ask questions."
+| Area | Capability |
+| --- | --- |
+| LangGraph orchestration | Routes medical QA, triage, booking, cancellation, clarification recovery, and compound turns |
+| Medical RAG | Parent-child chunking, dense + sparse retrieval, RRF fusion, rerank, evidence sufficiency, grounding checks |
+| Memory | Redis recent context, LLM summaries, topic focus, pending action state, and persistent checkpoints |
+| Appointment Skill | Department discovery, doctor/slot discovery, booking preview, cancellation preview, explicit confirmation |
+| Knowledge base | Local document upload, official source sync, content-hash update detection, soft delete, import history |
+| Frontend split | FastAPI API, SSE chat stream, React user app, lightweight Documents page, Gradio admin console |
+| Safety | High-risk symptom handling, medication caution, low-evidence general medical fallback with disclaimer |
 
-This project goes further by combining:
+## Architecture
 
-- **medical question answering**
-- **stateful workflow execution**
-- **session memory and interruption recovery**
-- **retrieval quality evaluation**
-- **controlled appointment actions instead of free-form tool writes**
+```mermaid
+flowchart LR
+    U["User"] --> FE["React/Vite user app"]
+    FE --> API["FastAPI API"]
+    API --> CI["ChatInterface"]
+    CI --> G["LangGraph workflow"]
 
-That makes it closer to a real assistant product than a single-path chatbot demo.
+    G --> R["Medical RAG"]
+    R --> QR["Query rewrite / query planning"]
+    QR --> RET["Hybrid retrieval: pgvector + tsvector"]
+    RET --> GR["Rerank / evidence grading / grounding"]
 
-## Highlights
+    G --> A["Appointment Skill"]
+    A --> D["Discovery: departments, doctors, slots"]
+    A --> P["Planning: candidates and previews"]
+    A --> X["Actions: confirm then execute"]
 
-| Area | What this project does |
-|------|-------------------------|
-| **Routing** | Uses LangGraph to unify `medical_rag`, `triage`, `appointment`, `cancel_appointment`, clarification recovery, and pending-state continuation |
-| **Memory** | Combines Redis short-term context, conversation summary, topic focus, and persisted workflow state |
-| **Retrieval** | Uses parent-child chunking, dense+sparse hybrid retrieval, query rewrite, RRF fusion, rerank, and grounding checks |
-| **Workflow safety** | Treats booking/cancellation as a controlled skill with `preview -> explicit confirm -> execute` |
-| **Fallback behavior** | If evidence is weak, the system can still answer general medical questions with a visible disclaimer instead of hard refusal |
-| **Evaluation** | Includes in-repo benchmark and regression scripts for routing, retrieval, memory, and answer quality |
+    G --> M["Memory and state"]
+    M --> Redis["Redis recent messages"]
+    M --> PG["PostgreSQL summaries, logs, checkpoints"]
 
-## Benchmark Snapshot
+    API --> KB["Documents API"]
+    KB --> DM["DocumentManager"]
+    DM --> Sync["KnowledgeBaseSyncService"]
+    Sync --> Store["documents / parent_chunks / child_chunks"]
+```
 
-Current benchmark snapshots included in this repository:
+### Runtime Roles
 
-- **Long-dialogue token efficiency**
-  - hybrid memory reduced prompt tokens by **27.4% at P95**
-- **Retrieval precision**
-  - on the bundled NHC/WHO-style benchmark setup, **Precision@5 improved from 0.68 to 0.83**
+- **React frontend** is the user-facing product surface for chat and lightweight knowledge-base management.
+- **FastAPI** exposes chat SSE, system status, Documents APIs, and frontend/backend adapters.
+- **Gradio** remains an internal admin console for advanced diagnostics and manual operations.
+- **PostgreSQL + pgvector** is the source of truth for documents, chunks, appointments, logs, and summaries.
+- **Redis** stores short-term conversational memory and recoverable session state.
 
-Related benchmark entrypoints:
+## Typical Workflows
 
-- `project/benchmarks/evaluate_memory_token_benchmark.py`
-- `project/benchmarks/evaluate_medical_rag_benchmark.py`
-- `project/benchmarks/evaluate_offline_answer_benchmark.py`
-- `project/benchmarks/evaluate_acceptance_report.py`
-
-## Core Capabilities
-
-### 1. Medical RAG
-
-- answers medical questions against a local knowledge base
-- supports rewrite, retrieval fusion, rerank, and evidence-aware answer generation
-- degrades gracefully to a conservative general-medical answer when retrieval evidence is weak
-
-### 2. Triage and Department Recommendation
-
-- supports symptom-to-department guidance
-- can reuse recommended department context in later booking turns
-
-### 3. Appointment Skill
-
-- supports department / doctor / availability discovery
-- supports booking preview and cancellation preview
-- requires explicit confirmation before any actual write operation
-- keeps pending confirmation state even if the conversation is interrupted
-
-### 4. Multi-Turn Memory
-
-- keeps recent context in session memory
-- persists structured workflow state for resume / interruption recovery
-- uses summaries to reduce token growth in longer dialogues
-
-## Typical Behaviors
-
-### Medical QA with evidence
+### Medical QA With Evidence
 
 ```text
 User: 高血压应该注意什么？
-Assistant: 结合知识库证据给出生活方式、监测和复诊建议，并附来源信息。
+Assistant: Answers with lifestyle, monitoring, medication adherence, and follow-up advice, with source references when evidence is available.
 ```
 
-### Low-evidence fallback
+### Low-Evidence Medical Fallback
 
 ```text
 User: 感冒发烧怎么办？
-Assistant: 即使检索证据不足，也先提供通用医学信息，并明确说明这次回答未充分基于知识库，仅供一般参考，症状加重需及时就医。
+Assistant: Gives general medical information, clearly labels that the answer is not sufficiently knowledge-base grounded, and reminds the user to seek care if symptoms worsen.
 ```
 
-### Appointment preview and confirmation
+### Controlled Booking
 
 ```text
-User: 我要挂呼吸内科张医生明天下午的号
-Assistant: 先生成预约预览，并要求用户明确回复“确认预约”
+User: 我想挂号
+Assistant: Shows available departments or asks for symptoms.
+User: 呼吸内科
+Assistant: Lists available doctors and slots.
+User: 我要预约张医生 2026-04-18 下午
+Assistant: Creates a preview and asks for “确认预约”.
 User: 确认预约
-Assistant: 再执行实际预约写入
+Assistant: Executes the booking once, with idempotency protection.
 ```
 
-### Interruption-safe workflow recovery
+### Workflow Interruption
 
 ```text
 User: 我要挂呼吸内科张医生明天下午的号
-Assistant: 生成预约预览
+Assistant: Creates a booking preview.
 User: 对了，咳嗽三天了需要拍片吗？
-Assistant: 先回答医学问题，同时保留待确认预约状态
+Assistant: Answers the medical question while keeping the pending booking state.
 User: 确认预约
-Assistant: 恢复之前的预约并执行
-```
-
-## Architecture Overview
-
-```text
-User
-  -> ChatInterface
-  -> LangGraph analyze_turn / routing
-      -> medical_rag
-          -> rewrite query
-          -> hybrid retrieval
-          -> rerank / grounding
-          -> answer
-      -> triage
-          -> department recommendation
-      -> appointment skill
-          -> discovery
-          -> planning / preview
-          -> confirm / execute
-      -> cancel skill
-          -> target resolution
-          -> preview
-          -> confirm / execute
-```
-
-### Key backend areas
-
-- `project/api/`
-  - FastAPI user-facing API, SSE chat endpoints, and frontend/backend split adapters
-- `frontend/`
-  - React/Vite user chat client; `components/` holds UI pieces, `lib/` holds API/SSE helpers, and `constants/` holds shared frontend constants
-- `project/core/`
-  - system bootstrap, chat interface, medical source import, observability, evaluation helpers
-- `project/rag_agent/`
-  - LangGraph nodes, routing logic, prompts, state schemas, retrieval tools
-- `project/services/appointment_skill/`
-  - appointment discovery, planning, dialog policy, and controlled execution
-- `project/db/`
-  - PostgreSQL / pgvector storage, route logs, retrieval logs, import history, schema helpers
-- `project/memory/`
-  - Redis-backed session memory and summary storage
-- `project/benchmarks/`
-  - benchmark entrypoints and acceptance-style evaluation scripts
-
-## Tech Stack
-
-- **Orchestration**: LangGraph, LangChain
-- **LLM / embeddings**: OpenAI-compatible providers, DeepSeek, Ollama-compatible setups
-- **Storage**: PostgreSQL, pgvector, Redis
-- **Interface**: FastAPI + React/Vite user frontend, Gradio admin/debug console
-- **Evaluation**: in-repo benchmark and regression scripts
-
-## Project Structure
-
-```text
-project/
-  app.py                     # app entrypoint
-  config.py                  # environment-driven configuration
-  core/                      # bootstrap, chat interface, ingestion, observability
-  rag_agent/                 # LangGraph graph, nodes, prompts, retrieval tools
-  services/appointment_skill/# discovery / planning / action workflow package
-  db/                        # schema helpers, vector store, route/retrieval logs
-  memory/                    # Redis session memory and summaries
-  ui/                        # Gradio app and styling
-  api/                       # FastAPI app, route modules, SSE helpers, API DTOs
-  benchmarks/                # retrieval, memory, route, answer-quality benchmarks
-frontend/                    # React/Vite user chat and Documents frontend
-  src/pages/                 # Chat and Documents page composition
-  src/hooks/                 # chat, system-status, and Documents state hooks
-  src/components/            # reusable UI components
-  src/lib/                   # API and SSE helpers
-  src/constants/             # frontend constants and status mapping
-scripts/                     # local smoke and maintenance scripts
-tests/                       # regression and integration tests
-docs/                        # setup notes and supplemental guides
+Assistant: Resumes and confirms the previous booking.
 ```
 
 ## Quick Start
 
-### 1. Create a virtual environment
+### 1. Install Dependencies
 
 ```powershell
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+
+cd frontend
+npm install
+cd ..
 ```
 
-### 2. Prepare environment variables
+Optional multi-format document parsing:
+
+```powershell
+pip install -r requirements-unstructured.txt
+```
+
+### 2. Configure Environment
 
 ```powershell
 Copy-Item project\.env.example project\.env
 ```
 
-Then fill in at least:
+Fill in at least:
 
-- model provider credentials
+- LLM / embedding provider credentials
 - PostgreSQL connection settings
 - Redis connection settings
 
-### 3. Start required services
+### 3. Start Required Services
 
-You will typically need:
+You need:
 
-- **PostgreSQL** with pgvector support
-- **Redis**
+- PostgreSQL with pgvector
+- Redis
 - one configured LLM / embedding provider
 
-### 4. Launch the Gradio admin app
+PostgreSQL setup notes are in [docs/POSTGRES_SETUP_CN.md](docs/POSTGRES_SETUP_CN.md).
+
+### 4. Start the Split Frontend App
+
+```powershell
+.\start_frontend_app.ps1
+```
+
+Open:
+
+- User frontend: [http://127.0.0.1:5173](http://127.0.0.1:5173)
+- API docs: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+
+Manual startup:
+
+```powershell
+.\venv\Scripts\python.exe project\api_app.py
+```
+
+```powershell
+cd frontend
+npm run dev
+```
+
+### 5. Start the Gradio Admin Console
 
 ```powershell
 .\venv\Scripts\python.exe project\app.py
@@ -252,123 +196,145 @@ Open:
 
 - [http://localhost:7860](http://localhost:7860)
 
-### 5. Launch the separated API and frontend
+## API Surface
 
-One-command Windows startup:
+The React app uses these main endpoints:
 
-```powershell
-.\start_frontend_app.ps1
-```
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/health` | API liveness check |
+| `GET /api/system/status` | Startup and knowledge-base status |
+| `POST /api/chat/session` | Create or reuse a thread id |
+| `GET /api/chat/history` | Load visible session history |
+| `POST /api/chat/clear` | Clear one thread |
+| `GET /api/chat/stream` | SSE chat stream |
+| `GET /api/documents/status` | Knowledge-base status and recent task summary |
+| `GET /api/documents/list` | Local indexed document list |
+| `GET /api/documents/tasks` | Recent import/sync task records |
+| `POST /api/documents/upload` | Upload files and sync them into the knowledge base |
+| `POST /api/documents/sync-official` | Sync one official source |
 
-Open:
+## Knowledge Base Updates
 
-- [http://127.0.0.1:5173](http://127.0.0.1:5173)
+The knowledge base is updateable, not just one-time import:
 
-Manual startup is also available.
+- local uploads are converted to Markdown when needed
+- each document gets a stable `source_key`
+- normalized Markdown content is hashed with SHA-256
+- unchanged documents are skipped
+- changed documents replace their old chunks in place
+- missing official-source documents are soft deleted and removed from retrieval
+- recent sync tasks are persisted and surfaced through API/UI
 
-Run the FastAPI backend:
+Supported official-source importers currently include:
 
-```powershell
-.\venv\Scripts\python.exe project\api_app.py
-```
+- MedlinePlus
+- NHC whitelist PDFs
+- WHO whitelist HTML pages
 
-OpenAPI docs:
+## Benchmarks
 
-- [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+Bundled benchmark snapshots:
 
-Run the React/Vite frontend in another terminal:
+- Long-dialogue memory reduced prompt tokens by **27.4% at P95** in the included benchmark fixture.
+- Hybrid retrieval improved **Precision@5 from 0.68 to 0.83** on the bundled NHC/WHO-style medical retrieval benchmark.
 
-```powershell
-cd frontend
-npm install
-npm run dev
-```
-
-Open:
-
-- [http://127.0.0.1:5173](http://127.0.0.1:5173)
-
-The React frontend is the user-facing chat and lightweight knowledge-base client. The Gradio app remains useful for advanced document management, official source sync diagnostics, and development debugging.
-
-## Testing and Benchmarks
-
-Basic validation:
-
-```powershell
-.\venv\Scripts\python.exe -m compileall project tests
-.\venv\Scripts\python.exe -m unittest discover -s tests -v
-.\scripts\smoke_split_app.ps1 -SkipChat
-```
-
-Example benchmark runs:
+Benchmark entrypoints:
 
 ```powershell
 .\venv\Scripts\python.exe project\benchmarks\evaluate_memory_token_benchmark.py --json
 .\venv\Scripts\python.exe project\benchmarks\evaluate_medical_rag_benchmark.py --json
+.\venv\Scripts\python.exe project\benchmarks\evaluate_offline_answer_benchmark.py --json
 .\venv\Scripts\python.exe project\benchmarks\evaluate_acceptance_report.py --json
 ```
 
-## Data and Knowledge Base Notes
+## Testing
 
-This repo does **not** commit local runtime knowledge-base artifacts such as:
+Fast checks:
 
-- `markdown_docs/`
-- `parent_store/`
-- `qdrant_db/`
-- `runtime/`
+```powershell
+.\venv\Scripts\python.exe -m compileall project tests
+.\venv\Scripts\python.exe -m unittest tests.test_api_app -v
+cd frontend
+npm run build
+```
 
-These are treated as disposable local state.
+Full regression:
 
-Medical source import helpers and manifests live under:
+```powershell
+.\venv\Scripts\python.exe -m unittest discover -s tests -v
+```
 
-- `project/import_medical_sources.py`
-- `project/core/medical_source_ingest.py`
-- `project/core/manifests/`
+Split app smoke:
+
+```powershell
+.\scripts\smoke_split_app.ps1 -SkipChat
+```
+
+Live chat smoke, if your model provider is configured:
+
+```powershell
+.\scripts\smoke_split_app.ps1
+```
+
+## Project Structure
+
+```text
+project/
+  api/                       # FastAPI app, route modules, SSE helpers, DTOs
+  core/                      # bootstrap, chat interface, document sync, RAG system
+  rag_agent/                 # LangGraph graph, nodes, prompts, tools, state schemas
+  services/appointment_skill/# discovery / planning / action skill package
+  db/                        # PostgreSQL stores, schema manager, vector DB manager
+  memory/                    # Redis memory and summary persistence
+  ui/                        # Gradio admin/debug console
+  benchmarks/                # memory, retrieval, route, answer-quality benchmarks
+frontend/
+  src/pages/                 # Chat and Documents pages
+  src/hooks/                 # chat, status, and documents state hooks
+  src/components/            # reusable UI components
+  src/lib/                   # API and SSE helpers
+  src/constants/             # frontend constants and status mapping
+scripts/                     # smoke and maintenance scripts
+tests/                       # unit, regression, and live DB tests
+docs/                        # project guide, setup, sequence diagrams, QA notes
+assets/                      # README demo media
+```
 
 ## Documentation
 
-English:
+- [Project guide, Chinese](docs/PROJECT_GUIDE_CN.md)
+- [Sequence diagrams and source walk-through, Chinese](docs/PROJECT_SEQUENCE_CN.md)
+- [PostgreSQL setup, Chinese](docs/POSTGRES_SETUP_CN.md)
+- [Medical import guide](docs/MEDICAL_IMPORT.md)
+- [Medical sources guide](docs/MEDICAL_SOURCES.md)
+- [QA evaluation guide](docs/QA_EVAL.md)
+- [Contributing guide](CONTRIBUTING.md)
 
-- [Medical Import Guide](docs/MEDICAL_IMPORT.md)
-- [Medical Sources Guide](docs/MEDICAL_SOURCES.md)
-- [project/README.md](project/README.md)
+## Data and Repository Hygiene
 
-Chinese:
+The repository intentionally does **not** commit runtime data:
 
-- [项目导读](docs/PROJECT_GUIDE_CN.md)
-- [项目时序图与流程走读](docs/PROJECT_SEQUENCE_CN.md)
-- [PostgreSQL 初始化说明](docs/POSTGRES_SETUP_CN.md)
-- [评测说明](docs/QA_EVAL.md)
+- `markdown_docs/`
+- `runtime/`
+- `output/`
+- `parent_store/`
+- `qdrant_db/`
+- `frontend/dist/`
+- `frontend/node_modules/`
+- `.env` / `project/.env`
 
-## Safety and Scope
+Use `project/.env.example` as the template for local configuration.
 
-This repository is an **engineering demo for medical information assistance and workflow orchestration**.
+## Safety Scope
 
-It is **not** a medical device and does **not** replace licensed clinicians or in-person diagnosis.
+This is an engineering demo for medical information assistance and workflow orchestration.
 
-The assistant is designed to:
-
-- prioritize safer wording for high-risk symptoms
-- require explicit confirmation before appointment writes
-- provide disclaimer-backed fallback answers when knowledge-base evidence is weak
-
-## What Makes It Different From a Typical RAG Demo
-
-- it supports **stateful business actions**, not only retrieval
-- it preserves **pending confirmations** across unrelated turns
-- it separates **discovery**, **planning**, and **execution** for appointment workflows
-- it includes **low-evidence fallback behavior** instead of only refusal
-- it ships with **benchmark scripts and regression coverage** beyond chat happy paths
+It is **not** a medical device, does **not** provide diagnosis, and does **not** replace licensed clinicians. High-risk symptoms, medication-dose questions, and low-evidence answers are handled with more conservative wording and visible safety reminders.
 
 ## Roadmap
 
-- better public demo setup and sample data
-- stronger answer-level evaluation and reporting
-- more polished public-facing UI
-- deeper appointment / reschedule skill modularization
-
-## Contributing
-
-If you want to contribute, start here:
-
-- [CONTRIBUTING.md](CONTRIBUTING.md)
+- Move more admin capabilities from Gradio to dedicated FastAPI/React pages
+- Add stronger answer-level evaluation and RAGAS-style reporting
+- Improve appointment rescheduling and alternative-slot planning
+- Add auth and deployment profiles for real multi-user environments
