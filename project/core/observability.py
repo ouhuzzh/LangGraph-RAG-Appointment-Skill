@@ -26,9 +26,9 @@ class Observability:
             self._client = get_client()
 
             if self._client.auth_check():
-                print("Langfuse client is authenticated and ready!")
+                logger.info("Langfuse client is authenticated and ready.")
             else:
-                print("Authentication failed. Please check your credentials and host.")
+                logger.warning("Langfuse authentication failed. Please check credentials and host.")
                 self._enabled = False
                 return
 
@@ -45,4 +45,4 @@ class Observability:
             try:
                 self._client.flush()
             except Exception:
-                pass
+                logger.warning("Could not flush Langfuse client", exc_info=True)

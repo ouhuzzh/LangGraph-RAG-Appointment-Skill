@@ -2,12 +2,35 @@ from langgraph.graph import START, END, StateGraph
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.prebuilt import ToolNode
 from functools import partial
+import logging
 
 import config
-from .graph_state import State
-from .nodes import *
+from .appointment_nodes import handle_appointment, handle_appointment_skill, handle_cancel_appointment
 from .edges import *
+from .graph_state import AgentState, State
 from .persistent_checkpointer import PersistentInMemorySaver
+from .rag_nodes import (
+    answer_grounding_check,
+    collect_answer,
+    compress_context,
+    fallback_response,
+    grounded_answer_generation,
+    orchestrator,
+    plan_retrieval_queries,
+    rewrite_query,
+    should_compress_context,
+)
+from .routing_nodes import (
+    analyze_turn,
+    intent_router,
+    prepare_secondary_turn,
+    recommend_department,
+    request_clarification,
+    summarize_history,
+)
+
+
+logger = logging.getLogger(__name__)
 
 
 def _build_checkpointer():
@@ -21,7 +44,7 @@ def create_agent_graph(llm, tools_list, appointment_service=None):
 
     checkpointer = _build_checkpointer()
 
-    print("Compiling agent graph...")
+    logger.info("Compiling agent graph...")
     agent_builder = StateGraph(AgentState)
     agent_builder.add_node("orchestrator", partial(orchestrator, llm_with_tools=llm_with_tools))
     agent_builder.add_node("tools", tool_node)
@@ -94,5 +117,5 @@ def create_agent_graph(llm, tools_list, appointment_service=None):
 
     agent_graph = graph_builder.compile(checkpointer=checkpointer, interrupt_before=["request_clarification"])
 
-    print("Agent graph compiled successfully.")
+    logger.info("Agent graph compiled successfully.")
     return agent_graph

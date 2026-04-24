@@ -22,6 +22,7 @@ class State(MessagesState):
     questionIsClear: bool = False
     conversation_summary: str = ""
     recent_context: Annotated[str, keep_latest_non_empty] = ""
+    request_id: Annotated[str, keep_latest_non_empty] = ""
     topic_focus: Annotated[str, keep_latest_non_empty] = ""
     originalQuery: str = ""
     thread_id: str = ""

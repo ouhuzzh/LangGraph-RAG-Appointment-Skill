@@ -3,6 +3,7 @@ import uuid
 from datetime import date
 import psycopg
 import config
+from db.schema_manager import SchemaManager
 
 
 class AppointmentService:
@@ -14,8 +15,10 @@ class AppointmentService:
             f"user={config.POSTGRES_USER} "
             f"password={config.POSTGRES_PASSWORD}"
         )
+        self._schema_manager = SchemaManager(self._conninfo)
 
     def _connect(self):
+        self._schema_manager.apply_migrations()
         return psycopg.connect(self._conninfo)
 
     def ensure_patient_for_thread(self, thread_id: str, conn=None) -> int:

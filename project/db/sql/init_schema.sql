@@ -177,6 +177,7 @@ USING GIN (tsv);
 
 CREATE TABLE IF NOT EXISTS retrieval_logs (
     id                  BIGSERIAL PRIMARY KEY,
+    request_id          VARCHAR(64),
     thread_id           VARCHAR(128),
     query_text          TEXT NOT NULL,
     rewritten_query     TEXT,
@@ -187,8 +188,14 @@ CREATE TABLE IF NOT EXISTS retrieval_logs (
     created_at          TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE retrieval_logs
+ADD COLUMN IF NOT EXISTS request_id VARCHAR(64);
+
 CREATE INDEX IF NOT EXISTS idx_retrieval_logs_thread_id
 ON retrieval_logs(thread_id);
+
+CREATE INDEX IF NOT EXISTS idx_retrieval_logs_request_id
+ON retrieval_logs(request_id);
 
 CREATE OR REPLACE FUNCTION child_chunks_tsv_trigger_fn()
 RETURNS trigger AS $$

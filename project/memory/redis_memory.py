@@ -1,4 +1,5 @@
 import json
+import logging
 import config
 from langchain_core.messages import HumanMessage, AIMessage
 
@@ -6,6 +7,9 @@ try:
     import redis
 except ImportError:  # pragma: no cover - optional dependency fallback
     redis = None
+
+
+logger = logging.getLogger(__name__)
 
 
 class RedisSessionMemory:
@@ -38,7 +42,7 @@ class RedisSessionMemory:
             )
             self._client.ping()
         except Exception as e:
-            print(f"Warning: Redis unavailable, memory cache disabled: {e}")
+            logger.warning("Redis unavailable, memory cache disabled: %s", e)
             self._client = None
             self._enabled = False
         return self._client
@@ -54,6 +58,7 @@ class RedisSessionMemory:
         try:
             data = json.loads(raw)
         except Exception:
+            logger.warning("Failed to deserialize Redis message history", exc_info=True)
             return []
         messages = []
         for item in data:
@@ -112,6 +117,7 @@ class RedisSessionMemory:
         try:
             return json.loads(raw)
         except Exception:
+            logger.warning("Failed to deserialize Redis session state", exc_info=True)
             return {}
 
     def set_state(self, thread_id: str, state: dict):

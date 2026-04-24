@@ -46,29 +46,21 @@
 4. `D:\nageoffer\agentic-rag-for-dummies\project\rag_agent\graph.py`  
    主图和子图怎么连接。
 
-5. `D:\nageoffer\agentic-rag-for-dummies\project\rag_agent\nodes.py`  
-   核心业务逻辑，大部分“为什么会这样答”都在这里。
+5. `D:\nageoffer\agentic-rag-for-dummies\project\rag_agent\routing_nodes.py`  
+   路由、复合请求拆分、澄清恢复的图节点入口。
 
-6. `D:\nageoffer\agentic-rag-for-dummies\project\rag_agent\tools.py`  
+6. `D:\nageoffer\agentic-rag-for-dummies\project\rag_agent\rag_nodes.py` 和 `D:\nageoffer\agentic-rag-for-dummies\project\rag_agent\tools.py`  
    RAG 真正怎么检索、怎么打分、怎么兜底。
 
-7. `D:\nageoffer\agentic-rag-for-dummies\project\services\appointment_skill\__init__.py`  
+7. `D:\nageoffer\agentic-rag-for-dummies\project\rag_agent\appointment_nodes.py` 和 `D:\nageoffer\agentic-rag-for-dummies\project\services\appointment_skill\skill.py`  
    挂号领域能力的统一入口。
 
 8. `D:\nageoffer\agentic-rag-for-dummies\project\services\appointment_service.py`  
    数据库事务层，最终怎么创建预约、取消预约、改约。
 
-如果只想先看一个最核心文件，那就是：
+如果只想先看图编排，就看 `graph.py`；如果想理解行为，就按 `routing_nodes.py -> appointment_nodes.py / rag_nodes.py -> tools.py` 的顺序看。
 
-- `D:\nageoffer\agentic-rag-for-dummies\project\rag_agent\nodes.py`
-
-因为这里同时承接了：
-
-- 路由
-- 澄清
-- 多轮上下文
-- appointment skill
-- RAG 聚合和安全兜底
+`nodes.py` 仍保留为兼容层，历史测试和旧导入可以继续工作；新的维护入口已经按领域拆到上面的模块。
 
 ---
 

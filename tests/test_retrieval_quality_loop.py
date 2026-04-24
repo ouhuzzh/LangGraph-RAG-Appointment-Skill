@@ -8,6 +8,7 @@ sys.path.insert(0, r"D:\nageoffer\agentic-rag-for-dummies\project")
 
 from rag_agent.nodes import answer_grounding_check, grounded_answer_generation  # noqa: E402
 from rag_agent.tools import check_sufficiency, grade_documents, ground_answer, plan_queries  # noqa: E402
+import config  # noqa: E402
 
 
 class _StubLLM:
@@ -52,6 +53,21 @@ class RetrievalQualityLoopTests(unittest.TestCase):
 
         self.assertFalse(result["is_sufficient"])
         self.assertTrue(result["retry_query"])
+
+    def test_check_sufficiency_uses_configured_direct_evidence_threshold(self):
+        docs = [
+            Document(page_content="高血压患者平时要注意低盐饮食。", metadata={"score": 0.83, "relevance_grade": "high"}),
+        ]
+
+        original_threshold = config.RAG_DIRECT_EVIDENCE_SCORE
+        try:
+            config.RAG_DIRECT_EVIDENCE_SCORE = 0.82
+            result = check_sufficiency("高血压需要注意什么", docs)
+        finally:
+            config.RAG_DIRECT_EVIDENCE_SCORE = original_threshold
+
+        self.assertTrue(result["is_sufficient"])
+        self.assertEqual(result["reason"], "direct_evidence")
 
     def test_ground_answer_adds_guardrail_when_evidence_is_low(self):
         docs = [

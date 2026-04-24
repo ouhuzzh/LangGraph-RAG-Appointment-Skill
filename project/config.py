@@ -32,6 +32,17 @@ ENABLE_RERANK = os.environ.get("ENABLE_RERANK", "true").lower() == "true"
 RERANK_FETCH_K = int(os.environ.get("RERANK_FETCH_K", "12"))
 ENABLE_HYBRID_RETRIEVAL = os.environ.get("ENABLE_HYBRID_RETRIEVAL", "true").lower() == "true"
 KEYWORD_FETCH_K = int(os.environ.get("KEYWORD_FETCH_K", "8"))
+RAG_HIGH_CONFIDENCE_SCORE = float(os.environ.get("RAG_HIGH_CONFIDENCE_SCORE", "0.85"))
+RAG_MEDIUM_CONFIDENCE_SCORE = float(os.environ.get("RAG_MEDIUM_CONFIDENCE_SCORE", "0.72"))
+RAG_HIGH_RELEVANCE_SCORE = float(os.environ.get("RAG_HIGH_RELEVANCE_SCORE", "0.86"))
+RAG_MEDIUM_RELEVANCE_SCORE = float(os.environ.get("RAG_MEDIUM_RELEVANCE_SCORE", "0.74"))
+RAG_LOW_RELEVANCE_SCORE = float(os.environ.get("RAG_LOW_RELEVANCE_SCORE", "0.70"))
+RAG_HIGH_LEXICAL_OVERLAP = float(os.environ.get("RAG_HIGH_LEXICAL_OVERLAP", "0.55"))
+RAG_MEDIUM_LEXICAL_OVERLAP = float(os.environ.get("RAG_MEDIUM_LEXICAL_OVERLAP", "0.30"))
+RAG_LOW_LEXICAL_OVERLAP = float(os.environ.get("RAG_LOW_LEXICAL_OVERLAP", "0.12"))
+RAG_DIRECT_EVIDENCE_SCORE = float(os.environ.get("RAG_DIRECT_EVIDENCE_SCORE", "0.84"))
+RAG_LIMITED_EVIDENCE_SCORE = float(os.environ.get("RAG_LIMITED_EVIDENCE_SCORE", "0.76"))
+RAG_RETRY_LIMIT = int(os.environ.get("RAG_RETRY_LIMIT", "1"))
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "")

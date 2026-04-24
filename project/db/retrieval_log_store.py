@@ -24,6 +24,7 @@ class RetrievalLogStore:
                 cur.execute(
                     """
                     SELECT
+                        request_id,
                         thread_id,
                         query_text,
                         rewritten_query,
@@ -47,19 +48,20 @@ class RetrievalLogStore:
 
         return [
             {
-                "thread_id": row[0] or "",
-                "query_text": row[1] or "",
-                "rewritten_query": row[2] or "",
-                "retrieval_mode": row[3] or "",
-                "top_k": int(row[4] or 0),
-                "result_count": int(row[5] or 0),
-                "selected_parent_ids": list(row[6] or []),
-                "query_plan": list(row[7] or []),
-                "graded_doc_count": int(row[8] or 0),
-                "sufficiency_result": row[9] or "",
-                "retry_count": int(row[10] or 0),
-                "final_confidence_bucket": row[11] or "",
-                "timestamp": row[12].strftime("%Y-%m-%d %H:%M:%S"),
+                "request_id": row[0] or "",
+                "thread_id": row[1] or "",
+                "query_text": row[2] or "",
+                "rewritten_query": row[3] or "",
+                "retrieval_mode": row[4] or "",
+                "top_k": int(row[5] or 0),
+                "result_count": int(row[6] or 0),
+                "selected_parent_ids": list(row[7] or []),
+                "query_plan": list(row[8] or []),
+                "graded_doc_count": int(row[9] or 0),
+                "sufficiency_result": row[10] or "",
+                "retry_count": int(row[11] or 0),
+                "final_confidence_bucket": row[12] or "",
+                "timestamp": row[13].strftime("%Y-%m-%d %H:%M:%S"),
             }
             for row in rows
         ]

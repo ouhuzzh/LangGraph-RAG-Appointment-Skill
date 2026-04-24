@@ -1,9 +1,13 @@
 from pathlib import Path
+import logging
 import shutil
 import config
 from core.document_parsers import supported_upload_extensions, unstructured_to_markdown
 from core.knowledge_base_sync import KnowledgeBaseSyncService
 from utils import clear_directory_contents, pdf_to_markdown
+
+
+logger = logging.getLogger(__name__)
 
 class DocumentManager:
 
@@ -59,7 +63,7 @@ class DocumentManager:
                 indexed_document_nos.add(document_no)
                 added += 1
             except Exception as e:
-                print(f"Error processing {md_path}: {e}")
+                logger.exception("Failed to index markdown document %s", md_path)
                 skipped += 1
 
         return {"processed": processed, "added": added, "skipped": skipped}
@@ -132,7 +136,7 @@ class DocumentManager:
                     conversion_details.append(detail)
                 prepared_markdowns.append(md_path)
             except Exception as e:
-                print(f"Error processing {doc_path}: {e}")
+                logger.exception("Failed to prepare uploaded document %s", doc_path)
                 failure_details.append(f"{source_path.name}: {e}")
 
         sync_result = sync_service.sync_local_documents(

@@ -1,4 +1,5 @@
 import uuid
+import logging
 import threading
 import time
 from datetime import datetime
@@ -14,6 +15,9 @@ from rag_agent.tools import ToolFactory
 from rag_agent.graph import create_agent_graph
 from core.observability import Observability
 from services.appointment_service import AppointmentService
+
+
+logger = logging.getLogger(__name__)
 
 class RAGSystem:
 
@@ -84,10 +88,22 @@ class RAGSystem:
     def get_knowledge_base_status(self):
         recent_imports = list(self._knowledge_base_status["stats"].get("recent_imports", []))
         if not recent_imports:
+            import_task_store = getattr(self, "import_task_store", None)
+            if import_task_store is None:
+                return {
+                    "status": self._knowledge_base_status["status"],
+                    "message": self._knowledge_base_status["message"],
+                    "last_error": self._knowledge_base_status["last_error"],
+                    "stats": {
+                        **dict(self._knowledge_base_status["stats"]),
+                        "recent_imports": [],
+                    },
+                }
             try:
-                recent_imports = self.import_task_store.list_recent(config.RECENT_IMPORT_TASK_LIMIT)
+                recent_imports = import_task_store.list_recent(config.RECENT_IMPORT_TASK_LIMIT)
                 self._knowledge_base_status["stats"]["recent_imports"] = recent_imports
             except Exception:
+                logger.warning("Failed to load recent import tasks", exc_info=True)
                 recent_imports = []
         return {
             "status": self._knowledge_base_status["status"],
@@ -128,6 +144,7 @@ class RAGSystem:
         try:
             self.import_task_store.save_event(payload)
         except Exception:
+            logger.warning("Failed to persist import event", exc_info=True)
             pass
         history.insert(0, payload)
         self._knowledge_base_status["stats"]["recent_imports"] = history[:config.RECENT_IMPORT_TASK_LIMIT]
@@ -151,10 +168,12 @@ class RAGSystem:
             "last_sync_result": self._knowledge_base_status["stats"].get("last_sync_result", ""),
             "recent_imports": list(self._knowledge_base_status["stats"].get("recent_imports", [])),
         }
-        try:
-            stats["recent_imports"] = self.import_task_store.list_recent(config.RECENT_IMPORT_TASK_LIMIT)
-        except Exception:
-            pass
+        import_task_store = getattr(self, "import_task_store", None)
+        if import_task_store is not None:
+            try:
+                stats["recent_imports"] = import_task_store.list_recent(config.RECENT_IMPORT_TASK_LIMIT)
+            except Exception:
+                logger.warning("Failed to refresh recent import tasks", exc_info=True)
 
         current_status = self._knowledge_base_status["status"]
         if current_status == "building":
@@ -204,6 +223,7 @@ class RAGSystem:
                     self._knowledge_base_status["message"] = "知识库已完成后台补建，可正常检索。"
                 self._set_startup_step("knowledge_base_bootstrap", "completed", "知识库后台补建完成。")
             except Exception as exc:
+                logger.exception("Knowledge base bootstrap failed")
                 self._set_startup_step("knowledge_base_bootstrap", "failed", f"知识库后台补建失败：{exc}")
                 self._update_knowledge_base_status(
                     "failed",
@@ -242,6 +262,7 @@ class RAGSystem:
                     self.record_import_event(result.to_event())
                 self.refresh_knowledge_base_status()
             except Exception as exc:
+                logger.exception("Scheduled knowledge base sync failed")
                 self._knowledge_base_status["last_error"] = str(exc)
                 self._knowledge_base_status["stats"]["last_sync_result"] = f"后台同步失败：{exc}"
 
@@ -301,6 +322,7 @@ class RAGSystem:
                 self.start_knowledge_base_bootstrap()
                 self.start_knowledge_base_sync_scheduler()
             except Exception as exc:
+                logger.exception("RAG system initialization failed")
                 self._set_startup_status("failed", "系统初始化失败。", last_error=str(exc))
                 for key in ("database_check", "model_init", "graph_compile"):
                     step = self._startup_status["steps"].get(key)
@@ -320,7 +342,7 @@ class RAGSystem:
         try:
             self.agent_graph.checkpointer.delete_thread(self.thread_id)
         except Exception as e:
-            print(f"Warning: Could not delete thread {self.thread_id}: {e}")
+            logger.warning("Could not delete thread %s: %s", self.thread_id, e)
         self.session_memory.clear_session(old_thread_id)
         self.summary_store.clear_session(old_thread_id)
         self.thread_id = str(uuid.uuid4())

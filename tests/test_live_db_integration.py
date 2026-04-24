@@ -351,6 +351,19 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
         self.assertIn("004_route_logs", schema_status["versions"])
         self.assertIn("005_appointment_skill_and_retrieval_quality", schema_status["versions"])
         self.assertIn("006_knowledge_base_sync", schema_status["versions"])
+        self.assertIn("007_request_trace_ids", schema_status["versions"])
+        self.assertIn("008_appointment_demo_seed", schema_status["versions"])
+        self.assertIn("idx_route_logs_request_id", schema_status["indexes"])
+        self.assertIn("idx_retrieval_logs_request_id", schema_status["indexes"])
+
+    def test_demo_appointment_seed_provides_future_schedule(self):
+        self.vector_db.create_collection(config.CHILD_COLLECTION)
+
+        schedule = self._find_future_schedule()
+
+        self.assertEqual(schedule["department_name"], "呼吸内科")
+        self.assertEqual(schedule["doctor_name"], "张医生")
+        self.assertEqual(schedule["time_slot"], "morning")
 
     def test_import_task_store_round_trip(self):
         self.vector_db.create_collection(config.CHILD_COLLECTION)
@@ -385,8 +398,10 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
     def test_route_log_store_round_trip(self):
         self.vector_db.create_collection(config.CHILD_COLLECTION)
         self.route_log_thread_id = f"live-route-{uuid.uuid4().hex[:10]}"
+        request_id = f"req-{uuid.uuid4().hex[:10]}"
         self.route_log_store.save_log(
             {
+                "request_id": request_id,
                 "thread_id": self.route_log_thread_id,
                 "user_query": "取消刚才那个预约，然后我这个咳嗽还要看吗",
                 "primary_intent": "cancel_appointment",
@@ -402,6 +417,7 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
         saved = next(item for item in events if item["thread_id"] == self.route_log_thread_id)
 
         self.assertEqual(saved["primary_intent"], "cancel_appointment")
+        self.assertEqual(saved["request_id"], request_id)
         self.assertEqual(saved["secondary_intent"], "medical_rag")
         self.assertEqual(saved["decision_source"], "rule")
         self.assertTrue(saved["had_pending_state"])
@@ -536,6 +552,7 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
         shutil.copy(FIXTURES_DIR / fixture_name, Path(self.temp_markdown_dir) / fixture_name)
         self.document_nos = [Path(fixture_name).stem]
         self.retrieval_log_thread_id = f"live-retrieval-{uuid.uuid4().hex[:10]}"
+        request_id = f"req-{uuid.uuid4().hex[:10]}"
 
         rag = RAGSystem()
         rag.vector_db.create_collection(rag.collection_name)
@@ -545,7 +562,11 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
         manager.index_existing_markdowns(skip_existing=True)
 
         tool_factory = ToolFactory(rag.vector_db.get_collection(rag.collection_name))
-        token = set_retrieval_context(thread_id=self.retrieval_log_thread_id, original_query="高血压要注意什么")
+        token = set_retrieval_context(
+            thread_id=self.retrieval_log_thread_id,
+            original_query="高血压要注意什么",
+            request_id=request_id,
+        )
         try:
             tool_factory._search_child_chunks("高血压 平时 要注意什么", limit=2)
         finally:
@@ -561,7 +582,7 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    select query_text, rewritten_query, retrieval_mode, result_count, selected_parent_ids,
+                    select request_id, query_text, rewritten_query, retrieval_mode, result_count, selected_parent_ids,
                            query_plan, graded_doc_count, sufficiency_result, retry_count, final_confidence_bucket
                     from retrieval_logs
                     where thread_id = %s
@@ -573,16 +594,17 @@ class LiveDatabaseIntegrationTests(unittest.TestCase):
                 row = cur.fetchone()
 
         self.assertIsNotNone(row)
-        self.assertEqual(row[0], "高血压要注意什么")
-        self.assertEqual(row[1], "高血压 平时 要注意什么")
-        self.assertIn("layered", row[2])
-        self.assertGreaterEqual(row[3], 1)
-        self.assertTrue(row[4])
+        self.assertEqual(row[0], request_id)
+        self.assertEqual(row[1], "高血压要注意什么")
+        self.assertEqual(row[2], "高血压 平时 要注意什么")
+        self.assertIn("layered", row[3])
+        self.assertGreaterEqual(row[4], 1)
         self.assertTrue(row[5])
-        self.assertGreaterEqual(row[6], 1)
-        self.assertTrue(row[7])
-        self.assertGreaterEqual(row[8], 0)
-        self.assertIn(row[9], ("high", "medium", "low", "no_evidence"))
+        self.assertTrue(row[6])
+        self.assertGreaterEqual(row[7], 1)
+        self.assertTrue(row[8])
+        self.assertGreaterEqual(row[9], 0)
+        self.assertIn(row[10], ("high", "medium", "low", "no_evidence"))
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 import re
 import tempfile
 import zipfile
@@ -12,6 +13,9 @@ from urllib.parse import urljoin
 
 import requests
 from utils import pdf_to_markdown
+
+
+logger = logging.getLogger(__name__)
 
 
 def _slugify(value: str) -> str:
@@ -420,7 +424,7 @@ class NhcPdfWhitelistImporter:
                 written += 1
                 written_files.append(markdown_path)
             except Exception as exc:
-                print(f"Failed to import NHC document '{entry.get('title', stem)}': {exc}")
+                logger.warning("Failed to import NHC document %r: %s", entry.get("title", stem), exc)
                 failed += 1
                 failure_details.append(f"{entry.get('title', stem)}: {exc}")
 
@@ -482,7 +486,7 @@ class NhcPdfWhitelistImporter:
                     )
                 )
             except Exception as exc:
-                print(f"Failed to build NHC sync record '{entry.get('title', stem)}': {exc}")
+                logger.warning("Failed to build NHC sync record %r: %s", entry.get("title", stem), exc)
                 failure_details.append(f"{entry.get('title', stem)}: {exc}")
         return str(self.manifest_path), records, conversion_details, failure_details
 
@@ -572,7 +576,7 @@ class WhoHtmlWhitelistImporter:
                 written += 1
                 written_files.append(markdown_path)
             except Exception as exc:
-                print(f"Failed to import WHO document '{entry.get('title', stem)}': {exc}")
+                logger.warning("Failed to import WHO document %r: %s", entry.get("title", stem), exc)
                 failed += 1
                 failure_details.append(f"{entry.get('title', stem)}: {exc}")
 
@@ -625,6 +629,6 @@ class WhoHtmlWhitelistImporter:
                     )
                 )
             except Exception as exc:
-                print(f"Failed to build WHO sync record '{entry.get('title', stem)}': {exc}")
+                logger.warning("Failed to build WHO sync record %r: %s", entry.get("title", stem), exc)
                 failure_details.append(f"{entry.get('title', stem)}: {exc}")
         return str(self.manifest_path), records, failure_details

@@ -1,11 +1,16 @@
 import json
+import logging
 import re
+import uuid
 
 import config
 from db.route_log_store import RouteLogStore
 from langchain_core.messages import HumanMessage, AIMessage, AIMessageChunk, ToolMessage, SystemMessage
-from rag_agent.nodes import _sanitize_final_answer_text
+from rag_agent.node_helpers import _sanitize_final_answer_text
 from rag_agent.tools import reset_retrieval_context, set_retrieval_context
+
+
+logger = logging.getLogger(__name__)
 
 SILENT_NODES = {
     "rewrite_query",
@@ -387,13 +392,25 @@ class ChatInterface:
         current_state = self.rag_system.agent_graph.get_state(graph_config)
         thread_id     = self.rag_system.thread_id
         user_message  = message.strip()
+        request_id    = uuid.uuid4().hex
         session_state = self.rag_system.session_memory.get_state(thread_id)
         checkpoint_resumed = bool(current_state.next)
 
         try:
-            retrieval_context_token = set_retrieval_context(thread_id=thread_id, original_query=user_message)
+            retrieval_context_token = set_retrieval_context(
+                thread_id=thread_id,
+                original_query=user_message,
+                request_id=request_id,
+            )
             if current_state.next:
-                self.rag_system.agent_graph.update_state(graph_config, {"messages": [HumanMessage(content=user_message)], "thread_id": thread_id})
+                self.rag_system.agent_graph.update_state(
+                    graph_config,
+                    {
+                        "messages": [HumanMessage(content=user_message)],
+                        "thread_id": thread_id,
+                        "request_id": request_id,
+                    },
+                )
                 stream_input = None
             else:
                 stored_messages = []
@@ -409,7 +426,10 @@ class ChatInterface:
                     self.rag_system.agent_graph.update_state(graph_config, self._graph_state_from_session(thread_id, session_state))
                 if not session_state:
                     self.rag_system.agent_graph.update_state(graph_config, {"thread_id": thread_id})
-                stream_input = {"messages": [*state_messages, *stored_messages, HumanMessage(content=user_message)]}
+                stream_input = {
+                    "messages": [*state_messages, *stored_messages, HumanMessage(content=user_message)],
+                    "request_id": request_id,
+                }
 
             response_messages  = []
 
@@ -455,6 +475,7 @@ class ChatInterface:
                 self.route_log_store.save_log(
                     {
                         "thread_id": thread_id,
+                        "request_id": request_id,
                         "user_query": user_message,
                         "primary_intent": latest_values.get("primary_intent", updated_state.get("intent")) or "",
                         "secondary_intent": updated_state.get("secondary_intent") or "",
@@ -472,9 +493,10 @@ class ChatInterface:
                     }
                 )
             except Exception:
-                pass
+                logger.exception("Failed to persist route log for request_id=%s", request_id)
 
         except Exception as e:
+            logger.exception("Chat turn failed for request_id=%s", request_id)
             yield f"❌ Error: {str(e)}"
         finally:
             reset_retrieval_context(locals().get("retrieval_context_token"))

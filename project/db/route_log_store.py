@@ -26,6 +26,7 @@ class RouteLogStore:
                 cur.execute(
                     """
                     INSERT INTO route_logs (
+                        request_id,
                         thread_id,
                         user_query,
                         primary_intent,
@@ -35,9 +36,10 @@ class RouteLogStore:
                         had_pending_state,
                         extra_metadata
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
                     """,
                     (
+                        item.get("request_id") or None,
                         item.get("thread_id") or None,
                         item.get("user_query") or "",
                         item.get("primary_intent") or "",
@@ -56,6 +58,7 @@ class RouteLogStore:
                 cur.execute(
                     """
                     SELECT
+                        request_id,
                         thread_id,
                         user_query,
                         primary_intent,
@@ -75,15 +78,16 @@ class RouteLogStore:
 
         return [
             {
-                "thread_id": row[0] or "",
-                "user_query": row[1] or "",
-                "primary_intent": row[2] or "",
-                "secondary_intent": row[3] or "",
-                "decision_source": row[4] or "",
-                "route_reason": row[5] or "",
-                "had_pending_state": bool(row[6]),
-                "extra_metadata": dict(row[7] or {}),
-                "timestamp": row[8].strftime("%Y-%m-%d %H:%M:%S"),
+                "request_id": row[0] or "",
+                "thread_id": row[1] or "",
+                "user_query": row[2] or "",
+                "primary_intent": row[3] or "",
+                "secondary_intent": row[4] or "",
+                "decision_source": row[5] or "",
+                "route_reason": row[6] or "",
+                "had_pending_state": bool(row[7]),
+                "extra_metadata": dict(row[8] or {}),
+                "timestamp": row[9].strftime("%Y-%m-%d %H:%M:%S"),
             }
             for row in rows
         ]

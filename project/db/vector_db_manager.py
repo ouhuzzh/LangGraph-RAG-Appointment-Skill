@@ -112,6 +112,7 @@ class PgVectorCollection:
 
     def log_retrieval(
         self,
+        request_id=None,
         thread_id=None,
         query_text="",
         rewritten_query="",
@@ -130,13 +131,14 @@ class PgVectorCollection:
                 cur.execute(
                     """
                     INSERT INTO retrieval_logs (
-                        thread_id, query_text, rewritten_query, retrieval_mode,
+                        request_id, thread_id, query_text, rewritten_query, retrieval_mode,
                         top_k, result_count, selected_parent_ids,
                         query_plan, graded_doc_count, sufficiency_result, retry_count, final_confidence_bucket
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s)
                     """,
                     (
+                        request_id,
                         thread_id,
                         query_text,
                         rewritten_query or None,

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import re
 import time
 from dataclasses import dataclass, field
@@ -16,6 +17,9 @@ from core.medical_source_ingest import (
     WhoHtmlWhitelistImporter,
 )
 from db.document_ids import build_document_no
+
+
+logger = logging.getLogger(__name__)
 
 
 _STANDARD_METADATA_FIELDS = {
@@ -398,6 +402,7 @@ class KnowledgeBaseSyncService:
             if target.is_file() and self.markdown_dir.resolve() in target.parents:
                 target.unlink()
         except Exception:
+            logger.warning("Failed to remove markdown file %s", target, exc_info=True)
             return
 
     def _deactivate_missing(self, scope_prefix: str, current_source_keys: set[str]) -> int:

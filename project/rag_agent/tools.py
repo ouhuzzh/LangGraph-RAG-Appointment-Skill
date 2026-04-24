@@ -1,5 +1,6 @@
 from contextvars import ContextVar
 from typing import List
+import logging
 import re
 
 import config
@@ -18,6 +19,7 @@ _DEFAULT_LAYERED_SOURCE_TYPES = ["patient_education", "public_health", "clinical
 _NO_EVIDENCE_RESPONSE = "NO_EVIDENCE: 知识库中暂无相关信息或足够相关证据。若问题属于医学问题，可给出通用医学信息回答，但必须说明这次回答未充分基于知识库检索结果。"
 _RRF_K = 60
 _RETRIEVAL_CONTEXT = ContextVar("retrieval_context", default={})
+logger = logging.getLogger(__name__)
 _QUERY_STOPWORDS = {
     "什么", "怎么", "如何", "一下", "一下子", "请问", "这个", "那个", "情况", "问题", "还要", "需要",
     "应该", "一般", "现在", "最近", "一下吧", "一个", "哪些", "可以", "是不是",
@@ -38,12 +40,13 @@ _QUERY_TYPE_KEYWORDS = {
 }
 
 
-def set_retrieval_context(*, thread_id: str = "", original_query: str = "", query_plan=None):
+def set_retrieval_context(*, thread_id: str = "", original_query: str = "", query_plan=None, request_id: str = ""):
     return _RETRIEVAL_CONTEXT.set(
         {
             "thread_id": str(thread_id or "").strip(),
             "original_query": str(original_query or "").strip(),
             "query_plan": list(query_plan or []),
+            "request_id": str(request_id or "").strip(),
         }
     )
 
@@ -76,9 +79,9 @@ def _confidence_bucket(results: List[Document]) -> str:
         return "no_evidence"
     top_doc = results[0]
     score = _doc_score(top_doc.metadata)
-    if score >= 0.85 and len(results) >= 2:
+    if score >= config.RAG_HIGH_CONFIDENCE_SCORE and len(results) >= 2:
         return "high"
-    if score >= 0.72:
+    if score >= config.RAG_MEDIUM_CONFIDENCE_SCORE:
         return "medium"
     return "low"
 
@@ -146,15 +149,15 @@ def grade_documents(query: str, docs: List[Document]) -> List[Document]:
         metadata = doc.metadata or {}
         score = _doc_score(metadata)
         overlap = _lexical_overlap_score(query, doc)
-        if score >= 0.86 or overlap >= 0.55:
+        if score >= config.RAG_HIGH_RELEVANCE_SCORE or overlap >= config.RAG_HIGH_LEXICAL_OVERLAP:
             grade = "high"
             keep = True
-        elif score >= 0.74 or overlap >= 0.3:
+        elif score >= config.RAG_MEDIUM_RELEVANCE_SCORE or overlap >= config.RAG_MEDIUM_LEXICAL_OVERLAP:
             grade = "medium"
             keep = True
         else:
             grade = "low"
-            keep = score >= 0.7 and overlap >= 0.12
+            keep = score >= config.RAG_LOW_RELEVANCE_SCORE and overlap >= config.RAG_LOW_LEXICAL_OVERLAP
         metadata["relevance_grade"] = grade
         metadata["lexical_overlap"] = round(overlap, 4)
         metadata["keep"] = bool(keep)
@@ -169,9 +172,9 @@ def check_sufficiency(query: str, docs: List[Document]) -> dict:
         return {"is_sufficient": False, "reason": "no_relevant_documents", "retry_query": f"{query} 医学资料"}
     top_score = _doc_score(docs[0].metadata)
     high_grade_count = sum(1 for doc in docs if (doc.metadata or {}).get("relevance_grade") == "high")
-    if high_grade_count >= 1 and top_score >= 0.84:
+    if high_grade_count >= 1 and top_score >= config.RAG_DIRECT_EVIDENCE_SCORE:
         return {"is_sufficient": True, "reason": "direct_evidence", "retry_query": ""}
-    if len(docs) >= 2 and top_score >= 0.76:
+    if len(docs) >= 2 and top_score >= config.RAG_LIMITED_EVIDENCE_SCORE:
         return {"is_sufficient": True, "reason": "limited_but_usable", "retry_query": ""}
     query_terms = list(_query_keywords(query))
     retry_terms = [term for term in query_terms[:4] if len(term) > 1]
@@ -458,11 +461,12 @@ class ToolFactory:
         retry_count: int = 0,
         final_confidence_bucket: str = "",
     ):
-        logger = getattr(self.collection, "log_retrieval", None)
-        if not callable(logger):
+        log_func = getattr(self.collection, "log_retrieval", None)
+        if not callable(log_func):
             return
         context = get_retrieval_context()
-        logger(
+        log_func(
+            request_id=context.get("request_id") or None,
             thread_id=context.get("thread_id") or None,
             query_text=context.get("original_query") or query,
             rewritten_query=query,
@@ -525,7 +529,7 @@ class ToolFactory:
             )[:per_query_limit]
             sufficiency = check_sufficiency(query, results)
             retry_count = 0
-            if not sufficiency["is_sufficient"] and sufficiency.get("retry_query"):
+            if retry_count < config.RAG_RETRY_LIMIT and not sufficiency["is_sufficient"] and sufficiency.get("retry_query"):
                 retry_query = sufficiency["retry_query"]
                 if _normalize_text(retry_query) not in {_normalize_text(item) for item in executed_queries}:
                     executed_queries.append(retry_query)
@@ -582,6 +586,7 @@ class ToolFactory:
             return "\n\n".join(formatted_results)
 
         except Exception as e:
+            logger.exception("Child chunk retrieval failed for query=%r", query)
             return f"RETRIEVAL_ERROR: {str(e)}"
     
     def _retrieve_many_parent_chunks(self, parent_ids: List[str]) -> str:
@@ -609,6 +614,7 @@ class ToolFactory:
             ])            
 
         except Exception as e:
+            logger.exception("Parent chunk batch retrieval failed for parent_ids=%r", parent_ids)
             return f"PARENT_RETRIEVAL_ERROR: {str(e)}"
     
     def _retrieve_parent_chunks(self, parent_id: str) -> str:
@@ -634,6 +640,7 @@ class ToolFactory:
             )          
 
         except Exception as e:
+            logger.exception("Parent chunk retrieval failed for parent_id=%r", parent_id)
             return f"PARENT_RETRIEVAL_ERROR: {str(e)}"
 
     def create_tools(self) -> List:

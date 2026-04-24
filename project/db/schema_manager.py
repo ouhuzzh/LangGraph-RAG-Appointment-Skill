@@ -3,6 +3,9 @@ import psycopg
 import threading
 from pathlib import Path
 
+_SQL_DIR = Path(__file__).with_name("sql")
+_DEMO_APPOINTMENT_SEED_SQL = (_SQL_DIR / "seed_appointment_demo.sql").read_text(encoding="utf-8")
+
 
 class SchemaManager:
     """Apply lightweight, repeatable PostgreSQL schema migrations."""
@@ -96,6 +99,7 @@ class SchemaManager:
                 """
                 CREATE TABLE IF NOT EXISTS route_logs (
                     id                  BIGSERIAL PRIMARY KEY,
+                    request_id          VARCHAR(64),
                     thread_id           VARCHAR(128),
                     user_query          TEXT NOT NULL,
                     primary_intent      VARCHAR(64) NOT NULL,
@@ -114,6 +118,10 @@ class SchemaManager:
                 """
                 CREATE INDEX IF NOT EXISTS idx_route_logs_thread_id
                 ON route_logs(thread_id)
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_route_logs_request_id
+                ON route_logs(request_id)
                 """,
             ],
         ),
@@ -248,11 +256,40 @@ class SchemaManager:
                 """,
             ],
         ),
+        (
+            "007_request_trace_ids",
+            "Add request-level trace ids to route and retrieval logs.",
+            [
+                """
+                ALTER TABLE route_logs
+                ADD COLUMN IF NOT EXISTS request_id VARCHAR(64)
+                """,
+                """
+                ALTER TABLE retrieval_logs
+                ADD COLUMN IF NOT EXISTS request_id VARCHAR(64)
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_route_logs_request_id
+                ON route_logs(request_id)
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_retrieval_logs_request_id
+                ON retrieval_logs(request_id)
+                """,
+            ],
+        ),
+        (
+            "008_appointment_demo_seed",
+            "Seed demo departments, doctors, and future schedules for local booking flows.",
+            [
+                _DEMO_APPOINTMENT_SEED_SQL,
+            ],
+        ),
     ]
 
     def __init__(self, conninfo: str):
         self._conninfo = conninfo
-        self._base_schema_path = Path(__file__).with_name("sql") / "init_schema.sql"
+        self._base_schema_path = _SQL_DIR / "init_schema.sql"
         self._lock = threading.Lock()
         self._applied = False
 
@@ -323,6 +360,8 @@ class SchemaManager:
                           'idx_import_task_logs_created_at',
                           'idx_route_logs_created_at',
                           'idx_route_logs_thread_id',
+                          'idx_route_logs_request_id',
+                          'idx_retrieval_logs_request_id',
                           'idx_appointment_skill_logs_created_at',
                           'idx_appointment_skill_logs_thread_id'
                       )
