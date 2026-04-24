@@ -4,22 +4,9 @@ import ChatHeader from "./components/ChatHeader";
 import MessageList from "./components/MessageList";
 import Composer from "./components/Composer";
 import ClearConfirmDialog from "./components/ClearConfirmDialog";
-
-const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL;
-const browserApiBaseUrl =
-  typeof window !== "undefined" && window.location.hostname
-    ? `${window.location.protocol}//${window.location.hostname}:8000`
-    : "http://127.0.0.1:8000";
-const fallbackApiBaseUrl = "http://127.0.0.1:8000";
-const THREAD_KEY = "medical_assistant_thread_id";
-
-async function readJson(response) {
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `HTTP ${response.status}`);
-  }
-  return response.json();
-}
+import { THREAD_KEY } from "./constants/app";
+import { apiFetchJson, chatStreamUrl, initialApiBaseUrl } from "./lib/api";
+import { openChatStream } from "./lib/sse";
 
 export default function App() {
   const [threadId, setThreadId] = useState(() => localStorage.getItem(THREAD_KEY) || "");
@@ -28,7 +15,7 @@ export default function App() {
   const [status, setStatus] = useState(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState("");
-  const [apiBaseUrl, setApiBaseUrl] = useState(configuredApiBaseUrl || browserApiBaseUrl);
+  const [apiBaseUrl, setApiBaseUrl] = useState(initialApiBaseUrl);
   const [isConnected, setIsConnected] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
@@ -50,7 +37,7 @@ export default function App() {
   async function ensureSession() {
     try {
       const payload = threadId ? { thread_id: threadId } : {};
-      const data = await apiFetchJson("/api/chat/session", {
+      const data = await requestJson("/api/chat/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -67,7 +54,7 @@ export default function App() {
   async function loadHistory(activeThreadId = threadId) {
     if (!activeThreadId) return;
     try {
-      const data = await apiFetchJson(
+      const data = await requestJson(
         `/api/chat/history?thread_id=${encodeURIComponent(activeThreadId)}`
       );
       setMessages(
@@ -84,7 +71,7 @@ export default function App() {
 
   async function refreshStatus() {
     try {
-      const data = await apiFetchJson("/api/system/status");
+      const data = await requestJson("/api/system/status");
       setStatus(data);
       setIsConnected(true);
     } catch {
@@ -103,7 +90,7 @@ export default function App() {
     sourceRef.current?.close();
     setIsStreaming(false);
     try {
-      await apiFetchJson("/api/chat/clear", {
+      await requestJson("/api/chat/clear", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ thread_id: threadId }),
@@ -137,75 +124,51 @@ export default function App() {
       { id: `a-${now}`, role: "assistant", content: "", timestamp: now + 1 },
     ]);
 
-    const url = `${apiBaseUrl}/api/chat/stream?thread_id=${encodeURIComponent(threadId)}&message=${encodeURIComponent(content)}`;
-    const source = new EventSource(url);
-    sourceRef.current = source;
-
-    source.addEventListener("message", (event) => {
-      const payload = JSON.parse(event.data);
-      setMessages((prev) => {
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (last?.role === "assistant") {
-          next[next.length - 1] = { ...last, content: payload.content };
-        }
-        return next;
-      });
-    });
-
-    source.addEventListener("final", (event) => {
-      const payload = JSON.parse(event.data);
-      setMessages((prev) => {
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (last?.role === "assistant") {
-          next[next.length - 1] = { ...last, content: payload.content };
-        }
-        return next;
-      });
-      setIsStreaming(false);
-      streamDoneRef.current = true;
-      source.close();
-      refreshStatus();
-    });
-
-    source.addEventListener("app-error", (event) => {
-      const payload = JSON.parse(event.data);
-      streamDoneRef.current = true;
-      setError(payload.content || "聊天服务暂时不可用。");
-      setIsStreaming(false);
-      source.close();
-    });
-
-    source.onerror = (event) => {
-      if (streamDoneRef.current || source.readyState === EventSource.CLOSED) {
-        source.close();
-        return;
-      }
-      if (event.data) {
-        const payload = JSON.parse(event.data);
+    const url = chatStreamUrl(apiBaseUrl, threadId, content);
+    const source = openChatStream({
+      url,
+      doneRef: streamDoneRef,
+      onMessage: (payload) => {
+        setMessages((prev) => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last?.role === "assistant") {
+            next[next.length - 1] = { ...last, content: payload.content };
+          }
+          return next;
+        });
+      },
+      onFinal: (payload) => {
+        setMessages((prev) => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last?.role === "assistant") {
+            next[next.length - 1] = { ...last, content: payload.content };
+          }
+          return next;
+        });
+        setIsStreaming(false);
+        refreshStatus();
+      },
+      onAppError: (payload) => {
         setError(payload.content || "聊天服务暂时不可用。");
-      } else {
-        setError("聊天连接中断，请稍后重试。");
-      }
-      setIsStreaming(false);
-      source.close();
-    };
+        setIsStreaming(false);
+      },
+      onConnectionError: (event) => {
+        if (event.data) {
+          const payload = JSON.parse(event.data);
+          setError(payload.content || "聊天服务暂时不可用。");
+        } else {
+          setError("聊天连接中断，请稍后重试。");
+        }
+        setIsStreaming(false);
+      },
+    });
+    sourceRef.current = source;
   }
 
-  async function apiFetchJson(path, options) {
-    const firstUrl = `${apiBaseUrl}${path}`;
-    try {
-      return await readJson(await fetch(firstUrl, options));
-    } catch (err) {
-      if (configuredApiBaseUrl || apiBaseUrl === fallbackApiBaseUrl) {
-        throw err;
-      }
-      const fallbackUrl = `${fallbackApiBaseUrl}${path}`;
-      const data = await readJson(await fetch(fallbackUrl, options));
-      setApiBaseUrl(fallbackApiBaseUrl);
-      return data;
-    }
+  function requestJson(path, options) {
+    return apiFetchJson(path, options, apiBaseUrl, setApiBaseUrl);
   }
 
   return (

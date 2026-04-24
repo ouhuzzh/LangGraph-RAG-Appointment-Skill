@@ -1,12 +1,6 @@
 import React, { useState, useRef, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
-
-function statusColor(value) {
-  if (["ready", "completed"].includes(value)) return "good";
-  if (["failed", "error"].includes(value)) return "bad";
-  if (["no_documents", "pending_rebuild"].includes(value)) return "warn";
-  return "info";
-}
+import { statusTone } from "../constants/app";
 
 const StatusIndicator = React.memo(function StatusIndicator({
   icon: Icon,
@@ -16,7 +10,7 @@ const StatusIndicator = React.memo(function StatusIndicator({
   metrics,
   onRefresh,
 }) {
-  const tone = statusColor(value);
+  const tone = statusTone(value);
   const rowRef = useRef(null);
   const [tooltipStyle, setTooltipStyle] = useState(null);
 

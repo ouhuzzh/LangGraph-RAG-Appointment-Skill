@@ -34,6 +34,12 @@
 - `project/api/` 是 FastAPI 后端 API
 - `project/ui/` 的 Gradio 继续作为文档管理和诊断后台
 
+`frontend/src/` 内部再分三块：
+
+- `components/`：聊天页面 UI 组件
+- `lib/`：API 请求、SSE 连接等浏览器侧协议适配
+- `constants/`：前端常量、示例问题、状态 tone 映射
+
 ---
 
 ## 2. 先看哪些文件，最容易理解项目
@@ -84,7 +90,7 @@
   主要代码都在这里。
 
 - `frontend/`  
-  React/Vite 用户聊天端，和 FastAPI 通过 HTTP/SSE 通信。
+  React/Vite 用户聊天端，和 FastAPI 通过 HTTP/SSE 通信。页面组件在 `src/components/`，请求与 SSE helper 在 `src/lib/`，前端常量在 `src/constants/`。
 
 - `docs/`  
   文档说明，比如导入资料、评估、Postgres 配置。

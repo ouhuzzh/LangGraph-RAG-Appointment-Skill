@@ -1,19 +1,13 @@
 import React from "react";
 import { Stethoscope, Brain, CalendarCheck, HelpCircle, Activity } from "lucide-react";
+import { EMPTY_STATE_CAPABILITIES, STARTER_PROMPTS } from "../constants/app";
 
-const starterPrompts = [
-  { icon: Activity, text: "高血压应该注意什么？" },
-  { icon: HelpCircle, text: "我咳嗽三天了，挂什么科？" },
-  { icon: CalendarCheck, text: "我想挂呼吸内科的号" },
-  { icon: Brain, text: "取消刚才的预约" },
-];
-
-const capabilities = [
-  "解答医学常识与健康咨询",
-  "智能分诊推荐科室",
-  "预约挂号与取消",
-  "查询医院信息与就医指引",
-];
+const promptIcons = {
+  hypertension: Activity,
+  triage: HelpCircle,
+  booking: CalendarCheck,
+  cancel: Brain,
+};
 
 const EmptyState = React.memo(function EmptyState({ onSendMessage }) {
   return (
@@ -28,7 +22,7 @@ const EmptyState = React.memo(function EmptyState({ onSendMessage }) {
           专业的 AI 医疗咨询助手，随时为您提供健康指导与就医帮助
         </p>
         <ul className="empty-state__caps">
-          {capabilities.map((cap) => (
+          {EMPTY_STATE_CAPABILITIES.map((cap) => (
             <li key={cap}>
               <span className="empty-state__cap-dot" />
               {cap}
@@ -38,7 +32,9 @@ const EmptyState = React.memo(function EmptyState({ onSendMessage }) {
       </div>
 
       <div className="prompt-grid">
-        {starterPrompts.map(({ icon: Icon, text }, i) => (
+        {STARTER_PROMPTS.map(({ key, text }, i) => {
+          const Icon = promptIcons[key] || HelpCircle;
+          return (
           <button
             key={text}
             type="button"
@@ -51,7 +47,8 @@ const EmptyState = React.memo(function EmptyState({ onSendMessage }) {
             </span>
             <span className="prompt-card__text">{text}</span>
           </button>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

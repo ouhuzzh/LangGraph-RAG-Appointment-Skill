@@ -165,7 +165,7 @@ User
 - `project/api/`
   - FastAPI user-facing API, SSE chat endpoints, and frontend/backend split adapters
 - `frontend/`
-  - React/Vite user chat client
+  - React/Vite user chat client; `components/` holds UI pieces, `lib/` holds API/SSE helpers, and `constants/` holds shared frontend constants
 - `project/core/`
   - system bootstrap, chat interface, medical source import, observability, evaluation helpers
 - `project/rag_agent/`
@@ -202,6 +202,9 @@ project/
   api/                       # FastAPI endpoints for split frontend/backend mode
   benchmarks/                # retrieval, memory, route, answer-quality benchmarks
 frontend/                    # React/Vite user chat frontend
+  src/components/            # chat UI components
+  src/lib/                   # API and SSE helpers
+  src/constants/             # frontend constants and status mapping
 tests/                       # regression and integration tests
 docs/                        # setup notes and supplemental guides
 ```
