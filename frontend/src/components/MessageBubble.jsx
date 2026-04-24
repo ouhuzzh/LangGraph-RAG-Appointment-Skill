@@ -17,7 +17,7 @@ const MessageBubble = React.memo(function MessageBubble({
   isLastAssistant,
   onAction,
 }) {
-  const { role, content, timestamp } = message;
+  const { role, content, timestamp, interrupted } = message;
   const isUser = role === "user";
   const isAssistant = role === "assistant";
 
@@ -43,7 +43,7 @@ const MessageBubble = React.memo(function MessageBubble({
         </div>
         {timeStr && (
           <time className={`message__time message__time--${role}`} dateTime={new Date(timestamp).toISOString()}>
-            {timeStr}
+            {timeStr}{interrupted ? " · 已停止" : ""}
           </time>
         )}
         {showActionButtons && (

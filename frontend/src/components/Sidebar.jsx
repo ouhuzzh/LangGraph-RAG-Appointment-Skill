@@ -1,9 +1,11 @@
 import React from "react";
-import { Stethoscope, Activity, Database, Trash2, ExternalLink, X } from "lucide-react";
+import { Stethoscope, Activity, Database, MessageCircle, Trash2, ExternalLink, X } from "lucide-react";
 import StatusIndicator from "./StatusIndicator";
 
 const Sidebar = React.memo(function Sidebar({
   status,
+  activeView,
+  onNavigate,
   onClear,
   onRefresh,
   mobileOpen,
@@ -48,6 +50,25 @@ const Sidebar = React.memo(function Sidebar({
         </div>
 
         <div className="sidebar__status-group">
+          <nav className="sidebar-nav" aria-label="主导航">
+            <button
+              type="button"
+              className={`sidebar-nav__item${activeView === "chat" ? " sidebar-nav__item--active" : ""}`}
+              onClick={() => onNavigate("chat")}
+            >
+              <MessageCircle size={16} />
+              聊天咨询
+            </button>
+            <button
+              type="button"
+              className={`sidebar-nav__item${activeView === "documents" ? " sidebar-nav__item--active" : ""}`}
+              onClick={() => onNavigate("documents")}
+            >
+              <Database size={16} />
+              知识库文档
+            </button>
+          </nav>
+
           <StatusIndicator
             icon={Activity}
             label="系统状态"

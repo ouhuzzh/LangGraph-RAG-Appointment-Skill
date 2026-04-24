@@ -1,12 +1,17 @@
 export function openChatStream({
   url,
   onMessage,
+  onStatus,
   onFinal,
   onAppError,
   onConnectionError,
   doneRef,
 }) {
   const source = new EventSource(url);
+
+  source.addEventListener("status", (event) => {
+    onStatus?.(JSON.parse(event.data));
+  });
 
   source.addEventListener("message", (event) => {
     onMessage(JSON.parse(event.data));
@@ -35,4 +40,3 @@ export function openChatStream({
 
   return source;
 }
-

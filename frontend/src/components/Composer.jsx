@@ -8,6 +8,7 @@ const Composer = React.memo(function Composer({
   onStop,
   isStreaming,
   disabled,
+  streamState,
 }) {
   const textareaRef = useRef(null);
 
@@ -53,7 +54,7 @@ const Composer = React.memo(function Composer({
   }
 
   const placeholder = isStreaming
-    ? "AI 正在回复…"
+    ? (streamState === "thinking" ? "AI 正在思考…" : "AI 正在回复…")
     : "输入症状、医学问题或挂号需求… (Shift+Enter 换行)";
 
   return (
