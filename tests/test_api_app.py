@@ -1,6 +1,7 @@
 import sys
 import threading
 import unittest
+from tempfile import TemporaryDirectory
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "project"))
@@ -47,6 +48,15 @@ class FakeRagSystem:
     def reset_thread(self, thread_id=None):
         self.cleared.append(thread_id)
 
+    def record_import_event(self, event):
+        self.last_import_event = event
+
+    def refresh_knowledge_base_status(self):
+        return self.get_knowledge_base_status()
+
+    def start_knowledge_base_bootstrap(self):
+        self.bootstrap_started = True
+
 
 class FakeChatInterface:
     def __init__(self, rag_system):
@@ -69,21 +79,82 @@ class FakeChatInterface:
         self.rag_system.reset_thread(thread_id)
 
 
+class FakeSyncResult:
+    source = "nhc"
+    label = "国家卫健委同步"
+    written = 1
+    updated = 0
+    deactivated = 0
+    unchanged = 0
+
+    def to_event(self):
+        return {
+            "source": self.source,
+            "label": self.label,
+            "status": "completed",
+            "written": self.written,
+            "updated": self.updated,
+            "deactivated": self.deactivated,
+            "unchanged": self.unchanged,
+            "failed": 0,
+        }
+
+
+class FakeDocumentManager:
+    def __init__(self, temp_dir):
+        self.markdown_dir = Path(temp_dir)
+        (self.markdown_dir / "guide.md").write_text("# Guide\n", encoding="utf-8")
+        self.uploaded_paths = []
+        self.synced = []
+
+    def get_markdown_paths(self):
+        return sorted(self.markdown_dir.glob("*.md"))
+
+    def add_documents_with_report(self, paths):
+        self.uploaded_paths = [Path(path).name for path in paths]
+        return {
+            "processed": len(paths),
+            "added": len(paths),
+            "updated": 0,
+            "unchanged": 0,
+            "deactivated": 0,
+            "skipped": 0,
+            "failed": 0,
+            "sync_event": {
+                "source": "local",
+                "label": "本地文档同步",
+                "status": "completed",
+                "written": len(paths),
+                "updated": 0,
+                "deactivated": 0,
+                "unchanged": 0,
+                "failed": 0,
+            },
+        }
+
+    def sync_official_source(self, source, limit=10, trigger_type="manual"):
+        self.synced.append({"source": source, "limit": limit, "trigger_type": trigger_type})
+        return FakeSyncResult()
+
+
 class FakeContainer:
-    def __init__(self):
+    def __init__(self, temp_dir):
         self.rag_system = FakeRagSystem()
         self.chat_interface = FakeChatInterface(self.rag_system)
+        self.document_manager = FakeDocumentManager(temp_dir)
         self.chat_lock = threading.Lock()
 
 
 class ApiAppTests(unittest.TestCase):
     def setUp(self):
-        self.container = FakeContainer()
+        self.tmp = TemporaryDirectory()
+        self.container = FakeContainer(self.tmp.name)
         set_container_for_tests(self.container)
         self.client = TestClient(create_app())
 
     def tearDown(self):
         set_container_for_tests(None)
+        self.tmp.cleanup()
 
     def test_create_session_accepts_existing_thread_id(self):
         response = self.client.post("/api/chat/session", json={"thread_id": "thread-123"})
@@ -129,6 +200,43 @@ class ApiAppTests(unittest.TestCase):
         self.assertNotIn("event: error", body)
         self.assertIn("thread-stream", body)
         self.assertEqual(self.container.chat_interface.calls[0]["thread_id"], "thread-stream")
+
+    def test_documents_status_list_and_tasks_are_user_facing(self):
+        status_response = self.client.get("/api/documents/status")
+        list_response = self.client.get("/api/documents/list")
+        tasks_response = self.client.get("/api/documents/tasks")
+
+        self.assertEqual(status_response.status_code, 200)
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(tasks_response.status_code, 200)
+        self.assertEqual(list_response.json()["documents"][0]["name"], "guide.md")
+        self.assertEqual(tasks_response.json()["tasks"], [])
+
+    def test_documents_upload_records_import_event(self):
+        response = self.client.post(
+            "/api/documents/upload",
+            files=[("files", ("new-guide.md", b"# New Guide\n", "text/markdown"))],
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("已处理 1 个文件", data["message"])
+        self.assertEqual(self.container.document_manager.uploaded_paths, ["new-guide.md"])
+        self.assertEqual(self.container.rag_system.last_import_event["source"], "local")
+        self.assertTrue(self.container.rag_system.bootstrap_started)
+
+    def test_documents_sync_official_uses_document_manager(self):
+        response = self.client.post(
+            "/api/documents/sync-official",
+            json={"source": "nhc", "limit": 2},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("官方同步完成", response.json()["message"])
+        self.assertEqual(
+            self.container.document_manager.synced,
+            [{"source": "nhc", "limit": 2, "trigger_type": "manual"}],
+        )
 
 
 if __name__ == "__main__":

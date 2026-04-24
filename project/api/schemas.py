@@ -58,3 +58,38 @@ class ChatSseEvent(BaseModel):
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
     done: bool = False
     error: str = ""
+
+
+class DocumentItem(BaseModel):
+    name: str
+    file_type: str = "md"
+    size_bytes: int = 0
+    modified_at: str = ""
+
+
+class DocumentListResponse(BaseModel):
+    documents: list[DocumentItem] = Field(default_factory=list)
+
+
+class DocumentTaskListResponse(BaseModel):
+    tasks: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class DocumentStatusResponse(BaseModel):
+    knowledge_base: KnowledgeBaseStatusResponse
+    recent_tasks: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class DocumentUploadResponse(BaseModel):
+    message: str
+    report: dict[str, Any] = Field(default_factory=dict)
+
+
+class OfficialSyncRequest(BaseModel):
+    source: Literal["medlineplus", "nhc", "who"]
+    limit: int = Field(default=10, ge=1, le=50)
+
+
+class OfficialSyncResponse(BaseModel):
+    message: str
+    result: dict[str, Any] = Field(default_factory=dict)
