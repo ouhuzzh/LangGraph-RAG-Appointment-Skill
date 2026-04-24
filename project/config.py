@@ -80,6 +80,16 @@ KB_SYNC_OFFICIAL_SOURCES = [
 KB_SOFT_DELETE_MISSING = os.environ.get("KB_SOFT_DELETE_MISSING", "true").lower() == "true"
 KB_REPLACE_LOCAL_DUPLICATES = os.environ.get("KB_REPLACE_LOCAL_DUPLICATES", "true").lower() == "true"
 
+# --- API / Frontend Configuration ---
+API_CORS_ORIGINS = [
+    item.strip()
+    for item in os.environ.get(
+        "API_CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173",
+    ).split(",")
+    if item.strip()
+]
+
 # --- Redis Configuration ---
 REDIS_ENABLED = os.environ.get("REDIS_ENABLED", "true").lower() == "true"
 REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")

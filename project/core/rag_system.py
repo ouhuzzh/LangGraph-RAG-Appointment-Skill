@@ -330,19 +330,20 @@ class RAGSystem:
                         self._set_startup_step(key, "failed", f"失败：{exc}")
                 raise
 
-    def get_config(self):
-        cfg = {"configurable": {"thread_id": self.thread_id}, "recursion_limit": self.recursion_limit}
+    def get_config(self, thread_id=None):
+        cfg = {"configurable": {"thread_id": thread_id or self.thread_id}, "recursion_limit": self.recursion_limit}
         handler = self.observability.get_handler()
         if handler:
             cfg["callbacks"] = [handler]
         return cfg
 
-    def reset_thread(self):
-        old_thread_id = self.thread_id
+    def reset_thread(self, thread_id=None):
+        old_thread_id = thread_id or self.thread_id
         try:
-            self.agent_graph.checkpointer.delete_thread(self.thread_id)
+            self.agent_graph.checkpointer.delete_thread(old_thread_id)
         except Exception as e:
-            logger.warning("Could not delete thread %s: %s", self.thread_id, e)
+            logger.warning("Could not delete thread %s: %s", old_thread_id, e)
         self.session_memory.clear_session(old_thread_id)
         self.summary_store.clear_session(old_thread_id)
-        self.thread_id = str(uuid.uuid4())
+        if thread_id is None:
+            self.thread_id = str(uuid.uuid4())

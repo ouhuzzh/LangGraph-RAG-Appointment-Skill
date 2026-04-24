@@ -378,7 +378,13 @@ class ChatInterface:
             updated_state["pending_clarification"] = clarification_text or None
         return updated_state
 
-    def chat(self, message, history, reveal_diagnostics=False):
+    def _get_graph_config(self, thread_id: str):
+        try:
+            return self.rag_system.get_config(thread_id)
+        except TypeError:
+            return self.rag_system.get_config()
+
+    def chat(self, message, history, reveal_diagnostics=False, thread_id=None):
         """Generator that streams Gradio chat message dicts."""
         if not self.rag_system.agent_graph:
             readiness_getter = getattr(self.rag_system, "get_readiness_message", None)
@@ -388,17 +394,17 @@ class ChatInterface:
                 yield "系统正在准备中，请稍后再试。"
             return
 
-        graph_config  = self.rag_system.get_config()
+        active_thread_id = thread_id or self.rag_system.thread_id
+        graph_config  = self._get_graph_config(active_thread_id)
         current_state = self.rag_system.agent_graph.get_state(graph_config)
-        thread_id     = self.rag_system.thread_id
         user_message  = message.strip()
         request_id    = uuid.uuid4().hex
-        session_state = self.rag_system.session_memory.get_state(thread_id)
+        session_state = self.rag_system.session_memory.get_state(active_thread_id)
         checkpoint_resumed = bool(current_state.next)
 
         try:
             retrieval_context_token = set_retrieval_context(
-                thread_id=thread_id,
+                thread_id=active_thread_id,
                 original_query=user_message,
                 request_id=request_id,
             )
@@ -407,15 +413,15 @@ class ChatInterface:
                     graph_config,
                     {
                         "messages": [HumanMessage(content=user_message)],
-                        "thread_id": thread_id,
+                        "thread_id": active_thread_id,
                         "request_id": request_id,
                     },
                 )
                 stream_input = None
             else:
                 stored_messages = []
-                stored_messages = self.rag_system.session_memory.get_recent_messages(thread_id)
-                long_term_summary = self.rag_system.summary_store.get_summary(thread_id)
+                stored_messages = self.rag_system.session_memory.get_recent_messages(active_thread_id)
+                long_term_summary = self.rag_system.summary_store.get_summary(active_thread_id)
                 state_messages = self._build_state_messages(session_state)
                 if long_term_summary:
                     self.rag_system.agent_graph.update_state(
@@ -423,9 +429,9 @@ class ChatInterface:
                         {"conversation_summary": long_term_summary},
                     )
                 if session_state:
-                    self.rag_system.agent_graph.update_state(graph_config, self._graph_state_from_session(thread_id, session_state))
+                    self.rag_system.agent_graph.update_state(graph_config, self._graph_state_from_session(active_thread_id, session_state))
                 if not session_state:
-                    self.rag_system.agent_graph.update_state(graph_config, {"thread_id": thread_id})
+                    self.rag_system.agent_graph.update_state(graph_config, {"thread_id": active_thread_id})
                 stream_input = {
                     "messages": [*state_messages, *stored_messages, HumanMessage(content=user_message)],
                     "request_id": request_id,
@@ -454,15 +460,15 @@ class ChatInterface:
                     yield self._prepare_visible_messages(response_messages, reveal_diagnostics=reveal_diagnostics)
             combined_assistant_text = "\n\n".join(all_visible_assistant_texts) if all_visible_assistant_texts else final_assistant
             if combined_assistant_text:
-                recent_count = self.rag_system.session_memory.append_exchange(thread_id, user_message, combined_assistant_text)
+                recent_count = self.rag_system.session_memory.append_exchange(active_thread_id, user_message, combined_assistant_text)
                 if recent_count >= config.SUMMARY_REFRESH_THRESHOLD:
                     conversation_summary = latest_values.get("conversation_summary", "")
                     if conversation_summary:
-                        self.rag_system.summary_store.save_summary(thread_id, conversation_summary, recent_count)
+                        self.rag_system.summary_store.save_summary(active_thread_id, conversation_summary, recent_count)
 
             updated_state = self._resolved_session_state(latest_values, session_state, user_message, clarification_text)
             if updated_state != (session_state or {}):
-                self.rag_system.session_memory.set_state(thread_id, updated_state)
+                self.rag_system.session_memory.set_state(active_thread_id, updated_state)
 
             had_pending_state = bool(
                 (session_state or {}).get("pending_action_type")
@@ -474,7 +480,7 @@ class ChatInterface:
                 secondary_turn_executed = str(route_reason).startswith("resume_secondary:")
                 self.route_log_store.save_log(
                     {
-                        "thread_id": thread_id,
+                        "thread_id": active_thread_id,
                         "request_id": request_id,
                         "user_query": user_message,
                         "primary_intent": latest_values.get("primary_intent", updated_state.get("intent")) or "",
@@ -501,6 +507,6 @@ class ChatInterface:
         finally:
             reset_retrieval_context(locals().get("retrieval_context_token"))
 
-    def clear_session(self):
-        self.rag_system.reset_thread()
+    def clear_session(self, thread_id=None):
+        self.rag_system.reset_thread(thread_id)
         self.rag_system.observability.flush()

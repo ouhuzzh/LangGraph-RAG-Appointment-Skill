@@ -28,6 +28,12 @@
 你可以把它理解成：  
 **一个医疗 AI 助手产品原型，而不是单文件问答脚本。**
 
+现在项目也支持前后端分离的 v1 形态：
+
+- `frontend/` 是 React/Vite 用户聊天端
+- `project/api/` 是 FastAPI 后端 API
+- `project/ui/` 的 Gradio 继续作为文档管理和诊断后台
+
 ---
 
 ## 2. 先看哪些文件，最容易理解项目
@@ -35,27 +41,33 @@
 如果你想快速建立整体认识，建议按这个顺序读：
 
 1. `D:\nageoffer\agentic-rag-for-dummies\project\app.py`  
-   程序入口。
+   Gradio 后台入口。
 
-2. `D:\nageoffer\agentic-rag-for-dummies\project\ui\gradio_app.py`  
-   Gradio 页面怎么搭起来，用户怎么输入消息。
+2. `D:\nageoffer\agentic-rag-for-dummies\project\api_app.py` 和 `D:\nageoffer\agentic-rag-for-dummies\project\api\app.py`  
+   前后端分离模式下的 FastAPI 用户端入口。
 
-3. `D:\nageoffer\agentic-rag-for-dummies\project\core\chat_interface.py`  
+3. `D:\nageoffer\agentic-rag-for-dummies\frontend\src\App.jsx`  
+   React 用户聊天端，负责 thread_id 持久化、SSE 接收和消息渲染。
+
+4. `D:\nageoffer\agentic-rag-for-dummies\project\ui\gradio_app.py`  
+   Gradio 后台页面，负责文档管理、官方同步和诊断查看。
+
+5. `D:\nageoffer\agentic-rag-for-dummies\project\core\chat_interface.py`  
    UI 和后端图之间的桥梁，是“请求总编排器”。
 
-4. `D:\nageoffer\agentic-rag-for-dummies\project\rag_agent\graph.py`  
+6. `D:\nageoffer\agentic-rag-for-dummies\project\rag_agent\graph.py`  
    主图和子图怎么连接。
 
-5. `D:\nageoffer\agentic-rag-for-dummies\project\rag_agent\routing_nodes.py`  
+7. `D:\nageoffer\agentic-rag-for-dummies\project\rag_agent\routing_nodes.py`  
    路由、复合请求拆分、澄清恢复的图节点入口。
 
-6. `D:\nageoffer\agentic-rag-for-dummies\project\rag_agent\rag_nodes.py` 和 `D:\nageoffer\agentic-rag-for-dummies\project\rag_agent\tools.py`  
+8. `D:\nageoffer\agentic-rag-for-dummies\project\rag_agent\rag_nodes.py` 和 `D:\nageoffer\agentic-rag-for-dummies\project\rag_agent\tools.py`  
    RAG 真正怎么检索、怎么打分、怎么兜底。
 
-7. `D:\nageoffer\agentic-rag-for-dummies\project\rag_agent\appointment_nodes.py` 和 `D:\nageoffer\agentic-rag-for-dummies\project\services\appointment_skill\skill.py`  
+9. `D:\nageoffer\agentic-rag-for-dummies\project\rag_agent\appointment_nodes.py` 和 `D:\nageoffer\agentic-rag-for-dummies\project\services\appointment_skill\skill.py`  
    挂号领域能力的统一入口。
 
-8. `D:\nageoffer\agentic-rag-for-dummies\project\services\appointment_service.py`  
+10. `D:\nageoffer\agentic-rag-for-dummies\project\services\appointment_service.py`  
    数据库事务层，最终怎么创建预约、取消预约、改约。
 
 如果只想先看图编排，就看 `graph.py`；如果想理解行为，就按 `routing_nodes.py -> appointment_nodes.py / rag_nodes.py -> tools.py` 的顺序看。
@@ -71,6 +83,9 @@
 - `project/`  
   主要代码都在这里。
 
+- `frontend/`  
+  React/Vite 用户聊天端，和 FastAPI 通过 HTTP/SSE 通信。
+
 - `docs/`  
   文档说明，比如导入资料、评估、Postgres 配置。
 
@@ -80,7 +95,10 @@
 - `tests/`  
   自动化测试。现在已经覆盖了预约、RAG、路由、导入、评估等主流程。
 
-`project/` 下面再分 7 个子域：
+`project/` 下面再分 8 个子域：
+
+- `project/api/`  
+  FastAPI API 层，负责用户端会话、状态和 SSE 聊天接口。
 
 - `project/core/`  
   系统总编排，比如 `RAGSystem`、`ChatInterface`、文档管理器。
@@ -111,7 +129,9 @@
 
 ```mermaid
 flowchart TD
-    A["UI: gradio_app.py"] --> B["编排层: chat_interface.py"]
+    A["用户端: React/Vite frontend"] --> I["API: FastAPI + SSE"]
+    J["后台: gradio_app.py"] --> B["编排层: chat_interface.py"]
+    I --> B
     B --> C["主图: graph.py + nodes.py + edges.py"]
     C --> D["RAG 工具层: tools.py"]
     C --> E["预约领域层: appointment_skill + appointment_service"]

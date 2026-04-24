@@ -8,7 +8,9 @@
 ![LangGraph](https://img.shields.io/badge/LangGraph-stateful%20workflow-1f6feb)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-pgvector-4169E1?logo=postgresql&logoColor=white)
 ![Redis](https://img.shields.io/badge/Redis-session%20memory-DC382D?logo=redis&logoColor=white)
-![Gradio](https://img.shields.io/badge/UI-Gradio-F97316)
+![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/Frontend-React%20%2B%20Vite-61DAFB?logo=react&logoColor=111827)
+![Gradio](https://img.shields.io/badge/Admin-Gradio-F97316)
 [![License: MIT](https://img.shields.io/badge/License-MIT-2ea043.svg)](LICENSE)
 ![Prompt Tokens](https://img.shields.io/badge/Prompt%20Tokens%20P95--27.4%25-0f766e)
 ![Precision@5](https://img.shields.io/badge/Precision%405-0.83-1d4ed8)
@@ -160,6 +162,10 @@ User
 
 ### Key backend areas
 
+- `project/api/`
+  - FastAPI user-facing API, SSE chat endpoints, and frontend/backend split adapters
+- `frontend/`
+  - React/Vite user chat client
 - `project/core/`
   - system bootstrap, chat interface, medical source import, observability, evaluation helpers
 - `project/rag_agent/`
@@ -178,7 +184,7 @@ User
 - **Orchestration**: LangGraph, LangChain
 - **LLM / embeddings**: OpenAI-compatible providers, DeepSeek, Ollama-compatible setups
 - **Storage**: PostgreSQL, pgvector, Redis
-- **Interface**: Gradio
+- **Interface**: FastAPI + React/Vite user frontend, Gradio admin/debug console
 - **Evaluation**: in-repo benchmark and regression scripts
 
 ## Project Structure
@@ -193,7 +199,9 @@ project/
   db/                        # schema helpers, vector store, route/retrieval logs
   memory/                    # Redis session memory and summaries
   ui/                        # Gradio app and styling
+  api/                       # FastAPI endpoints for split frontend/backend mode
   benchmarks/                # retrieval, memory, route, answer-quality benchmarks
+frontend/                    # React/Vite user chat frontend
 tests/                       # regression and integration tests
 docs/                        # setup notes and supplemental guides
 ```
@@ -228,7 +236,7 @@ You will typically need:
 - **Redis**
 - one configured LLM / embedding provider
 
-### 4. Launch the app
+### 4. Launch the Gradio admin app
 
 ```powershell
 .\venv\Scripts\python.exe project\app.py
@@ -237,6 +245,44 @@ You will typically need:
 Open:
 
 - [http://localhost:7860](http://localhost:7860)
+
+### 5. Launch the separated API and frontend
+
+One-command Windows startup:
+
+```powershell
+.\start_frontend_app.ps1
+```
+
+Open:
+
+- [http://127.0.0.1:5173](http://127.0.0.1:5173)
+
+Manual startup is also available.
+
+Run the FastAPI backend:
+
+```powershell
+.\venv\Scripts\python.exe project\api_app.py
+```
+
+OpenAPI docs:
+
+- [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+
+Run the React/Vite frontend in another terminal:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Open:
+
+- [http://127.0.0.1:5173](http://127.0.0.1:5173)
+
+The React frontend is the user-facing chat client. The Gradio app remains useful for document management, official source sync, and diagnostics.
 
 ## Testing and Benchmarks
 
