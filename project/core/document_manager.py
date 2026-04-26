@@ -4,6 +4,11 @@ import shutil
 import config
 from core.document_parsers import supported_upload_extensions, unstructured_to_markdown
 from core.knowledge_base_sync import KnowledgeBaseSyncService
+from core.medical_source_ingest import (
+    NhcPdfWhitelistImporter,
+    WhoHtmlWhitelistImporter,
+)
+from core.official_source_profiles import list_official_source_profiles
 from utils import clear_directory_contents, pdf_to_markdown
 
 
@@ -28,6 +33,41 @@ class DocumentManager:
             "local_markdown_files": len(markdown_paths),
             "local_markdown_names": [path.name for path in markdown_paths],
         }
+
+    def get_official_source_coverage(self):
+        """Return user-facing coverage notes for official source sync.
+
+        WHO/NHC are intentionally curated manifests in this demo project; this
+        makes that scope visible instead of looking like the sync button is
+        broken or empty.
+        """
+        markdown_names = [path.name for path in self.get_markdown_paths()]
+
+        def count_prefix(prefix: str) -> int:
+            return sum(1 for name in markdown_names if name.startswith(prefix))
+
+        manifest_counts = {"medlineplus": None}
+        try:
+            manifest_counts["nhc"] = len(NhcPdfWhitelistImporter().load_manifest())
+        except Exception:
+            logger.warning("Failed to load NHC whitelist manifest", exc_info=True)
+            manifest_counts["nhc"] = 0
+        try:
+            manifest_counts["who"] = len(WhoHtmlWhitelistImporter().load_manifest())
+        except Exception:
+            logger.warning("Failed to load WHO whitelist manifest", exc_info=True)
+            manifest_counts["who"] = 0
+
+        coverage = []
+        for profile in list_official_source_profiles():
+            data = profile.to_dict(
+                manifest_count=manifest_counts.get(profile.source),
+                local_file_count=count_prefix(profile.source_prefix),
+            )
+            if data["manifest_count"] is not None:
+                data["coverage_note"] = f"当前内置 {data['manifest_count']} 条。{data['coverage_note']}"
+            coverage.append(data)
+        return coverage
 
     def _index_markdown_paths(self, markdown_paths, progress_callback=None, skip_existing=True):
         markdown_paths = [Path(path) for path in markdown_paths if path]

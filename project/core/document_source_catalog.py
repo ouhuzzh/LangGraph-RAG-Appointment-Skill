@@ -1,28 +1,30 @@
 import json
 from pathlib import Path
 
+from core.official_source_profiles import OFFICIAL_SOURCE_PROFILES
+
 
 OFFICIAL_MEDICAL_SOURCES = [
     {
         "id": "medlineplus_health_topics_xml",
         "title": "MedlinePlus Health Topic XML",
-        "provider": "U.S. National Library of Medicine",
-        "language": "en",
-        "content_type": "patient_education",
+        "provider": OFFICIAL_SOURCE_PROFILES["medlineplus"].provider,
+        "language": OFFICIAL_SOURCE_PROFILES["medlineplus"].language,
+        "content_type": OFFICIAL_SOURCE_PROFILES["medlineplus"].source_type,
         "format": "xml",
-        "url": "https://medlineplus.gov/xml.html",
-        "reuse_notes": "官方提供批量 XML 下载，适合患者向知识库。",
+        "url": OFFICIAL_SOURCE_PROFILES["medlineplus"].catalog_url,
+        "reuse_notes": OFFICIAL_SOURCE_PROFILES["medlineplus"].scope_note,
         "recommended": True,
     },
     {
         "id": "who_health_topics",
         "title": "WHO Health Topics / Fact Sheets",
-        "provider": "World Health Organization",
-        "language": "en",
-        "content_type": "public_health",
+        "provider": OFFICIAL_SOURCE_PROFILES["who"].provider,
+        "language": OFFICIAL_SOURCE_PROFILES["who"].language,
+        "content_type": OFFICIAL_SOURCE_PROFILES["who"].source_type,
         "format": "html",
-        "url": "https://www.who.int/health-topics/",
-        "reuse_notes": "适合做公共卫生与疾病基础说明，需要保留来源和抓取时间。",
+        "url": OFFICIAL_SOURCE_PROFILES["who"].catalog_url,
+        "reuse_notes": OFFICIAL_SOURCE_PROFILES["who"].scope_note,
         "recommended": True,
     },
     {
@@ -39,12 +41,12 @@ OFFICIAL_MEDICAL_SOURCES = [
     {
         "id": "nhc_guidelines",
         "title": "国家卫生健康委诊疗指南",
-        "provider": "国家卫生健康委员会",
-        "language": "zh",
-        "content_type": "clinical_guideline",
+        "provider": OFFICIAL_SOURCE_PROFILES["nhc"].provider,
+        "language": OFFICIAL_SOURCE_PROFILES["nhc"].language,
+        "content_type": OFFICIAL_SOURCE_PROFILES["nhc"].source_type,
         "format": "pdf/html",
-        "url": "https://www.nhc.gov.cn/",
-        "reuse_notes": "适合中文临床指南，需要做 PDF 解析和版本管理。",
+        "url": OFFICIAL_SOURCE_PROFILES["nhc"].catalog_url,
+        "reuse_notes": OFFICIAL_SOURCE_PROFILES["nhc"].scope_note,
         "recommended": True,
     },
     {

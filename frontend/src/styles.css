@@ -1204,6 +1204,13 @@ button:disabled {
   color: #172126;
 }
 
+.sync-hint {
+  margin: 10px 0 0;
+  color: var(--slate-500);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .document-alert {
   display: flex;
   justify-content: space-between;
@@ -1256,7 +1263,8 @@ button:disabled {
 }
 
 .document-list,
-.task-list {
+.task-list,
+.source-coverage-list {
   display: grid;
   max-height: 280px;       /* 约 4-5 行后出现滚动条 */
   overflow-y: auto;
@@ -1265,18 +1273,21 @@ button:disabled {
 }
 
 .document-list::-webkit-scrollbar,
-.task-list::-webkit-scrollbar {
+.task-list::-webkit-scrollbar,
+.source-coverage-list::-webkit-scrollbar {
   width: 4px;
 }
 
 .document-list::-webkit-scrollbar-thumb,
-.task-list::-webkit-scrollbar-thumb {
+.task-list::-webkit-scrollbar-thumb,
+.source-coverage-list::-webkit-scrollbar-thumb {
   background: var(--teal-100);
   border-radius: 99px;
 }
 
 .document-row,
-.task-row {
+.task-row,
+.source-coverage-card {
   display: flex;
   gap: 12px;
   padding: 14px 16px;
@@ -1284,7 +1295,8 @@ button:disabled {
 }
 
 .document-row:last-child,
-.task-row:last-child {
+.task-row:last-child,
+.source-coverage-card:last-child {
   border-bottom: 0;
 }
 
@@ -1306,10 +1318,52 @@ button:disabled {
 }
 
 .document-row p,
-.task-row p {
+.task-row p,
+.source-coverage-card p {
   margin: 4px 0 0;
   color: var(--slate-500);
   font-size: 13px;
+  line-height: 1.6;
+}
+
+.source-coverage-card {
+  display: grid;
+}
+
+.source-coverage-card__head,
+.source-coverage-card__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.source-coverage-card__head strong {
+  color: #172126;
+  font-size: 14px;
+}
+
+.source-coverage-card__head span,
+.source-coverage-card__metrics span {
+  color: var(--slate-500);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.source-coverage-card__metrics {
+  justify-content: flex-start;
+}
+
+.source-coverage-card__metrics span {
+  border-radius: 999px;
+  background: var(--teal-50);
+  color: var(--teal-700);
+  padding: 4px 8px;
+}
+
+.source-coverage-card__next {
+  color: var(--slate-600) !important;
 }
 
 .empty-panel {

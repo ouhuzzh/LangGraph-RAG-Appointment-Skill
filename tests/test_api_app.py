@@ -136,6 +136,17 @@ class FakeDocumentManager:
         self.synced.append({"source": source, "limit": limit, "trigger_type": trigger_type})
         return FakeSyncResult()
 
+    def get_official_source_coverage(self):
+        return [
+            {
+                "source": "nhc",
+                "label": "国家卫健委",
+                "manifest_count": 4,
+                "local_file_count": 1,
+                "coverage_note": "测试覆盖度说明",
+            }
+        ]
+
 
 class FakeContainer:
     def __init__(self, temp_dir):
@@ -211,6 +222,13 @@ class ApiAppTests(unittest.TestCase):
         self.assertEqual(tasks_response.status_code, 200)
         self.assertEqual(list_response.json()["documents"][0]["name"], "guide.md")
         self.assertEqual(tasks_response.json()["tasks"], [])
+        self.assertEqual(status_response.json()["source_coverage"][0]["source"], "nhc")
+
+    def test_documents_sources_returns_official_source_coverage(self):
+        response = self.client.get("/api/documents/sources")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["sources"][0]["manifest_count"], 4)
 
     def test_documents_upload_records_import_event(self):
         response = self.client.post(

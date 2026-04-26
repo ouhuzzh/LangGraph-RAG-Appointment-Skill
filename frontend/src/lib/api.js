@@ -87,6 +87,10 @@ export function fetchDocumentTasks(apiBaseUrl, onFallback) {
   return apiFetchJson("/api/documents/tasks", undefined, apiBaseUrl, onFallback);
 }
 
+export function fetchDocumentSources(apiBaseUrl, onFallback) {
+  return apiFetchJson("/api/documents/sources", undefined, apiBaseUrl, onFallback);
+}
+
 export function uploadDocuments(apiBaseUrl, onFallback, files) {
   const formData = new FormData();
   Array.from(files || []).forEach((file) => formData.append("files", file));

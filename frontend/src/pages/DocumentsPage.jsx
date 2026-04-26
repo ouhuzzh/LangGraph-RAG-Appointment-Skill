@@ -1,9 +1,9 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Database, FileText, RefreshCw, UploadCloud } from "lucide-react";
 import { statusTone } from "../constants/app";
 import StatusIndicator from "../components/StatusIndicator";
 
-const OFFICIAL_SOURCES = [
+const FALLBACK_OFFICIAL_SOURCES = [
   { value: "medlineplus", label: "MedlinePlus" },
   { value: "nhc", label: "国家卫健委" },
   { value: "who", label: "WHO" },
@@ -26,6 +26,7 @@ export default function DocumentsPage({
   const {
     documents,
     tasks,
+    sourceCoverage,
     documentStatus,
     isLoading,
     isWorking,
@@ -45,6 +46,25 @@ export default function DocumentsPage({
     { label: "片段", value: stats.child_chunks ?? 0 },
     { label: "本地文件", value: stats.local_markdown_files ?? documents.length },
   ];
+  const sourceOptions = useMemo(() => {
+    if (!sourceCoverage.length) return FALLBACK_OFFICIAL_SOURCES;
+    return sourceCoverage.map((item) => ({
+      value: item.source,
+      label: item.label,
+      defaultLimit: item.default_limit,
+      maxLimit: item.max_limit,
+    }));
+  }, [sourceCoverage]);
+  const selectedCoverage = sourceCoverage.find((item) => item.source === source);
+
+  function handleSourceChange(event) {
+    const nextSource = event.target.value;
+    setSource(nextSource);
+    const option = sourceCoverage.find((item) => item.source === nextSource);
+    if (option?.default_limit) {
+      setLimit(option.default_limit);
+    }
+  }
 
   async function handleUpload(event) {
     const files = event.target.files;
@@ -129,15 +149,15 @@ export default function DocumentsPage({
             手动拉取官方来源的当前资料，适合面试演示“知识库可更新化”。
           </p>
           <div className="sync-form">
-            <select value={source} onChange={(e) => setSource(e.target.value)}>
-              {OFFICIAL_SOURCES.map((item) => (
+            <select value={source} onChange={handleSourceChange}>
+              {sourceOptions.map((item) => (
                 <option key={item.value} value={item.value}>{item.label}</option>
               ))}
             </select>
             <input
               type="number"
               min="1"
-              max="50"
+              max={selectedCoverage?.max_limit ?? 50}
               value={limit}
               onChange={(e) => setLimit(Number(e.target.value))}
             />
@@ -150,7 +170,41 @@ export default function DocumentsPage({
               同步
             </button>
           </div>
+          {selectedCoverage?.scope_note && (
+            <p className="sync-hint">{selectedCoverage.scope_note}</p>
+          )}
         </div>
+      </div>
+
+      <div className="document-section">
+        <div className="document-section__head">
+          <h3>官方来源覆盖度</h3>
+          <span>{sourceCoverage.length} 个来源</span>
+        </div>
+        {sourceCoverage.length === 0 ? (
+          <div className="empty-panel">暂时无法读取官方来源覆盖度。</div>
+        ) : (
+          <div className="source-coverage-list">
+            {sourceCoverage.map((item) => (
+              <article className="source-coverage-card" key={item.source}>
+                <div className="source-coverage-card__head">
+                  <strong>{item.label}</strong>
+                  <span>{item.language} · {item.source_type}</span>
+                </div>
+                <div className="source-coverage-card__metrics">
+                  <span>本地 {item.local_file_count ?? 0}</span>
+                  <span>
+                    {item.manifest_count == null
+                      ? `可批量同步，单次上限 ${item.max_limit ?? 50}`
+                      : `内置清单 ${item.manifest_count} 条`}
+                  </span>
+                </div>
+                <p>{item.coverage_note || item.scope_note}</p>
+                {item.next_step && <p className="source-coverage-card__next">下一步：{item.next_step}</p>}
+              </article>
+            ))}
+          </div>
+        )}
       </div>
 
       {(message || error) && (

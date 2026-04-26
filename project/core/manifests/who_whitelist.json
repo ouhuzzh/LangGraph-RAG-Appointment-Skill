@@ -19,5 +19,68 @@
     "document_type": "public_health",
     "url": "https://www.who.int/news-room/fact-sheets/detail/hypertension",
     "tags": ["cardiovascular", "hypertension", "fact-sheet"]
+  },
+  {
+    "id": "who-headache-disorders",
+    "title": "Migraine and other headache disorders",
+    "document_type": "public_health",
+    "url": "https://www.who.int/news-room/fact-sheets/detail/headache-disorders",
+    "tags": ["neurology", "headache", "migraine", "fact-sheet"]
+  },
+  {
+    "id": "who-copd",
+    "title": "Chronic obstructive pulmonary disease (COPD)",
+    "document_type": "public_health",
+    "url": "https://www.who.int/news-room/fact-sheets/detail/chronic-obstructive-pulmonary-disease-%28copd%29",
+    "tags": ["respiratory", "copd", "fact-sheet"]
+  },
+  {
+    "id": "who-obesity-overweight",
+    "title": "Obesity and overweight",
+    "document_type": "public_health",
+    "url": "https://www.who.int/news-room/fact-sheets/detail/obesity-and-overweight",
+    "tags": ["metabolic", "obesity", "nutrition", "fact-sheet"]
+  },
+  {
+    "id": "who-healthy-diet",
+    "title": "Healthy diet",
+    "document_type": "public_health",
+    "url": "https://www.who.int/news-room/fact-sheets/detail/healthy-diet",
+    "tags": ["nutrition", "diet", "prevention", "fact-sheet"]
+  },
+  {
+    "id": "who-depression",
+    "title": "Depressive disorder (depression)",
+    "document_type": "public_health",
+    "url": "https://www.who.int/news-room/fact-sheets/detail/depression",
+    "tags": ["mental-health", "depression", "fact-sheet"]
+  },
+  {
+    "id": "who-mental-disorders",
+    "title": "Mental disorders",
+    "document_type": "public_health",
+    "url": "https://www.who.int/news-room/fact-sheets/detail/mental-disorders",
+    "tags": ["mental-health", "fact-sheet"]
+  },
+  {
+    "id": "who-tuberculosis",
+    "title": "Tuberculosis",
+    "document_type": "public_health",
+    "url": "https://www.who.int/news-room/fact-sheets/detail/tuberculosis",
+    "tags": ["infectious-disease", "tuberculosis", "fact-sheet"]
+  },
+  {
+    "id": "who-cancer",
+    "title": "Cancer",
+    "document_type": "public_health",
+    "url": "https://www.who.int/news-room/fact-sheets/detail/cancer",
+    "tags": ["oncology", "cancer", "fact-sheet"]
+  },
+  {
+    "id": "who-noncommunicable-diseases",
+    "title": "Noncommunicable diseases",
+    "document_type": "public_health",
+    "url": "https://www.who.int/news-room/fact-sheets/detail/noncommunicable-diseases",
+    "tags": ["ncd", "chronic-disease", "fact-sheet"]
   }
 ]

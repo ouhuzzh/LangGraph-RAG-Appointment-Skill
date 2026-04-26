@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   fetchDocumentList,
+  fetchDocumentSources,
   fetchDocumentTasks,
   fetchDocumentsStatus,
   syncOfficialDocuments,
@@ -10,6 +11,7 @@ import {
 export function useDocuments({ apiBaseUrl, setApiBaseUrl, refreshStatus }) {
   const [documents, setDocuments] = useState([]);
   const [tasks, setTasks] = useState([]);
+  const [sourceCoverage, setSourceCoverage] = useState([]);
   const [documentStatus, setDocumentStatus] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isWorking, setIsWorking] = useState(false);
@@ -19,14 +21,16 @@ export function useDocuments({ apiBaseUrl, setApiBaseUrl, refreshStatus }) {
   const refreshDocuments = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [statusData, listData, taskData] = await Promise.all([
+      const [statusData, listData, taskData, sourceData] = await Promise.all([
         fetchDocumentsStatus(apiBaseUrl, setApiBaseUrl),
         fetchDocumentList(apiBaseUrl, setApiBaseUrl),
         fetchDocumentTasks(apiBaseUrl, setApiBaseUrl),
+        fetchDocumentSources(apiBaseUrl, setApiBaseUrl),
       ]);
       setDocumentStatus(statusData.knowledge_base);
       setDocuments(listData.documents || []);
       setTasks(taskData.tasks || statusData.recent_tasks || []);
+      setSourceCoverage(sourceData.sources || statusData.source_coverage || []);
       setError("");
     } catch {
       setError("知识库信息暂时无法读取。");
@@ -75,6 +79,7 @@ export function useDocuments({ apiBaseUrl, setApiBaseUrl, refreshStatus }) {
   return {
     documents,
     tasks,
+    sourceCoverage,
     documentStatus,
     isLoading,
     isWorking,

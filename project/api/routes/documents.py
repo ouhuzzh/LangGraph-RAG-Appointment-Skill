@@ -10,6 +10,7 @@ from api.dependencies import get_container
 from api.schemas import (
     DocumentItem,
     DocumentListResponse,
+    DocumentSourceCoverageResponse,
     DocumentStatusResponse,
     DocumentTaskListResponse,
     DocumentUploadResponse,
@@ -38,6 +39,17 @@ def _recent_tasks(container) -> list[dict]:
     return list(stats.get("recent_imports") or [])
 
 
+def _source_coverage(container) -> list[dict]:
+    getter = getattr(container.document_manager, "get_official_source_coverage", None)
+    if not callable(getter):
+        return []
+    try:
+        return list(getter())
+    except Exception:
+        logger.warning("Failed to read official source coverage", exc_info=True)
+        return []
+
+
 def _safe_upload_name(filename: str) -> str:
     name = Path(filename or "").name.strip()
     if not name:
@@ -51,6 +63,7 @@ def documents_status():
     return DocumentStatusResponse(
         knowledge_base=_knowledge_response(container),
         recent_tasks=_recent_tasks(container),
+        source_coverage=_source_coverage(container),
     )
 
 
@@ -76,6 +89,12 @@ def documents_list():
 def documents_tasks():
     container = get_container()
     return DocumentTaskListResponse(tasks=_recent_tasks(container))
+
+
+@router.get("/sources", response_model=DocumentSourceCoverageResponse)
+def documents_sources():
+    container = get_container()
+    return DocumentSourceCoverageResponse(sources=_source_coverage(container))
 
 
 @router.post("/upload", response_model=DocumentUploadResponse)

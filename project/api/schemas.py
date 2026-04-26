@@ -75,9 +75,14 @@ class DocumentTaskListResponse(BaseModel):
     tasks: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class DocumentSourceCoverageResponse(BaseModel):
+    sources: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class DocumentStatusResponse(BaseModel):
     knowledge_base: KnowledgeBaseStatusResponse
     recent_tasks: list[dict[str, Any]] = Field(default_factory=list)
+    source_coverage: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class DocumentUploadResponse(BaseModel):
