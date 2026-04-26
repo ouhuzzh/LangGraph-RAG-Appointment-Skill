@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 SILENT_NODES = {
     "rewrite_query",
     "intent_router",
+    "plan_retrieval_queries",
     "grounded_answer_generation",
     "answer_grounding_check",
 }
@@ -23,14 +24,21 @@ APPOINTMENT_UPDATE_HINTS = ("改", "换", "预约", "挂号", "医生", "科", "
 CANCEL_UPDATE_HINTS = ("取消", "退号", "预约号", "第", "appointment", "cancel")
 PENDING_ACK_HINTS = ("可以", "好的", "行", "好", "ok", "okay")
 MEDICAL_KB_HINTS = (
-    "高血压", "糖尿病", "感冒", "发烧", "头晕", "咳嗽", "腹痛", "胃痛", "胸闷", "胸痛",
-    "呼吸困难", "肺炎", "哮喘", "鼻炎", "胃炎", "肠胃炎", "血压", "血糖", "症状", "治疗",
+    "高血压", "糖尿病", "感冒", "发烧", "发热", "低烧", "高烧", "头疼", "头痛", "偏头痛",
+    "头晕", "眩晕", "咳嗽", "咳痰", "咽痛", "嗓子疼", "喉咙痛", "流鼻涕", "鼻塞",
+    "腹痛", "肚子疼", "胃痛", "腹泻", "拉肚子", "便秘", "恶心", "呕吐", "胸闷", "胸痛",
+    "心悸", "心慌", "乏力", "呼吸困难", "气短", "肺炎", "哮喘", "鼻炎", "胃炎", "肠胃炎",
+    "血压", "血糖", "症状", "治疗", "检查", "药", "用药", "疼", "痛", "不舒服",
     "hypertension", "diabetes", "fever", "cough", "dizziness", "symptom", "treatment",
 )
 MEDICAL_KB_QUESTION_HINTS = (
     "是什么", "怎么回事", "为什么", "原因", "症状", "表现", "怎么办", "如何", "怎么处理",
     "怎么缓解", "严重吗", "会不会", "会引起", "会导致", "能不能", "可以吗", "要不要",
     "治疗", "预防", "what is", "why", "how to", "symptoms", "treatment",
+)
+MEDICAL_FALLBACK_DANGER_HINTS = (
+    "胸痛", "胸闷", "呼吸困难", "气短", "意识模糊", "抽搐", "晕厥", "剧烈", "突然",
+    "持续加重", "大出血", "高热", "肢体无力", "视物模糊",
 )
 
 SYSTEM_NODE_CONFIG = {
@@ -286,6 +294,33 @@ class ChatInterface:
         return has_term and has_question
 
     @staticmethod
+    def _looks_like_health_related_message(user_message: str) -> bool:
+        normalized = (user_message or "").strip().lower()
+        if not normalized:
+            return False
+        if ChatInterface._looks_like_department_question(user_message):
+            return True
+        return any(token in normalized for token in MEDICAL_KB_HINTS)
+
+    @staticmethod
+    def _build_chat_failure_fallback(user_message: str) -> str:
+        normalized = (user_message or "").strip().lower()
+        if ChatInterface._looks_like_health_related_message(user_message):
+            danger_note = (
+                "如果出现胸痛、呼吸困难、意识模糊、肢体无力、剧烈或突然加重的疼痛、持续高热等情况，请尽快线下就医或急诊处理。"
+                if any(token in normalized for token in MEDICAL_FALLBACK_DANGER_HINTS)
+                else "如果症状持续不缓解、反复加重，或伴随明显异常表现，建议及时线下就医。"
+            )
+            return (
+                "刚才系统的检索/模型链路有点不稳定，我先给你一个**通用医学信息层面**的建议：\n\n"
+                "- 先观察症状的程度、持续时间，以及是否伴随发热、呕吐、呼吸不适、胸痛、肢体无力等危险信号。\n"
+                "- 症状轻微时，可以先休息、补水，避免熬夜、饮酒和明显诱发因素；不要自行叠加或加量用药。\n"
+                f"- {danger_note}\n\n"
+                "这次回答**未充分基于知识库检索结果**，仅供一般健康信息参考，不能替代医生面对面诊断。你也可以再发一次问题，我会继续帮你细化。"
+            )
+        return "刚才聊天链路短暂不稳定，但我还在。你可以再发一次问题，我会继续帮你处理。"
+
+    @staticmethod
     def _infer_risk_level(user_message: str, existing_state: dict):
         normalized = (user_message or "").strip().lower()
         if any(keyword.lower() in normalized for keyword in config.HIGH_RISK_KEYWORDS):
@@ -458,6 +493,10 @@ class ChatInterface:
                     response_messages.append(make_message(final_from_state))
                     final_assistant = final_from_state
                     yield self._prepare_visible_messages(response_messages, reveal_diagnostics=reveal_diagnostics)
+            if not final_assistant:
+                final_assistant = self._build_chat_failure_fallback(user_message)
+                response_messages.append(make_message(final_assistant))
+                yield self._prepare_visible_messages(response_messages, reveal_diagnostics=reveal_diagnostics)
             combined_assistant_text = "\n\n".join(all_visible_assistant_texts) if all_visible_assistant_texts else final_assistant
             if combined_assistant_text:
                 recent_count = self.rag_system.session_memory.append_exchange(active_thread_id, user_message, combined_assistant_text)
@@ -503,7 +542,7 @@ class ChatInterface:
 
         except Exception as e:
             logger.exception("Chat turn failed for request_id=%s", request_id)
-            yield f"❌ Error: {str(e)}"
+            yield self._build_chat_failure_fallback(user_message)
         finally:
             reset_retrieval_context(locals().get("retrieval_context_token"))
 

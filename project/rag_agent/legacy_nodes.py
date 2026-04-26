@@ -35,6 +35,19 @@ from rag_agent.tools import plan_queries, ground_answer
 
 logger = logging.getLogger(__name__)
 
+
+def _structured_output_llm(llm, schema, *, temperature: float = 0.1, max_tokens: int | None = None):
+    """Create a structured-output runnable with conservative limits when supported."""
+    base = llm.with_config(temperature=temperature)
+    token_limit = max_tokens if max_tokens is not None else getattr(config, "LLM_STRUCTURED_MAX_TOKENS", 384)
+    if token_limit and token_limit > 0:
+        try:
+            return base.bind(max_tokens=token_limit).with_structured_output(schema)
+        except Exception:
+            logger.debug("Structured LLM max_tokens binding is not supported; using unbound model.", exc_info=True)
+    return base.with_structured_output(schema)
+
+
 _TIME_RE = re.compile(r"(\d{1,2})[:：点时]")
 _YEAR_DATE_RE = re.compile(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]?")
 _MONTH_DAY_RE = re.compile(r"(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]?")
@@ -62,8 +75,11 @@ _MEDICAL_FOLLOW_UP_HINTS = (
     "what about", "does that", "is that", "should i", "what should",
 )
 _MEDICAL_TERMS = (
-    "高血压", "糖尿病", "感冒", "发烧", "头晕", "咳嗽", "腹痛", "胃痛", "胸闷", "胸痛",
-    "呼吸困难", "肺炎", "哮喘", "鼻炎", "胃炎", "肠胃炎", "失眠", "焦虑", "抑郁",
+    "高血压", "糖尿病", "感冒", "发烧", "发热", "低烧", "高烧", "头疼", "头痛", "偏头痛",
+    "头晕", "眩晕", "咳嗽", "咳痰", "咽痛", "嗓子疼", "喉咙痛", "流鼻涕", "鼻塞",
+    "腹痛", "肚子疼", "胃痛", "腹泻", "拉肚子", "便秘", "恶心", "呕吐", "反酸",
+    "胸闷", "胸痛", "心悸", "心慌", "乏力", "疲劳", "呼吸困难", "气短", "喘",
+    "肺炎", "哮喘", "鼻炎", "胃炎", "肠胃炎", "失眠", "焦虑", "抑郁", "皮疹", "过敏",
     "血压", "血糖", "检查", "药", "症状", "疾病", "炎", "癌", "病", "疫苗", "预防", "指南", "综合征",
     "hypertension", "diabetes", "fever", "cough", "dizziness", "headache", "pneumonia",
     "asthma", "symptom", "treatment", "disease", "medicine", "blood pressure",
@@ -755,7 +771,12 @@ def _classify_query_by_rules(user_query: str, *, conversation_summary: str = "",
         return "appointment", "explicit_appointment_rule"
     if _looks_like_department_question(user_query):
         return "triage", "department_question_rule"
-    if _looks_like_medical_knowledge_question(user_query) or _looks_like_medical_follow_up(
+    if _looks_like_medical_knowledge_question(user_query) or _looks_like_medical_request(
+        user_query,
+        conversation_summary=conversation_summary,
+        recent_context=recent_context,
+        topic_focus=topic_focus,
+    ) or _looks_like_medical_follow_up(
         user_query,
         "\n".join(part for part in (conversation_summary, topic_focus) if part),
         recent_context,
@@ -1148,19 +1169,43 @@ def intent_router(state: State, llm):
             **pending_updates,
         }
 
-    llm_with_structure = llm.with_config(temperature=0.1).with_structured_output(IntentAnalysis)
-    response = llm_with_structure.invoke(
-        [
-            SystemMessage(content=get_intent_router_prompt()),
-            HumanMessage(
-                content=(
-                    f"Conversation summary:\n{state.get('conversation_summary', '')}\n\n"
-                    f"Recent dialogue context:\n{recent_context}\n\n"
-                    f"User query:\n{user_query}"
-                )
-            ),
-        ]
-    )
+    try:
+        llm_with_structure = _structured_output_llm(llm, IntentAnalysis, temperature=0.1)
+        response = llm_with_structure.invoke(
+            [
+                SystemMessage(content=get_intent_router_prompt()),
+                HumanMessage(
+                    content=(
+                        f"Conversation summary:\n{state.get('conversation_summary', '')}\n\n"
+                        f"Recent dialogue context:\n{recent_context}\n\n"
+                        f"User query:\n{user_query}"
+                    )
+                ),
+            ]
+        )
+    except Exception:
+        logger.exception("Intent router structured output failed; falling back to medical_rag.")
+        return {
+            "intent": "medical_rag",
+            "primary_intent": "medical_rag",
+            "secondary_intent": "",
+            "primary_user_query": user_query,
+            "secondary_user_query": "",
+            "decision_source": "llm_error_fallback",
+            "route_reason": "intent_router_exception_fallback",
+            "last_route_reason": "intent_router_exception_fallback",
+            "risk_level": risk_level,
+            "pending_clarification": "",
+            "clarification_target": "",
+            "recent_context": recent_context,
+            "topic_focus": topic_focus or _extract_topic_focus(user_query, topic_focus),
+            "deferred_user_question": "",
+            "clarification_attempts": 0,
+            "recommended_department": state.get("recommended_department", ""),
+            "appointment_context": state.get("appointment_context", {}),
+            "last_appointment_no": state.get("last_appointment_no", ""),
+            **_reset_pending_action_if_needed(state),
+        }
 
     if response.is_clear and response.intent in {"medical_rag", "triage", "appointment", "cancel_appointment"}:
         pending_updates = (
@@ -1280,8 +1325,22 @@ def rewrite_query(state: State, llm):
     context_parts.append(f"User Query:\n{user_query}\n")
     context_section = "".join(context_parts)
 
-    llm_with_structure = llm.with_config(temperature=0.1).with_structured_output(QueryAnalysis)
-    response = llm_with_structure.invoke([SystemMessage(content=get_rewrite_query_prompt()), HumanMessage(content=context_section)])
+    try:
+        llm_with_structure = _structured_output_llm(llm, QueryAnalysis, temperature=0.1)
+        response = llm_with_structure.invoke([SystemMessage(content=get_rewrite_query_prompt()), HumanMessage(content=context_section)])
+    except Exception:
+        logger.exception("Rewrite query structured output failed; using original query.")
+        return {
+            "questionIsClear": True,
+            "messages": _build_history_reset_messages(state["messages"]),
+            "originalQuery": user_query,
+            "rewrittenQuestions": [user_query],
+            "recent_context": recent_context,
+            "topic_focus": topic_focus or _extract_topic_focus(user_query, topic_focus),
+            "pending_clarification": "",
+            "clarification_target": "",
+            "clarification_attempts": 0,
+        }
 
     if response.questions and response.is_clear:
         delete_all = _build_history_reset_messages(state["messages"])
@@ -1395,7 +1454,7 @@ def plan_retrieval_queries(state: State, llm):
         return {"planned_queries": fallback_plan}
 
     try:
-        planner = llm.with_config(temperature=0.1).with_structured_output(RetrievalQueryPlan)
+        planner = _structured_output_llm(llm, RetrievalQueryPlan, temperature=0.1)
         response = planner.invoke(
             [
                 SystemMessage(content=get_retrieval_query_plan_prompt()),
@@ -1431,13 +1490,27 @@ def recommend_department(state: State, llm):
     risk_level = state.get("risk_level", "normal")
     topic_focus = state.get("topic_focus", "")
 
-    llm_with_structure = llm.with_config(temperature=0.1).with_structured_output(DepartmentRecommendation)
-    response = llm_with_structure.invoke(
-        [
-            SystemMessage(content=get_department_recommendation_prompt()),
-            HumanMessage(content=f"Conversation summary:\n{conversation_summary}\n\nUser query:\n{user_query}"),
-        ]
-    )
+    try:
+        llm_with_structure = _structured_output_llm(llm, DepartmentRecommendation, temperature=0.1)
+        response = llm_with_structure.invoke(
+            [
+                SystemMessage(content=get_department_recommendation_prompt()),
+                HumanMessage(content=f"Conversation summary:\n{conversation_summary}\n\nUser query:\n{user_query}"),
+            ]
+        )
+    except Exception:
+        logger.exception("Department recommendation structured output failed; returning safe fallback.")
+        answer = "我暂时无法稳定判断最合适的科室。若症状较急或明显加重，建议优先急诊；一般不适可以先到全科医学科/普通内科，由医生再进一步分诊。"
+        return {
+            "pending_clarification": "",
+            "clarification_target": "",
+            "clarification_attempts": 0,
+            "recommended_department": "全科医学科",
+            "topic_focus": topic_focus or "全科医学科",
+            "appointment_context": _build_appointment_context(state.get("appointment_context"), {"department": "全科医学科"}),
+            **_reset_pending_action_if_needed(state),
+            "messages": [AIMessage(content=answer)],
+        }
 
     if response.needs_clarification or not response.department.strip():
         if risk_level == "high":

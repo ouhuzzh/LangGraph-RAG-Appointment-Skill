@@ -1,6 +1,7 @@
 import React from "react";
-import { Stethoscope, Activity, Database, MessageCircle, Trash2, ExternalLink, X } from "lucide-react";
+import { Activity, Database, MessageCircle, Trash2, ExternalLink, X } from "lucide-react";
 import StatusIndicator from "./StatusIndicator";
+import XinyuLogo from "./XinyuLogo";
 
 const Sidebar = React.memo(function Sidebar({
   status,
@@ -14,6 +15,14 @@ const Sidebar = React.memo(function Sidebar({
   const systemState = status?.state || "preparing";
   const kbState = status?.knowledge_base?.status || "not_checked";
   const stats = status?.knowledge_base?.stats || {};
+  const gradioUrl = "http://127.0.0.1:7860";
+
+  function openGradioAdmin() {
+    const opened = window.open(gradioUrl, "_blank", "noopener,noreferrer");
+    if (!opened) {
+      window.location.href = gradioUrl;
+    }
+  }
 
   const systemMetrics = [
     { label: "状态", value: systemState },
@@ -32,10 +41,10 @@ const Sidebar = React.memo(function Sidebar({
         <div className="sidebar__top">
           <div className="brand">
             <div className="brand-mark">
-              <Stethoscope size={22} />
+              <XinyuLogo size={34} />
             </div>
             <div className="brand-text">
-              <h1 className="brand-title">宁和医疗助手</h1>
+              <h1 className="brand-title">心语医疗小助手</h1>
               <p className="brand-sub">医疗咨询与预约挂号</p>
             </div>
           </div>
@@ -87,16 +96,15 @@ const Sidebar = React.memo(function Sidebar({
         </div>
 
         <div className="sidebar-actions">
-          <a
-            href="http://127.0.0.1:7860"
-            target="_blank"
-            rel="noreferrer"
+          <button
+            type="button"
+            onClick={openGradioAdmin}
             className="sidebar-link-icon"
-            title="Gradio 后台"
+            title="打开 Gradio 后台。若打不开，请先运行：python project/app.py"
           >
             <ExternalLink size={16} />
             <span>Gradio 后台</span>
-          </a>
+          </button>
           <button type="button" className="sidebar-clear-btn" onClick={onClear}>
             <Trash2 size={15} />
             清空会话

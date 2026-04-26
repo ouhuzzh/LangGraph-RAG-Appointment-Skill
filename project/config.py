@@ -28,6 +28,9 @@ LLM_MODEL = os.environ.get("LLM_MODEL", "Qwen/Qwen3-32B")
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-m3")
 RERANK_MODEL = os.environ.get("RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
 LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0"))
+LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_TIMEOUT_SECONDS", "45"))
+LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "2048"))
+LLM_STRUCTURED_MAX_TOKENS = int(os.environ.get("LLM_STRUCTURED_MAX_TOKENS", "384"))
 ENABLE_RERANK = os.environ.get("ENABLE_RERANK", "true").lower() == "true"
 RERANK_FETCH_K = int(os.environ.get("RERANK_FETCH_K", "12"))
 ENABLE_HYBRID_RETRIEVAL = os.environ.get("ENABLE_HYBRID_RETRIEVAL", "true").lower() == "true"

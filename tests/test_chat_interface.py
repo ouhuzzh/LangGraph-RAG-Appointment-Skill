@@ -1,4 +1,5 @@
 import sys
+import contextvars
 import unittest
 
 from langchain_core.messages import AIMessage
@@ -6,6 +7,7 @@ from langchain_core.messages import AIMessage
 sys.path.insert(0, r"D:\nageoffer\agentic-rag-for-dummies\project")
 
 from core.chat_interface import ChatInterface, SILENT_NODES  # noqa: E402
+from rag_agent.tools import reset_retrieval_context, set_retrieval_context  # noqa: E402
 
 
 class FakeGraphState:
@@ -30,6 +32,11 @@ class FakeGraph:
 
     def stream(self, stream_input, config=None, stream_mode=None):
         return iter(())
+
+
+class FailingGraph(FakeGraph):
+    def stream(self, stream_input, config=None, stream_mode=None):
+        raise RuntimeError("graph failed")
 
 
 class FakeVectorDb:
@@ -76,6 +83,12 @@ class FakeRagSystem:
 
     def get_config(self):
         return {}
+
+
+class FailingRagSystem(FakeRagSystem):
+    def __init__(self):
+        super().__init__()
+        self.agent_graph = FailingGraph()
 
 
 class ChatInterfaceTests(unittest.TestCase):
@@ -176,6 +189,23 @@ class ChatInterfaceTests(unittest.TestCase):
     def test_final_answer_nodes_are_silent_in_streaming_ui(self):
         self.assertIn("grounded_answer_generation", SILENT_NODES)
         self.assertIn("answer_grounding_check", SILENT_NODES)
+        self.assertIn("plan_retrieval_queries", SILENT_NODES)
+
+    def test_reset_retrieval_context_tolerates_cross_context_token(self):
+        ctx = contextvars.Context()
+        token = ctx.run(set_retrieval_context, thread_id="thread-x", original_query="头疼怎么办")
+
+        reset_retrieval_context(token)
+
+    def test_chat_returns_friendly_medical_fallback_when_graph_fails(self):
+        interface = ChatInterface(FailingRagSystem())
+
+        responses = list(interface.chat("头疼怎么处理", []))
+
+        self.assertTrue(responses)
+        self.assertIn("通用医学信息", responses[-1])
+        self.assertIn("未充分基于知识库检索结果", responses[-1])
+        self.assertNotIn("❌ Error", responses[-1])
 
 
 if __name__ == "__main__":

@@ -44,10 +44,14 @@
   box-sizing: border-box;
 }
 
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
   background:
     linear-gradient(135deg, rgba(13, 148, 136, 0.08) 0%, transparent 30%),
     linear-gradient(315deg, rgba(37, 99, 235, 0.05) 0%, transparent 28%),
@@ -74,7 +78,8 @@ button:disabled {
 .app {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100%;          /* 固定视口，不撑高 */
+  overflow: hidden;
 }
 
 /* =============================================
@@ -91,6 +96,7 @@ button:disabled {
   -webkit-backdrop-filter: blur(16px);
   overflow-x: hidden;
   overflow-y: auto;
+  height: 100%;           /* 跟随 app 高度，不撑高 */
   position: relative;
   z-index: 10;
   transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
@@ -117,12 +123,8 @@ button:disabled {
 .brand-mark {
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, var(--teal-700), var(--teal-600));
-  color: white;
-  box-shadow: var(--shadow-md);
+  width: 36px;
+  height: 36px;
   flex-shrink: 0;
 }
 
@@ -303,6 +305,7 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  width: 100%;
   padding: 8px 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-soft);
@@ -311,6 +314,7 @@ button:disabled {
   text-decoration: none;
   font-size: 13px;
   font-weight: 600;
+  text-align: left;
   transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
 
@@ -355,9 +359,10 @@ button:disabled {
 .chat-shell {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
-  min-height: 100vh;
+  height: 100%;           /* 固定高度，消息列表内部滚动 */
   padding: 24px 28px;
   gap: 0;
+  overflow: hidden;
 }
 
 /* =============================================
@@ -439,12 +444,62 @@ button:disabled {
 }
 
 .stream-chip {
-  padding: 5px 10px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
   border-radius: 999px;
   background: var(--teal-50);
   color: var(--teal-700);
   font-size: 11px;
   font-weight: 800;
+  transition: background 0.2s, color 0.2s;
+}
+
+/* 推理中：蓝紫渐变 */
+.stream-chip--thinking {
+  background: linear-gradient(90deg, rgba(13,148,136,0.12), rgba(99,102,241,0.12));
+  color: #5046e4;
+}
+
+/* 生成中：teal */
+.stream-chip--generating {
+  background: rgba(13,148,136,0.12);
+  color: var(--teal-700);
+}
+
+/* 已完成 */
+.stream-chip--done {
+  background: rgba(34,197,94,0.1);
+  color: #15803d;
+}
+
+/* 错误 */
+.stream-chip--error {
+  background: rgba(220,38,38,0.08);
+  color: var(--red-600);
+}
+
+/* 警告 */
+.stream-chip--warn {
+  background: rgba(245,158,11,0.1);
+  color: #b45309;
+}
+
+/* 活跃状态：脉冲点 */
+.stream-chip__pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: stream-pulse 1s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes stream-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(0.7); }
 }
 
 /* =============================================
@@ -496,21 +551,13 @@ button:disabled {
 
 .message__avatar {
   flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--teal-700), var(--teal-600));
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;        /* 圆角方形，对齐 Claude/ChatGPT 风格 */
   display: grid;
   place-items: center;
   margin-bottom: 4px;
-}
-
-.avatar-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: white;
-  opacity: 0.9;
+  overflow: hidden;
 }
 
 .message__column {
@@ -624,7 +671,7 @@ button:disabled {
 }
 
 /* =============================================
-   Typing Dots
+   Agent Thinking Animation（原 Typing Dots）
    ============================================= */
 .typing-dots {
   display: inline-flex;
@@ -635,8 +682,8 @@ button:disabled {
 
 .typing-dot {
   display: block;
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--teal-600);
   animation: typing-pulse 1.4s ease-in-out infinite;
@@ -840,7 +887,6 @@ button:disabled {
 }
 
 .empty-state__icon {
-  color: var(--teal-700);
   position: relative;
   z-index: 1;
 }
@@ -848,6 +894,16 @@ button:disabled {
 @keyframes ring-pulse {
   0%, 100% { transform: scale(1);    opacity: 1; }
   50%       { transform: scale(1.1); opacity: 0.7; }
+}
+
+/* XinyuLogo EmptyState 轻脉冲动画 */
+.xinyu-logo--pulse {
+  animation: xinyu-pulse 3s ease-in-out infinite;
+}
+
+@keyframes xinyu-pulse {
+  0%, 100% { filter: drop-shadow(0 4px 12px rgba(13,148,136,0.35)); }
+  50%       { filter: drop-shadow(0 6px 20px rgba(79,70,229,0.4)); }
 }
 
 .empty-state__title {
@@ -1006,9 +1062,11 @@ button:disabled {
    Documents Page
    ============================================= */
 .documents-shell {
-  min-height: 100vh;
+  height: 100%;           /* 固定视口，自身滚动 */
   padding: 24px 28px;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--teal-100) transparent;
 }
 
 .documents-header {
@@ -1200,6 +1258,21 @@ button:disabled {
 .document-list,
 .task-list {
   display: grid;
+  max-height: 280px;       /* 约 4-5 行后出现滚动条 */
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--teal-100) transparent;
+}
+
+.document-list::-webkit-scrollbar,
+.task-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.document-list::-webkit-scrollbar-thumb,
+.task-list::-webkit-scrollbar-thumb {
+  background: var(--teal-100);
+  border-radius: 99px;
 }
 
 .document-row,
@@ -1444,7 +1517,8 @@ button:disabled {
 @media (max-width: 920px) {
   .app {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
+    grid-template-rows: 1fr;   /* 单列单行，完整撑满 */
+    height: 100%;
   }
 
   .sidebar {
@@ -1452,6 +1526,7 @@ button:disabled {
     top: 0;
     left: 0;
     bottom: 0;
+    height: 100%;           /* fixed 抽屉也需要明确高度 */
     width: 300px;
     z-index: 20;
     transform: translateX(-110%);
@@ -1477,7 +1552,7 @@ button:disabled {
 
   .chat-shell {
     padding: 18px 16px;
-    min-height: 100svh;
+    height: 100%;
   }
 
   .documents-shell {

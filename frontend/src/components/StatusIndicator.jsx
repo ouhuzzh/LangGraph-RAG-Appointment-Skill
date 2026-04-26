@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { RefreshCw } from "lucide-react";
 import { statusTone } from "../constants/app";
 
@@ -52,7 +53,7 @@ const StatusIndicator = React.memo(function StatusIndicator({
         )}
       </div>
 
-      {tooltipStyle && (
+      {tooltipStyle && createPortal(
         <div
           className="status-indicator__tooltip"
           style={{ position: "fixed", top: tooltipStyle.top, left: tooltipStyle.left }}
@@ -67,7 +68,8 @@ const StatusIndicator = React.memo(function StatusIndicator({
             ))}
             {message && <p className="tooltip-card__msg">{message}</p>}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

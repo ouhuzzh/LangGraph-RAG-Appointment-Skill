@@ -1,0 +1,21 @@
+<svg width="32" height="32" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0d9488"/>
+      <stop offset="100%" stop-color="#4f46e5"/>
+    </linearGradient>
+    <linearGradient id="sk" x1="6" y1="10" x2="30" y2="28" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.98"/>
+      <stop offset="100%" stop-color="#99f6e4" stop-opacity="0.85"/>
+    </linearGradient>
+    <radialGradient id="dot" cx="50%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#5eead4"/>
+    </radialGradient>
+  </defs>
+  <rect x="1" y="1" width="34" height="34" rx="9" ry="9" fill="url(#bg)"/>
+  <path d="M8 13 C11 8, 18 9, 18 13 S25 18, 28 13" stroke="url(#sk)" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+  <path d="M8 23 C11 28, 18 27, 18 23 S25 18, 28 23" stroke="url(#sk)" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+  <circle cx="18" cy="18" r="2" fill="white" opacity="0.95"/>
+  <circle cx="27.5" cy="8.5" r="3.2" fill="url(#dot)" opacity="0.95"/>
+</svg>

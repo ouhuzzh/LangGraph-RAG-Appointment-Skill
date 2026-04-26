@@ -2,6 +2,7 @@ import React from "react";
 import MarkdownContent from "./MarkdownContent";
 import ActionButtons from "./ActionButtons";
 import TypingDots from "./TypingDots";
+import XinyuLogo from "./XinyuLogo";
 
 function formatTime(timestamp) {
   if (!timestamp) return "";
@@ -28,8 +29,8 @@ const MessageBubble = React.memo(function MessageBubble({
   return (
     <article className={`message message--${role}`}>
       {isAssistant && (
-        <div className="message__avatar" aria-hidden="true">
-          <span className="avatar-dot" />
+        <div className="message__avatar" aria-hidden="true" title="心语医疗 AI">
+          <XinyuLogo size={28} />
         </div>
       )}
       <div className="message__column">
@@ -41,6 +42,7 @@ const MessageBubble = React.memo(function MessageBubble({
               : <MarkdownContent content={content} isStreaming={isLastAssistant && isStreaming} />
           )}
         </div>
+
         {timeStr && (
           <time className={`message__time message__time--${role}`} dateTime={new Date(timestamp).toISOString()}>
             {timeStr}{interrupted ? " · 已停止" : ""}

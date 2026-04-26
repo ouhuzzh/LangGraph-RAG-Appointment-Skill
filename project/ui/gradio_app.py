@@ -136,6 +136,8 @@ APP_CSS = """
 
 /* ── Item Lists ── */
 .item-list { display:grid; gap:8px; max-height: 420px; overflow-y: auto; padding-right: 4px; }
+.item-list.import-list { max-height: 300px; }
+.item-list.document-list { max-height: 340px; }
 .item-list::-webkit-scrollbar { width: 5px; }
 .item-list::-webkit-scrollbar-track { background: transparent; }
 .item-list::-webkit-scrollbar-thumb { background: rgba(0,0,0,.08); border-radius: 4px; }
@@ -158,6 +160,23 @@ APP_CSS = """
   border-radius: var(--radius-lg) !important;
   border: 1px solid var(--border) !important;
   background: var(--surface) !important;
+}
+
+#chat-panel { overflow: visible !important; }
+#medical-chatbot {
+  height: min(620px, calc(100vh - 320px)) !important;
+  min-height: 420px !important;
+  max-height: min(620px, calc(100vh - 320px)) !important;
+  overflow: hidden !important;
+}
+#medical-chatbot > div,
+#medical-chatbot .wrap,
+#medical-chatbot .bubble-wrap,
+#medical-chatbot .messages,
+#medical-chatbot [role="log"] {
+  max-height: inherit !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
 }
 
 .gradio-container .gr-chatbot .user {
@@ -286,6 +305,19 @@ APP_CSS = """
 .gr-chatbot::-webkit-scrollbar { width: 5px; }
 .gr-chatbot::-webkit-scrollbar-track { background: transparent; }
 .gr-chatbot::-webkit-scrollbar-thumb { background: rgba(0,0,0,.08); border-radius: 4px; }
+
+/* ── Tooltips / toast should float above scrollable cards ── */
+.gradio-container [role="tooltip"],
+.gradio-container .tooltip,
+.gradio-container .toast,
+.gradio-container .toast-wrap,
+.gradio-container .notification,
+.toast-wrap {
+  z-index: 9999 !important;
+}
+.status-shell, .card-shell, .import-card, .doc-card, #chat-panel {
+  overflow: visible !important;
+}
 
 /* ── Quick-hints row ── */
 .quick-hints { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
@@ -472,7 +504,7 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
 <div class="import-card">
   <h3>最近任务</h3>
   <p>这里会保留最近的导入和补建结果，方便你确认系统有没有真的把资料整理好。</p>
-  <div class="item-list">{''.join(items)}</div>
+  <div class="item-list import-list">{''.join(items)}</div>
 </div>
 """.strip()
 
@@ -504,7 +536,7 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
 <div class="doc-card">
   <h3>当前资料</h3>
   <p>知识库里一共整理了 <strong>{len(files)}</strong> 份本地 Markdown 资料。</p>
-  <div class="item-list">{''.join(items)}</div>
+  <div class="item-list document-list">{''.join(items)}</div>
   {overflow}
 </div>
 """.strip()
@@ -532,8 +564,10 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
         )
 
         rag_system.refresh_knowledge_base_status()
-        rag_system.record_import_event(report["sync_event"])
-        rag_system.start_knowledge_base_bootstrap()
+        sync_event = report.get("sync_event")
+        if sync_event:
+            rag_system.record_import_event(sync_event)
+            rag_system.start_knowledge_base_bootstrap()
         gr.Info(
             f"已处理 {report['processed']} 个文件：新增 {report['added']}，更新 {report['updated']}，"
             f"未变化 {report['unchanged']}，失败 {report['failed']}。"
@@ -653,6 +687,7 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
                 chat_status_panel = gr.HTML(value=_format_chat_status_panel())
                 chatbot = gr.Chatbot(
                     height=620,
+                    elem_id="medical-chatbot",
                     show_label=False,
                     avatar_images=(None, os.path.join(ASSETS_DIR, "chatbot_avatar.png")),
                     placeholder="<strong>直接输入你的问题就可以。</strong><br><em>比如：高血压要注意什么、咳嗽挂什么科、帮我预约明天下午呼吸内科。</em>",

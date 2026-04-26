@@ -1,21 +1,25 @@
 import React from "react";
 import { Menu } from "lucide-react";
 
+const STATE_MAP = {
+  connecting: { text: "连接中",  variant: "info"       },
+  thinking:   { text: "思考中",  variant: "thinking"   },
+  generating: { text: "生成中",  variant: "generating" },
+  stopped:    { text: "已停止",  variant: "warn"       },
+  error:      { text: "需重试",  variant: "error"      },
+  done:       { text: "已完成",  variant: "done"       },
+  idle:       { text: "待命",    variant: "idle"       },
+};
+
 const ChatHeader = React.memo(function ChatHeader({
   threadId,
   isConnected,
   streamState,
   onMenuClick,
 }) {
-  const stateText = {
-    connecting: "连接中",
-    thinking: "思考中",
-    generating: "生成中",
-    stopped: "已停止",
-    error: "需重试",
-    done: "已完成",
-    idle: "待命",
-  }[streamState || "idle"];
+  const { text: stateText, variant: stateVariant } =
+    STATE_MAP[streamState || "idle"] ?? STATE_MAP.idle;
+  const isActive = streamState === "thinking" || streamState === "generating";
 
   return (
     <header className="chat-header">
@@ -29,7 +33,7 @@ const ChatHeader = React.memo(function ChatHeader({
       </button>
 
       <div className="chat-header__title">
-        <span className="eyebrow">Medical AI</span>
+        <span className="eyebrow">心语医疗 AI</span>
         <h2>直接说你的问题</h2>
       </div>
 
@@ -38,9 +42,12 @@ const ChatHeader = React.memo(function ChatHeader({
           className={`conn-dot ${isConnected ? "conn-dot--on" : "conn-dot--off"}`}
           title={isConnected ? "后端已连接" : "后端连接失败"}
         />
-        <div className="stream-chip">{stateText}</div>
+        <div className={`stream-chip stream-chip--${stateVariant}`}>
+          {isActive && <span className="stream-chip__pulse" />}
+          {stateText}
+        </div>
         <div className="thread-chip" title={threadId}>
-          {threadId ? `thread ${threadId.slice(0, 8)}` : "connecting…"}
+          {threadId ? `#${threadId.slice(0, 6)}` : "…"}
         </div>
       </div>
     </header>

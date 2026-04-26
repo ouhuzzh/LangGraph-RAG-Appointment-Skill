@@ -1,7 +1,8 @@
 param(
     [int]$ApiPort = 8000,
     [int]$FrontendPort = 5173,
-    [switch]$SkipInstall
+    [switch]$SkipInstall,
+    [switch]$Restart
 )
 
 $ErrorActionPreference = "Stop"
@@ -36,7 +37,29 @@ $apiErr = Join-Path $RuntimeDir "api_server.err.log"
 $frontendLog = Join-Path $RuntimeDir "frontend_server.log"
 $frontendErr = Join-Path $RuntimeDir "frontend_server.err.log"
 
-$existingApi = Get-NetTCPConnection -LocalPort $ApiPort -ErrorAction SilentlyContinue | Select-Object -First 1
+function Get-ListeningProcessId {
+    param([int]$Port)
+    $conn = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($conn) { return [int]$conn.OwningProcess }
+    return $null
+}
+
+function Stop-PortProcess {
+    param([int]$Port, [string]$Name)
+    $processId = Get-ListeningProcessId -Port $Port
+    if ($processId) {
+        Write-Host "Stopping $Name on port $Port (PID $processId) ..."
+        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
+    }
+}
+
+if ($Restart) {
+    Stop-PortProcess -Port $ApiPort -Name "FastAPI backend"
+    Stop-PortProcess -Port $FrontendPort -Name "React frontend"
+}
+
+$existingApi = Get-ListeningProcessId -Port $ApiPort
 if (-not $existingApi) {
     Write-Host "Starting FastAPI backend on http://127.0.0.1:$ApiPort ..."
     Start-Process `
@@ -50,7 +73,7 @@ if (-not $existingApi) {
     Write-Host "FastAPI backend already appears to be running on port $ApiPort."
 }
 
-$existingFrontend = Get-NetTCPConnection -LocalPort $FrontendPort -ErrorAction SilentlyContinue | Select-Object -First 1
+$existingFrontend = Get-ListeningProcessId -Port $FrontendPort
 if (-not $existingFrontend) {
     Write-Host "Starting React frontend on http://127.0.0.1:$FrontendPort ..."
     Start-Process `
@@ -76,4 +99,3 @@ Write-Host "  $apiLog"
 Write-Host "  $apiErr"
 Write-Host "  $frontendLog"
 Write-Host "  $frontendErr"
-

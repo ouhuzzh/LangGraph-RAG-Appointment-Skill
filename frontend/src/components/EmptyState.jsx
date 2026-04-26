@@ -1,6 +1,7 @@
 import React from "react";
-import { Stethoscope, Brain, CalendarCheck, HelpCircle, Activity } from "lucide-react";
+import { Brain, CalendarCheck, HelpCircle, Activity } from "lucide-react";
 import { EMPTY_STATE_CAPABILITIES, STARTER_PROMPTS } from "../constants/app";
+import XinyuLogo from "./XinyuLogo";
 
 const promptIcons = {
   hypertension: Activity,
@@ -15,9 +16,9 @@ const EmptyState = React.memo(function EmptyState({ onSendMessage }) {
       <div className="empty-state__hero">
         <div className="empty-state__icon-wrap">
           <div className="empty-state__icon-ring" />
-          <Stethoscope size={36} className="empty-state__icon" />
+          <XinyuLogo size={44} variant="glow" animated={true} className="empty-state__icon" />
         </div>
-        <h2 className="empty-state__title">你好，我是宁和医疗助手</h2>
+        <h2 className="empty-state__title">你好，我是心语医疗小助手</h2>
         <p className="empty-state__subtitle">
           专业的 AI 医疗咨询助手，随时为您提供健康指导与就医帮助
         </p>

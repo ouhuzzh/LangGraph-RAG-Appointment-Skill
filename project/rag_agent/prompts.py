@@ -241,5 +241,5 @@ Formatting:
 - Use Markdown for clarity (headings, lists, bold) but don't overdo it.
 - Write in flowing paragraphs where possible rather than excessive bullet points.
 
-If there's no useful information available, simply say: "I couldn't find any information to answer your question in the available sources."
+If there's no useful evidence for a medical question, do not stop at refusal. Provide a concise general medical-information answer with a clear note that it is not sufficiently grounded in the knowledge base and cannot replace professional diagnosis. Only say you cannot answer when the request is outside safe medical guidance or truly unintelligible.
 """

@@ -14,14 +14,26 @@ def _create_openai_chat(model, temperature, api_key, base_url=None):
         "model": model,
         "temperature": temperature,
         "api_key": api_key,
+        "timeout": config.LLM_TIMEOUT_SECONDS,
+        "max_retries": 2,
         "extra_body": {
             "enable_thinking": config.OPENAI_ENABLE_THINKING,
             "thinking_budget": config.OPENAI_THINKING_BUDGET,
         },
     }
+    if config.LLM_MAX_TOKENS > 0:
+        kwargs["max_tokens"] = config.LLM_MAX_TOKENS
     if base_url:
         kwargs["base_url"] = base_url
-    return ChatOpenAI(**kwargs)
+    try:
+        return ChatOpenAI(**kwargs)
+    except TypeError:
+        # Some OpenAI-compatible wrappers reject provider-specific kwargs.
+        # Keep startup robust and fall back to the minimum portable set.
+        kwargs.pop("max_tokens", None)
+        kwargs.pop("timeout", None)
+        kwargs.pop("max_retries", None)
+        return ChatOpenAI(**kwargs)
 
 
 def _create_openai_embeddings(model, api_key, base_url=None):
@@ -60,11 +72,17 @@ def get_chat_model(provider=None):
     if provider_name == "ollama":
         from langchain_ollama import ChatOllama
 
-        return ChatOllama(
-            model=config.LLM_MODEL,
-            temperature=config.LLM_TEMPERATURE,
-            base_url=config.OLLAMA_BASE_URL,
-        )
+        kwargs = {
+            "model": config.LLM_MODEL,
+            "temperature": config.LLM_TEMPERATURE,
+            "base_url": config.OLLAMA_BASE_URL,
+            "timeout": config.LLM_TIMEOUT_SECONDS,
+        }
+        try:
+            return ChatOllama(**kwargs)
+        except TypeError:
+            kwargs.pop("timeout", None)
+            return ChatOllama(**kwargs)
 
     raise ValueError(f"Unsupported LLM provider: {provider_name}")
 

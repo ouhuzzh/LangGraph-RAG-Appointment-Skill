@@ -53,7 +53,15 @@ def set_retrieval_context(*, thread_id: str = "", original_query: str = "", quer
 
 def reset_retrieval_context(token):
     if token is not None:
-        _RETRIEVAL_CONTEXT.reset(token)
+        try:
+            _RETRIEVAL_CONTEXT.reset(token)
+        except ValueError:
+            # Starlette/anyio may advance a synchronous SSE iterator in a
+            # different execution context from the one that created the token.
+            # The request is ending either way, so clear the current context
+            # instead of surfacing a false chat failure to the user.
+            logger.warning("Retrieval context token was reset from a different context; clearing current context.")
+            _RETRIEVAL_CONTEXT.set({})
 
 
 def get_retrieval_context() -> dict:

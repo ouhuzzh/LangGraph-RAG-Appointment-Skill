@@ -33,7 +33,61 @@ class ExplodingStructuredLLM:
         raise AssertionError("LLM should not be invoked for this rule-covered case.")
 
 
+class FailingStructuredLLM:
+    def with_config(self, **kwargs):
+        return self
+
+    def bind(self, **kwargs):
+        return self
+
+    def with_structured_output(self, schema):
+        return self
+
+    def invoke(self, messages):
+        raise RuntimeError("structured output failed")
+
+
 class TranscriptRegressionTests(unittest.TestCase):
+    def test_intent_router_routes_headache_question_without_llm(self):
+        state = {
+            "messages": [HumanMessage(content="头疼怎么处理")],
+            "conversation_summary": "",
+            "pending_action_type": "",
+            "pending_candidates": [],
+        }
+
+        result = intent_router(state, ExplodingStructuredLLM())
+
+        self.assertEqual(result["intent"], "medical_rag")
+        self.assertEqual(result["pending_clarification"], "")
+
+    def test_intent_router_routes_symptom_statement_without_llm(self):
+        state = {
+            "messages": [HumanMessage(content="发烧三天，头痛明显")],
+            "conversation_summary": "",
+            "pending_action_type": "",
+            "pending_candidates": [],
+        }
+
+        result = intent_router(state, ExplodingStructuredLLM())
+
+        self.assertEqual(result["intent"], "medical_rag")
+        self.assertEqual(result["pending_clarification"], "")
+
+    def test_intent_router_falls_back_to_medical_rag_when_structured_output_fails(self):
+        state = {
+            "messages": [HumanMessage(content="我不太舒服，怎么办")],
+            "conversation_summary": "",
+            "pending_action_type": "",
+            "pending_candidates": [],
+        }
+
+        result = intent_router(state, FailingStructuredLLM())
+
+        self.assertEqual(result["intent"], "medical_rag")
+        self.assertEqual(result["decision_source"], "llm_error_fallback")
+        self.assertEqual(result["pending_clarification"], "")
+
     def test_intent_router_treats_follow_up_medical_question_as_medical_rag(self):
         llm = FakeStructuredLLM(
             [
@@ -192,6 +246,19 @@ class TranscriptRegressionTests(unittest.TestCase):
 
         self.assertTrue(result["questionIsClear"])
         self.assertEqual(result["rewrittenQuestions"], ["帮我介绍一下东京有什么好玩的"])
+        self.assertEqual(result["pending_clarification"], "")
+
+    def test_rewrite_query_falls_back_to_original_query_when_structured_output_fails(self):
+        state = {
+            "messages": [HumanMessage(content="头痛怎么办")],
+            "conversation_summary": "",
+            "intent": "medical_rag",
+        }
+
+        result = rewrite_query(state, FailingStructuredLLM())
+
+        self.assertTrue(result["questionIsClear"])
+        self.assertEqual(result["rewrittenQuestions"], ["头痛怎么办"])
         self.assertEqual(result["pending_clarification"], "")
 
     def test_rewrite_query_keeps_recent_history_instead_of_deleting_everything(self):
