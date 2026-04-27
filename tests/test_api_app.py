@@ -42,7 +42,28 @@ class FakeRagSystem:
             "status": "ready",
             "message": "知识库可检索。",
             "last_error": "",
-            "stats": {"documents": 2, "child_chunks": 12},
+            "stats": {
+                "documents": 2,
+                "child_chunks": 12,
+                "recent_imports": [
+                    {
+                        "source": "local",
+                        "label": "本地文档同步",
+                        "status": "completed_with_failures",
+                        "written": 1,
+                        "updated": 0,
+                        "deactivated": 0,
+                        "unchanged": 0,
+                        "failed": 1,
+                        "duration_ms": 123.4,
+                        "trigger_type": "manual",
+                        "scope": "local",
+                        "conversion_details": ["demo.txt: method=plain_text_fallback"],
+                        "failure_details": ["bad.pdf: parse failed"],
+                        "timestamp": "2026-04-26 12:00:00",
+                    }
+                ],
+            },
         }
 
     def reset_thread(self, thread_id=None):
@@ -109,6 +130,25 @@ class FakeDocumentManager:
 
     def get_markdown_paths(self):
         return sorted(self.markdown_dir.glob("*.md"))
+
+    def get_document_inventory(self):
+        path = self.markdown_dir / "guide.md"
+        return [
+            {
+                "name": path.name,
+                "file_type": "md",
+                "size_bytes": path.stat().st_size,
+                "modified_at": path.stat().st_mtime,
+                "title": "Guide",
+                "source_name": "本地文档",
+                "source_type": "local_document",
+                "source_key": "local:guide.md",
+                "sync_status": "active",
+                "is_active": True,
+                "freshness_bucket": "current",
+                "original_url": "",
+            }
+        ]
 
     def add_documents_with_report(self, paths):
         self.uploaded_paths = [Path(path).name for path in paths]
@@ -221,7 +261,13 @@ class ApiAppTests(unittest.TestCase):
         self.assertEqual(list_response.status_code, 200)
         self.assertEqual(tasks_response.status_code, 200)
         self.assertEqual(list_response.json()["documents"][0]["name"], "guide.md")
-        self.assertEqual(tasks_response.json()["tasks"], [])
+        self.assertEqual(list_response.json()["documents"][0]["source_key"], "local:guide.md")
+        self.assertEqual(list_response.json()["documents"][0]["source_type"], "local_document")
+        task = tasks_response.json()["tasks"][0]
+        self.assertEqual(task["source"], "local")
+        self.assertEqual(task["failed"], 1)
+        self.assertEqual(task["conversion_details"], ["demo.txt: method=plain_text_fallback"])
+        self.assertEqual(task["failure_details"], ["bad.pdf: parse failed"])
         self.assertEqual(status_response.json()["source_coverage"][0]["source"], "nhc")
 
     def test_documents_sources_returns_official_source_coverage(self):

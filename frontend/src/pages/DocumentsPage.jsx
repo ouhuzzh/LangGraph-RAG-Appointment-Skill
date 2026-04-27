@@ -16,6 +16,21 @@ function formatBytes(value) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function sourceLabel(doc) {
+  if (doc.source_name) return doc.source_name;
+  if (doc.source_key?.startsWith("official:medlineplus:")) return "MedlinePlus";
+  if (doc.source_key?.startsWith("official:who:")) return "WHO";
+  if (doc.source_key?.startsWith("official:nhc:")) return "国家卫健委";
+  return "本地文档";
+}
+
+function formatDuration(ms) {
+  const value = Number(ms || 0);
+  if (!value) return "";
+  if (value < 1000) return `${Math.round(value)}ms`;
+  return `${(value / 1000).toFixed(1)}s`;
+}
+
 export default function DocumentsPage({
   documentsState,
   onMenuClick,
@@ -56,6 +71,14 @@ export default function DocumentsPage({
     }));
   }, [sourceCoverage]);
   const selectedCoverage = sourceCoverage.find((item) => item.source === source);
+  const sourceDistribution = useMemo(() => {
+    const counts = new Map();
+    documents.forEach((doc) => {
+      const label = sourceLabel(doc);
+      counts.set(label, (counts.get(label) || 0) + 1);
+    });
+    return Array.from(counts.entries()).map(([label, count]) => ({ label, count }));
+  }, [documents]);
 
   function handleSourceChange(event) {
     const nextSource = event.target.value;
@@ -219,6 +242,13 @@ export default function DocumentsPage({
           <h3>已同步文档</h3>
           <span>{documents.length} 个文件</span>
         </div>
+        {sourceDistribution.length > 0 && (
+          <div className="source-summary-row">
+            {sourceDistribution.map((item) => (
+              <span key={item.label}>{item.label} {item.count}</span>
+            ))}
+          </div>
+        )}
         {documents.length === 0 ? (
           <div className="empty-panel">还没有可展示的本地 Markdown 文档，可以先上传或同步官方资料。</div>
         ) : (
@@ -227,8 +257,12 @@ export default function DocumentsPage({
               <article className="document-row" key={doc.name}>
                 <div className="document-row__icon"><FileText size={17} /></div>
                 <div>
-                  <strong>{doc.name}</strong>
-                  <p>{doc.file_type.toUpperCase()} · {formatBytes(doc.size_bytes)} · {doc.modified_at || "未知时间"}</p>
+                  <strong>{doc.title || doc.name}</strong>
+                  <p>
+                    {sourceLabel(doc)} · {doc.source_type || "document"} ·
+                    {doc.freshness_bucket || doc.sync_status || "active"}
+                  </p>
+                  <p>{doc.name} · {doc.file_type.toUpperCase()} · {formatBytes(doc.size_bytes)} · {doc.modified_at || "未知时间"}</p>
                 </div>
               </article>
             ))}
@@ -247,11 +281,43 @@ export default function DocumentsPage({
           <div className="task-list">
             {tasks.slice(0, 8).map((task, index) => (
               <article className="task-row" key={`${task.timestamp || "task"}-${index}`}>
-                <strong>{task.label || task.source || "同步任务"}</strong>
+                <div className="task-row__head">
+                  <strong>{task.label || task.source || "同步任务"}</strong>
+                  <span className={`task-status task-status--${task.failed ? "bad" : "good"}`}>
+                    {task.failed ? "部分失败" : task.status || "完成"}
+                  </span>
+                </div>
                 <p>
                   {task.timestamp || ""} · 新增 {task.written ?? 0} · 更新 {task.updated ?? 0} ·
-                  下线 {task.deactivated ?? 0} · 失败 {task.failed ?? 0}
+                  下线 {task.deactivated ?? 0} · 未变化 {task.unchanged ?? 0} ·
+                  失败 {task.failed ?? 0}
                 </p>
+                {(task.trigger_type || task.scope || task.duration_ms) && (
+                  <p>
+                    {task.trigger_type || "manual"} · {task.scope || task.source || "knowledge_base"}
+                    {formatDuration(task.duration_ms) ? ` · ${formatDuration(task.duration_ms)}` : ""}
+                  </p>
+                )}
+                {task.failure_details?.length > 0 && (
+                  <details className="task-row__details">
+                    <summary>查看失败原因</summary>
+                    <ul>
+                      {task.failure_details.slice(0, 4).map((detail, detailIndex) => (
+                        <li key={`${index}-failure-${detailIndex}`}>{detail}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+                {task.conversion_details?.length > 0 && (
+                  <details className="task-row__details">
+                    <summary>查看转换详情</summary>
+                    <ul>
+                      {task.conversion_details.slice(0, 4).map((detail, detailIndex) => (
+                        <li key={`${index}-conversion-${detailIndex}`}>{detail}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
               </article>
             ))}
           </div>

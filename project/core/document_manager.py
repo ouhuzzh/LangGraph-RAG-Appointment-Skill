@@ -211,6 +211,40 @@ class DocumentManager:
     def get_markdown_files(self):
         return sorted([p.name for p in self.get_markdown_paths()])
 
+    def get_document_inventory(self):
+        items = []
+        for path in self.get_markdown_paths():
+            stat = path.stat()
+            metadata = {}
+            title = path.stem
+            try:
+                raw_text = path.read_text(encoding="utf-8")
+                metadata = KnowledgeBaseSyncService._extract_front_matter_metadata(raw_text)
+                body = KnowledgeBaseSyncService._strip_front_matter(raw_text)
+                title = metadata.get("title") or KnowledgeBaseSyncService._first_heading(body) or title
+                origin, source_key = KnowledgeBaseSyncService._classify_existing_markdown(path, metadata)
+            except Exception:
+                logger.warning("Failed to read document inventory metadata for %s", path, exc_info=True)
+                origin, source_key = "local", f"local:{path.name}"
+
+            items.append(
+                {
+                    "name": path.name,
+                    "file_type": metadata.get("file_type") or path.suffix.lstrip(".") or "md",
+                    "size_bytes": stat.st_size,
+                    "modified_at": stat.st_mtime,
+                    "title": title,
+                    "source_name": metadata.get("source_name") or metadata.get("source") or ("本地文档" if origin == "local" else ""),
+                    "source_type": metadata.get("source_type") or ("local_document" if origin == "local" else ""),
+                    "source_key": metadata.get("source_key") or source_key,
+                    "sync_status": metadata.get("sync_status") or "active",
+                    "is_active": str(metadata.get("is_active") or "true").lower() != "false",
+                    "freshness_bucket": metadata.get("freshness_bucket") or "",
+                    "original_url": metadata.get("original_url") or metadata.get("source_url") or "",
+                }
+            )
+        return items
+
     def clear_all(self):
         self.markdown_dir.mkdir(parents=True, exist_ok=True)
         clear_directory_contents(self.markdown_dir)

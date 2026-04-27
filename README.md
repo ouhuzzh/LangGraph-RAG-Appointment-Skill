@@ -167,7 +167,7 @@ PostgreSQL setup notes are in [docs/POSTGRES_SETUP_CN.md](docs/POSTGRES_SETUP_CN
 ### 4. Start the Split Frontend App
 
 ```powershell
-.\start_frontend_app.ps1
+.\start_frontend_app.ps1 -Restart -SkipInstall
 ```
 
 Open:
@@ -196,6 +196,8 @@ Open:
 
 - [http://localhost:7860](http://localhost:7860)
 
+Gradio is the admin/debug console. Use it for diagnostics, full knowledge-base management, and development checks. For normal user-facing demos, prefer the React frontend above.
+
 ## API Surface
 
 The React app uses these main endpoints:
@@ -209,8 +211,9 @@ The React app uses these main endpoints:
 | `POST /api/chat/clear` | Clear one thread |
 | `GET /api/chat/stream` | SSE chat stream |
 | `GET /api/documents/status` | Knowledge-base status and recent task summary |
-| `GET /api/documents/list` | Local indexed document list |
+| `GET /api/documents/list` | User-facing document list with source, sync status, and freshness metadata |
 | `GET /api/documents/tasks` | Recent import/sync task records |
+| `GET /api/documents/sources` | Official-source coverage, recommended use, and expansion notes |
 | `POST /api/documents/upload` | Upload files and sync them into the knowledge base |
 | `POST /api/documents/sync-official` | Sync one official source |
 
@@ -303,6 +306,8 @@ assets/                      # README demo media
 
 ## Documentation
 
+- [Frontend/backend split architecture](docs/architecture/frontend_backend_split.md)
+- [FastAPI API layer notes](project/api/README.md)
 - [Project guide, Chinese](docs/PROJECT_GUIDE_CN.md)
 - [Sequence diagrams and source walk-through, Chinese](docs/PROJECT_SEQUENCE_CN.md)
 - [PostgreSQL setup, Chinese](docs/POSTGRES_SETUP_CN.md)

@@ -65,14 +65,44 @@ class DocumentItem(BaseModel):
     file_type: str = "md"
     size_bytes: int = 0
     modified_at: str = ""
+    title: str = ""
+    source_name: str = ""
+    source_type: str = ""
+    source_key: str = ""
+    sync_status: str = ""
+    is_active: bool = True
+    freshness_bucket: str = ""
+    original_url: str = ""
 
 
 class DocumentListResponse(BaseModel):
     documents: list[DocumentItem] = Field(default_factory=list)
 
 
+class DocumentTaskItem(BaseModel):
+    source: str = ""
+    label: str = ""
+    status: str = "completed"
+    timestamp: str = ""
+    downloaded: int = 0
+    written: int = 0
+    updated: int = 0
+    deactivated: int = 0
+    unchanged: int = 0
+    skipped: int = 0
+    failed: int = 0
+    index_added: int = 0
+    index_skipped: int = 0
+    duration_ms: float = 0
+    note: str = ""
+    trigger_type: str = "manual"
+    scope: str = ""
+    conversion_details: list[str] = Field(default_factory=list)
+    failure_details: list[str] = Field(default_factory=list)
+
+
 class DocumentTaskListResponse(BaseModel):
-    tasks: list[dict[str, Any]] = Field(default_factory=list)
+    tasks: list[DocumentTaskItem] = Field(default_factory=list)
 
 
 class DocumentSourceCoverageResponse(BaseModel):
@@ -81,7 +111,7 @@ class DocumentSourceCoverageResponse(BaseModel):
 
 class DocumentStatusResponse(BaseModel):
     knowledge_base: KnowledgeBaseStatusResponse
-    recent_tasks: list[dict[str, Any]] = Field(default_factory=list)
+    recent_tasks: list[DocumentTaskItem] = Field(default_factory=list)
     source_coverage: list[dict[str, Any]] = Field(default_factory=list)
 
 

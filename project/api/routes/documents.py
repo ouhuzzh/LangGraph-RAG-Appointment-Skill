@@ -12,6 +12,7 @@ from api.schemas import (
     DocumentListResponse,
     DocumentSourceCoverageResponse,
     DocumentStatusResponse,
+    DocumentTaskItem,
     DocumentTaskListResponse,
     DocumentUploadResponse,
     KnowledgeBaseStatusResponse,
@@ -39,6 +40,34 @@ def _recent_tasks(container) -> list[dict]:
     return list(stats.get("recent_imports") or [])
 
 
+def _task_item_from_event(event: dict) -> DocumentTaskItem:
+    return DocumentTaskItem(
+        source=str(event.get("source") or ""),
+        label=str(event.get("label") or event.get("source") or "同步任务"),
+        status=str(event.get("status") or "completed"),
+        timestamp=str(event.get("timestamp") or ""),
+        downloaded=int(event.get("downloaded") or 0),
+        written=int(event.get("written") or 0),
+        updated=int(event.get("updated") or 0),
+        deactivated=int(event.get("deactivated") or 0),
+        unchanged=int(event.get("unchanged") or 0),
+        skipped=int(event.get("skipped") or 0),
+        failed=int(event.get("failed") or 0),
+        index_added=int(event.get("index_added") or 0),
+        index_skipped=int(event.get("index_skipped") or 0),
+        duration_ms=float(event.get("duration_ms") or 0),
+        note=str(event.get("note") or ""),
+        trigger_type=str(event.get("trigger_type") or "manual"),
+        scope=str(event.get("scope") or ""),
+        conversion_details=[str(item) for item in (event.get("conversion_details") or [])],
+        failure_details=[str(item) for item in (event.get("failure_details") or [])],
+    )
+
+
+def _task_items(container) -> list[DocumentTaskItem]:
+    return [_task_item_from_event(event) for event in _recent_tasks(container)]
+
+
 def _source_coverage(container) -> list[dict]:
     getter = getattr(container.document_manager, "get_official_source_coverage", None)
     if not callable(getter):
@@ -57,12 +86,32 @@ def _safe_upload_name(filename: str) -> str:
     return name
 
 
+def _document_item_from_inventory(item: dict) -> DocumentItem:
+    modified_at = item.get("modified_at") or ""
+    if isinstance(modified_at, (int, float)):
+        modified_at = datetime.fromtimestamp(modified_at).isoformat(timespec="seconds")
+    return DocumentItem(
+        name=str(item.get("name") or ""),
+        file_type=str(item.get("file_type") or "md"),
+        size_bytes=int(item.get("size_bytes") or 0),
+        modified_at=str(modified_at),
+        title=str(item.get("title") or ""),
+        source_name=str(item.get("source_name") or ""),
+        source_type=str(item.get("source_type") or ""),
+        source_key=str(item.get("source_key") or ""),
+        sync_status=str(item.get("sync_status") or ""),
+        is_active=bool(item.get("is_active", True)),
+        freshness_bucket=str(item.get("freshness_bucket") or ""),
+        original_url=str(item.get("original_url") or ""),
+    )
+
+
 @router.get("/status", response_model=DocumentStatusResponse)
 def documents_status():
     container = get_container()
     return DocumentStatusResponse(
         knowledge_base=_knowledge_response(container),
-        recent_tasks=_recent_tasks(container),
+        recent_tasks=_task_items(container),
         source_coverage=_source_coverage(container),
     )
 
@@ -71,6 +120,12 @@ def documents_status():
 def documents_list():
     container = get_container()
     document_manager = container.document_manager
+    inventory_getter = getattr(document_manager, "get_document_inventory", None)
+    if callable(inventory_getter):
+        return DocumentListResponse(
+            documents=[_document_item_from_inventory(item) for item in inventory_getter()]
+        )
+
     items = []
     for path in document_manager.get_markdown_paths():
         stat = path.stat()
@@ -88,7 +143,7 @@ def documents_list():
 @router.get("/tasks", response_model=DocumentTaskListResponse)
 def documents_tasks():
     container = get_container()
-    return DocumentTaskListResponse(tasks=_recent_tasks(container))
+    return DocumentTaskListResponse(tasks=_task_items(container))
 
 
 @router.get("/sources", response_model=DocumentSourceCoverageResponse)

@@ -120,6 +120,37 @@ class DocumentManagerTests(unittest.TestCase):
 
         self.assertEqual(files, ["care-plan.md"])
 
+    def test_get_document_inventory_exposes_user_facing_metadata(self):
+        rag_system = FakeRagSystem()
+        manager = DocumentManager(rag_system)
+        manager.markdown_dir = Path(self.temp_dir)
+        self._write_markdown(
+            "who-headache.md",
+            "\n".join(
+                [
+                    "Source: World Health Organization",
+                    "Source Key: official:who:who-headache",
+                    "Source type: public_health",
+                    "Title: Headache disorders",
+                    "Original URL: https://www.who.int/example",
+                    "Freshness Bucket: current",
+                    "Sync Status: active",
+                    "",
+                    "# Headache disorders",
+                    "",
+                    "content",
+                ]
+            ),
+        )
+
+        inventory = manager.get_document_inventory()
+
+        self.assertEqual(inventory[0]["title"], "Headache disorders")
+        self.assertEqual(inventory[0]["source_key"], "official:who:who-headache")
+        self.assertEqual(inventory[0]["source_type"], "public_health")
+        self.assertEqual(inventory[0]["freshness_bucket"], "current")
+        self.assertEqual(inventory[0]["original_url"], "https://www.who.int/example")
+
     def test_add_documents_with_report_explains_duplicate_markdown(self):
         rag_system = FakeRagSystem()
         manager = DocumentManager(rag_system)

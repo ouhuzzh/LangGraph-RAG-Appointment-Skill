@@ -672,15 +672,15 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
         chat_interface.clear_session()
         return []
 
-    with gr.Blocks(title="宁和医疗助手", theme=APP_THEME, css=APP_CSS, fill_height=True) as demo:
+    with gr.Blocks(title="宁和医疗助手后台", theme=APP_THEME, css=APP_CSS, fill_height=True) as demo:
         with gr.Column(elem_classes=["app-shell"]):
-            with gr.Tab("Chat"):
+            with gr.Tab("Chat Debug"):
                 gr.HTML(
                     """
 <div class="hero-panel">
-  <div class="hero-kicker">Medical Assistant</div>
-  <h1>宁和医疗助手</h1>
-  <p>问症状、查建议、预约挂号，直接输入即可开始对话。</p>
+  <div class="hero-kicker">Admin Console</div>
+  <h1>宁和医疗助手后台</h1>
+  <p>这里保留聊天调试、系统状态和诊断信息；正式用户端请使用 React + FastAPI 前台。</p>
 </div>
 """.strip()
                 )
@@ -741,13 +741,13 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
                 with gr.Accordion("高级诊断", open=False, elem_classes=["diagnostics-accordion"]):
                     chat_debug_panel = gr.Markdown(value=_format_debug_snapshot())
 
-            with gr.Tab("Documents"):
+            with gr.Tab("Documents Admin"):
                 gr.HTML(
                     """
 <div class="hero-panel">
-  <div class="hero-kicker">Knowledge Base</div>
-  <h1>知识库管理</h1>
-  <p>上传本地资料、导入官方来源，确认资料是否已整理进知识库。</p>
+  <div class="hero-kicker">Knowledge Base Admin</div>
+  <h1>知识库后台管理</h1>
+  <p>这里面向管理员/开发者：上传资料、同步官方来源、查看导入任务和高级诊断。</p>
 </div>
 """.strip()
                 )
