@@ -71,12 +71,23 @@ const markdownComponents = {
   ),
 };
 
+const ALLOWED_ELEMENTS = [
+  "p", "br", "strong", "em", "a", "ul", "ol", "li",
+  "code", "pre", "h1", "h2", "h3", "h4", "h5", "h6",
+  "blockquote", "table", "thead", "tbody", "tr", "th", "td",
+  "hr", "img", "del", "sup", "sub",
+];
+
 const MarkdownContent = React.memo(function MarkdownContent({ content, isStreaming }) {
   if (!content) return null;
 
   return (
     <div className={`markdown-body${isStreaming ? " markdown-body--streaming" : ""}`}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={markdownComponents}
+        allowedElements={ALLOWED_ELEMENTS}
+      >
         {content}
       </ReactMarkdown>
       {isStreaming && <span className="typing-cursor" aria-hidden="true" />}

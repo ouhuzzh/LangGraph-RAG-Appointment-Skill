@@ -2,6 +2,7 @@ import React from "react";
 import { Activity, Database, MessageCircle, Trash2, ExternalLink, X } from "lucide-react";
 import StatusIndicator from "./StatusIndicator";
 import XinyuLogo from "./XinyuLogo";
+import ThemeToggle from "./ThemeToggle";
 
 const Sidebar = React.memo(function Sidebar({
   status,
@@ -11,6 +12,8 @@ const Sidebar = React.memo(function Sidebar({
   onRefresh,
   mobileOpen,
   onMobileClose,
+  theme,
+  onToggleTheme,
 }) {
   const systemState = status?.state || "preparing";
   const kbState = status?.knowledge_base?.status || "not_checked";
@@ -96,6 +99,7 @@ const Sidebar = React.memo(function Sidebar({
         </div>
 
         <div className="sidebar-actions">
+          <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           <button
             type="button"
             onClick={openGradioAdmin}

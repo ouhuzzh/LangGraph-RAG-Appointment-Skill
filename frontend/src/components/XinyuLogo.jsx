@@ -1,22 +1,13 @@
 import React from "react";
 
-/**
- * 心语医疗 AI Agent Logo
- *
- * 设计语言：极简高级，参考 Claude / Gemini / ChatGPT 图标风格
- *  - 背景：圆角方形，深色渐变（teal → indigo），专业感
- *  - 中心：单一「流线符文」— 两条相交的平滑曲线，象征 AI 思维流
- *  - 小圆点：右上角一个高亮小圆，象征「在线 / 智能 agent 激活」
- *  - 无多余装饰，一眼辨识
- */
 const XinyuLogo = React.memo(function XinyuLogo({
   size = 24,
   className = "",
-  variant = "default", // "default" | "flat"（无背景，用于深色背景上）
+  variant = "default",
   animated = false,
 }) {
   const id = React.useId().replace(/:/g, "");
-  const flat = variant === "flat";
+  const flat = variant === "flat" || variant === "glow";
 
   return (
     <svg
@@ -29,61 +20,45 @@ const XinyuLogo = React.memo(function XinyuLogo({
       aria-hidden="true"
     >
       <defs>
-        {/* 背景渐变：深 teal → indigo，沉稳高级 */}
         <linearGradient id={`bg-${id}`} x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
-          <stop offset="0%"   stopColor="#0d9488" />
-          <stop offset="100%" stopColor="#4f46e5" />
+          <stop offset="0%" stopColor="#0f766e" />
+          <stop offset="50%" stopColor="#0d9488" />
+          <stop offset="100%" stopColor="#14b8a6" />
         </linearGradient>
-
-        {/* 符文笔画渐变：白→浅teal */}
-        <linearGradient id={`stroke-${id}`} x1="6" y1="10" x2="30" y2="28" gradientUnits="userSpaceOnUse">
-          <stop offset="0%"   stopColor="#ffffff" stopOpacity="0.98" />
-          <stop offset="100%" stopColor="#99f6e4" stopOpacity="0.85" />
+        <linearGradient id={`heart-${id}`} x1="18" y1="8" x2="18" y2="28" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="1" />
+          <stop offset="100%" stopColor="#ccfbf1" stopOpacity="0.9" />
         </linearGradient>
-
-        {/* 小圆点渐变 */}
-        <radialGradient id={`dot-${id}`} cx="50%" cy="30%" r="70%">
-          <stop offset="0%"   stopColor="#ffffff" />
-          <stop offset="100%" stopColor="#5eead4" />
+        <linearGradient id={`cross-${id}`} x1="18" y1="14" x2="18" y2="24" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#99f6e4" />
+          <stop offset="100%" stopColor="#ffffff" />
+        </linearGradient>
+        <radialGradient id={`glow-${id}`} cx="50%" cy="30%" r="60%">
+          <stop offset="0%" stopColor="#5eead4" stopOpacity="0.3" />
+          <stop offset="100%" stopColor="#0d9488" stopOpacity="0" />
         </radialGradient>
       </defs>
 
-      {/* ── 背景：圆角方形 ── */}
       {!flat && (
         <rect
           x="1" y="1" width="34" height="34"
-          rx="9" ry="9"
+          rx="10" ry="10"
           fill={`url(#bg-${id})`}
         />
       )}
 
-      {/*
-        ── 中心「流线符文」──
-        两条曲线交叉，形成∞/流动感，象征 AI 持续推理循环
-        上弧线：左→右，向下拱
-        下弧线：左→右，向上拱
-        两线在中心交叉，形成简洁「神经流」
-      */}
+      {variant === "glow" && (
+        <circle cx="18" cy="18" r="16" fill={`url(#glow-${id})`} />
+      )}
+
       <path
-        d="M8 13 C11 8, 18 9, 18 13 S25 18, 28 13"
-        stroke={`url(#stroke-${id})`}
-        strokeWidth="2.4"
-        strokeLinecap="round"
-        fill="none"
-      />
-      <path
-        d="M8 23 C11 28, 18 27, 18 23 S25 18, 28 23"
-        stroke={`url(#stroke-${id})`}
-        strokeWidth="2.4"
-        strokeLinecap="round"
-        fill="none"
+        d="M18 27 C18 27 9 22 9 15.5 C9 12 11.5 9 14.5 9 C16 9 17.5 10 18 11.5 C18.5 10 20 9 21.5 9 C24.5 9 27 12 27 15.5 C27 22 18 27 18 27Z"
+        fill={`url(#heart-${id})`}
+        opacity="0.95"
       />
 
-      {/* 中心交叉点高亮小圆 */}
-      <circle cx="18" cy="18" r="2" fill="white" opacity="0.95" />
-
-      {/* ── 右上角激活小圆点（agent 在线标志） ── */}
-      <circle cx="27.5" cy="8.5" r="3.2" fill={`url(#dot-${id})`} opacity="0.95" />
+      <rect x="16.5" y="14.5" width="3" height="8" rx="1" fill={`url(#cross-${id})`} opacity="0.92" />
+      <rect x="14" y="17" width="8" height="3" rx="1" fill={`url(#cross-${id})`} opacity="0.92" />
     </svg>
   );
 });

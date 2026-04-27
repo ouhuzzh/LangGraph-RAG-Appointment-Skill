@@ -1,13 +1,16 @@
-import React, { useEffect, useRef, useCallback } from "react";
+import React, { useEffect, useRef, useCallback, useState } from "react";
 import MessageBubble from "./MessageBubble";
 import EmptyState from "./EmptyState";
+import SkeletonLoader from "./SkeletonLoader";
+import { ArrowDown } from "lucide-react";
 
-const SCROLL_THRESHOLD = 80; // px from bottom to count as "at bottom"
+const SCROLL_THRESHOLD = 80;
 
-const MessageList = React.memo(function MessageList({ messages, isStreaming, onSendMessage }) {
+const MessageList = React.memo(function MessageList({ messages, isStreaming, isLoadingHistory, onSendMessage, searchQuery, currentMatchId }) {
   const containerRef = useRef(null);
   const endRef = useRef(null);
   const userScrolledUpRef = useRef(false);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
 
   const isAtBottom = useCallback(() => {
     const el = containerRef.current;
@@ -19,67 +22,85 @@ const MessageList = React.memo(function MessageList({ messages, isStreaming, onS
     endRef.current?.scrollIntoView({ behavior, block: "end" });
   }, []);
 
-  // Detect manual scroll up
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const onScroll = () => {
-      userScrolledUpRef.current = !isAtBottom();
+      const scrolledUp = !isAtBottom();
+      userScrolledUpRef.current = scrolledUp;
+      setShowScrollBtn(scrolledUp);
     };
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
   }, [isAtBottom]);
 
-  // When new message arrives (user sends) — always jump
   const prevLenRef = useRef(messages.length);
   useEffect(() => {
     const prevLen = prevLenRef.current;
     prevLenRef.current = messages.length;
     if (messages.length > prevLen) {
-      // New message added — always scroll (instant for user msg, smooth for AI)
       userScrolledUpRef.current = false;
+      setShowScrollBtn(false);
       scrollToBottom("smooth");
     }
   }, [messages.length, scrollToBottom]);
 
-  // During streaming — follow bottom only if user hasn't scrolled up
   useEffect(() => {
     if (!isStreaming) return;
-    if (!userScrolledUpRef.current) {
-      scrollToBottom("instant");
-    }
-  });
+    const raf = requestAnimationFrame(() => {
+      if (!userScrolledUpRef.current) {
+        scrollToBottom("instant");
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [isStreaming, messages, scrollToBottom]);
 
-  // When streaming ends — scroll to bottom once
   const prevStreamingRef = useRef(isStreaming);
   useEffect(() => {
     if (prevStreamingRef.current && !isStreaming) {
       userScrolledUpRef.current = false;
+      setShowScrollBtn(false);
       scrollToBottom("smooth");
     }
     prevStreamingRef.current = isStreaming;
   }, [isStreaming, scrollToBottom]);
 
   return (
-    <div className="message-list" ref={containerRef}>
-      {messages.length === 0 ? (
-        <EmptyState onSendMessage={onSendMessage} />
-      ) : (
-        messages.map((message, index) => {
-          const isLastAssistant =
-            message.role === "assistant" && index === messages.length - 1;
-          return (
-            <MessageBubble
-              key={message.id ?? `${message.role}-${index}`}
-              message={message}
-              isStreaming={isStreaming}
-              isLastAssistant={isLastAssistant}
-              onAction={onSendMessage}
-            />
-          );
-        })
+    <div className="message-list-wrapper">
+      <div className="message-list" ref={containerRef}>
+        {isLoadingHistory && messages.length === 0 ? (
+          <SkeletonLoader rows={3} />
+        ) : messages.length === 0 ? (
+          <EmptyState onSendMessage={onSendMessage} />
+        ) : (
+          messages.map((message, index) => {
+            const isLastAssistant =
+              message.role === "assistant" && index === messages.length - 1;
+            return (
+              <MessageBubble
+                key={message.id ?? `${message.role}-${index}`}
+                message={message}
+                isStreaming={isStreaming}
+                isLastAssistant={isLastAssistant}
+                onAction={onSendMessage}
+                searchQuery={searchQuery}
+                isSearchMatch={message.id === currentMatchId}
+              />
+            );
+          })
+        )}
+        <div ref={endRef} style={{ height: 1 }} />
+      </div>
+      {showScrollBtn && (
+        <button
+          type="button"
+          className="scroll-to-bottom"
+          onClick={() => { userScrolledUpRef.current = false; setShowScrollBtn(false); scrollToBottom("smooth"); }}
+          aria-label="滚动到底部"
+        >
+          <ArrowDown size={16} />
+        </button>
       )}
-      <div ref={endRef} style={{ height: 1 }} />
     </div>
   );
 });

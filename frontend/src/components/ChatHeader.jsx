@@ -1,14 +1,14 @@
 import React from "react";
-import { Menu } from "lucide-react";
+import { Menu, Search, Download } from "lucide-react";
 
 const STATE_MAP = {
-  connecting: { text: "连接中",  variant: "info"       },
-  thinking:   { text: "思考中",  variant: "thinking"   },
-  generating: { text: "生成中",  variant: "generating" },
-  stopped:    { text: "已停止",  variant: "warn"       },
-  error:      { text: "需重试",  variant: "error"      },
-  done:       { text: "已完成",  variant: "done"       },
-  idle:       { text: "待命",    variant: "idle"       },
+  connecting: { text: "连接中", variant: "info" },
+  thinking: { text: "思考中", variant: "thinking" },
+  generating: { text: "生成中", variant: "generating" },
+  stopped: { text: "已停止", variant: "warn" },
+  error: { text: "需重试", variant: "error" },
+  done: { text: "已完成", variant: "done" },
+  idle: { text: "待命", variant: "idle" },
 };
 
 const ChatHeader = React.memo(function ChatHeader({
@@ -16,6 +16,8 @@ const ChatHeader = React.memo(function ChatHeader({
   isConnected,
   streamState,
   onMenuClick,
+  onOpenSearch,
+  onExport,
 }) {
   const { text: stateText, variant: stateVariant } =
     STATE_MAP[streamState || "idle"] ?? STATE_MAP.idle;
@@ -49,6 +51,27 @@ const ChatHeader = React.memo(function ChatHeader({
         <div className="thread-chip" title={threadId}>
           {threadId ? `#${threadId.slice(0, 6)}` : "…"}
         </div>
+      </div>
+
+      <div className="chat-header__actions">
+        <button
+          type="button"
+          className="icon-button"
+          onClick={onOpenSearch}
+          title="搜索 (Ctrl+F)"
+          aria-label="搜索聊天记录"
+        >
+          <Search size={16} />
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          onClick={onExport}
+          title="导出 (Ctrl+E)"
+          aria-label="导出对话"
+        >
+          <Download size={16} />
+        </button>
       </div>
     </header>
   );

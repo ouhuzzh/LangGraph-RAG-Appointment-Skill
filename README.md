@@ -19,9 +19,9 @@
 
 </div>
 
-![Current React UI demo](assets/demo.gif)
+![Current React/Vite product demo](assets/demo.gif)
 
-> The GIF above is captured from the current React/Vite frontend. The public user app is React + FastAPI; Gradio is kept as an admin/debug console.
+> The demo shows the React/Vite user app. The current frontend has a product-style chat workspace, Documents page, theme toggle, message search, chat export, keyboard shortcuts, PWA support, and safer error/loading states. Gradio is kept as an admin/debug console.
 
 ## Why This Project Exists
 
@@ -42,7 +42,7 @@ Most RAG demos answer one question from a few documents. This project is closer 
 | Memory | Redis recent context, LLM summaries, topic focus, pending action state, and persistent checkpoints |
 | Appointment Skill | Department discovery, doctor/slot discovery, booking preview, cancellation preview, explicit confirmation |
 | Knowledge base | Local document upload, official source sync, content-hash update detection, soft delete, import history |
-| Frontend split | FastAPI API, SSE chat stream, React user app, lightweight Documents page, Gradio admin console |
+| Frontend split | FastAPI API, SSE chat stream, React user app, Documents page, theme/search/export/PWA UX, Gradio admin console |
 | Safety | High-risk symptom handling, medication caution, low-evidence general medical fallback with disclaimer |
 
 ## Architecture

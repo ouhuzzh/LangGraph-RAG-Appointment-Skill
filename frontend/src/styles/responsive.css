@@ -1,0 +1,106 @@
+/* ============================================= */
+/* Responsive — Tablet (≤ 920px) */
+/* ============================================= */
+@media (max-width: 920px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;   /* 单列单行，完整撑满 */
+    height: 100%;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    height: 100%;           /* fixed 抽屉也需要明确高度 */
+    width: 300px;
+    z-index: 20;
+    transform: translateX(-110%);
+    box-shadow: var(--shadow-lg);
+    border-right: 1px solid var(--border-soft);
+  }
+
+  .sidebar--open {
+    transform: translateX(0);
+  }
+
+  .sidebar-backdrop {
+    display: block;
+  }
+
+  .sidebar-close {
+    display: grid;
+  }
+
+  .chat-header__menu {
+    display: grid;
+  }
+
+  .chat-shell {
+    padding: 18px 16px;
+    height: 100%;
+  }
+
+  .documents-shell {
+    padding: 18px 16px;
+  }
+
+  .documents-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================= */
+/* Responsive — Mobile (≤ 640px) */
+/* ============================================= */
+@media (max-width: 640px) {
+  .prompt-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bubble {
+    font-size: 14px;
+  }
+
+  .message__column {
+    max-width: 90%;
+  }
+
+  .chat-header__title h2 {
+    font-size: 18px;
+  }
+
+  .thread-chip {
+    display: none;
+  }
+
+  .stream-chip {
+    display: none;
+  }
+
+  .documents-header {
+    align-items: center;
+  }
+
+  .documents-header .secondary-btn {
+    display: none;
+  }
+
+  .sync-form {
+    grid-template-columns: 1fr;
+  }
+
+  .empty-state {
+    padding: 20px 12px;
+  }
+
+  .empty-state__title {
+    font-size: 18px;
+  }
+
+  .empty-state__bg-ornament {
+    display: none;
+  }
+}
+

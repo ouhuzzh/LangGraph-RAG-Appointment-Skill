@@ -1,16 +1,33 @@
-import { useState } from "react";
+import { useState, useRef, lazy, Suspense } from "react";
 import Sidebar from "./components/Sidebar";
 import ClearConfirmDialog from "./components/ClearConfirmDialog";
-import ChatPage from "./pages/ChatPage";
-import DocumentsPage from "./pages/DocumentsPage";
+import { I18nProvider } from "./i18n";
+import { useTheme } from "./hooks/useTheme";
 import { useChatSession } from "./hooks/useChatSession";
 import { useDocuments } from "./hooks/useDocuments";
 import { useSystemStatus } from "./hooks/useSystemStatus";
+import { useSearch } from "./hooks/useSearch";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { exportChat } from "./lib/export";
 
-export default function App() {
+const ChatPage = lazy(() => import("./pages/ChatPage"));
+const DocumentsPage = lazy(() => import("./pages/DocumentsPage"));
+
+function PageLoader() {
+  return (
+    <div className="page-loader">
+      <div className="page-loader__spinner" />
+      <span>Loading…</span>
+    </div>
+  );
+}
+
+function AppInner() {
   const [activeView, setActiveView] = useState("chat");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  const composerRef = useRef(null);
+  const { theme, toggleTheme } = useTheme();
   const system = useSystemStatus();
   const chat = useChatSession({
     apiBaseUrl: system.apiBaseUrl,
@@ -23,11 +40,32 @@ export default function App() {
     setApiBaseUrl: system.setApiBaseUrl,
     refreshStatus: system.refreshStatus,
   });
+  const search = useSearch(chat.messages);
+  const lastAssistantMessage = [...chat.messages]
+    .reverse()
+    .find((m) => m.role === "assistant" && m.content);
 
   function navigate(view) {
     setActiveView(view);
     setSidebarOpen(false);
   }
+
+  function handleExport() {
+    exportChat(chat.messages, chat.threadId, "markdown");
+  }
+
+  // Register global keyboard shortcuts
+  useKeyboardShortcuts({
+    isStreaming: chat.isStreaming,
+    onStop: chat.stopStreaming,
+    composerRef,
+    lastAssistantMessage,
+    onOpenSearch: search.openSearch,
+    onExport: handleExport,
+  });
+
+  // Expose composerRef to ChatPage via chat object
+  const chatWithRef = { ...chat, composerRef, search, onExport: handleExport };
 
   return (
     <div className="app">
@@ -39,20 +77,24 @@ export default function App() {
         onRefresh={system.refreshStatus}
         mobileOpen={sidebarOpen}
         onMobileClose={() => setSidebarOpen(false)}
+        theme={theme}
+        onToggleTheme={toggleTheme}
       />
 
-      {activeView === "documents" ? (
-        <DocumentsPage
-          documentsState={documents}
-          onMenuClick={() => setSidebarOpen(true)}
-        />
-      ) : (
-        <ChatPage
-          chat={chat}
-          isConnected={system.isConnected}
-          onMenuClick={() => setSidebarOpen(true)}
-        />
-      )}
+      <Suspense fallback={<PageLoader />}>
+        {activeView === "documents" ? (
+          <DocumentsPage
+            documentsState={documents}
+            onMenuClick={() => setSidebarOpen(true)}
+          />
+        ) : (
+          <ChatPage
+            chat={chatWithRef}
+            isConnected={system.isConnected}
+            onMenuClick={() => setSidebarOpen(true)}
+          />
+        )}
+      </Suspense>
 
       <ClearConfirmDialog
         open={clearDialogOpen}
@@ -63,5 +105,13 @@ export default function App() {
         onCancel={() => setClearDialogOpen(false)}
       />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <I18nProvider>
+      <AppInner />
+    </I18nProvider>
   );
 }

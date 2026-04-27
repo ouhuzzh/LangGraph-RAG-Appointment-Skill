@@ -19,10 +19,28 @@ const StatusIndicator = React.memo(function StatusIndicator({
     const el = rowRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    setTooltipStyle({
-      top: rect.top,
-      left: rect.right + 10,
-    });
+    const tooltipWidth = 220;
+    const gap = 10;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    let left = rect.right + gap;
+    let top = rect.top;
+
+    // If tooltip would overflow right edge, flip to left side
+    if (left + tooltipWidth > viewportWidth - 8) {
+      left = rect.left - tooltipWidth - gap;
+      // If still overflowing left, clamp
+      if (left < 8) left = 8;
+    }
+
+    // Clamp top so tooltip stays within viewport
+    if (top + 180 > viewportHeight) {
+      top = Math.max(8, viewportHeight - 190);
+    }
+    if (top < 8) top = 8;
+
+    setTooltipStyle({ top, left });
   }, []);
 
   const hideTooltip = useCallback(() => {

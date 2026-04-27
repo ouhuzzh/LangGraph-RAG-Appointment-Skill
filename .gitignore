@@ -1,6 +1,9 @@
 .DS_Store
 .qoder/
 .codebuddy/
+.claude/
+.claude-plugin/
+CLAUDE.md
 .vscode/
 .venv/
 venv/
@@ -23,3 +26,12 @@ node_modules/
 frontend/dist/
 .env
 project/.env
+/config.json
+/events.jsonl
+/views.json
+/sessions/
+/skills/
+/statuses/
+/labels/
+/nul
+/frontend/public/generate-icons.html

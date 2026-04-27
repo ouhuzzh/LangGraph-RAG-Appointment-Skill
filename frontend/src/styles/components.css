@@ -1,0 +1,183 @@
+/* ============================================= */
+/* User Avatar */
+/* ============================================= */
+.message__avatar--user {
+  background: none;
+  border: none;
+  border-radius: 8px;
+}
+
+/* ============================================= */
+/* Message Footer (time + copy) */
+/* ============================================= */
+.message__footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.message__footer--user {
+  justify-content: flex-end;
+}
+
+.message__footer--assistant {
+  justify-content: flex-start;
+}
+
+/* ============================================= */
+/* Copy Button */
+/* ============================================= */
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--slate-400);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.18s, color 0.15s, background 0.15s, border-color 0.15s;
+  line-height: 1;
+}
+
+.message:hover .copy-btn {
+  opacity: 1;
+}
+
+.copy-btn:hover {
+  color: var(--teal-700);
+  background: var(--teal-50);
+  border-color: rgba(15,118,110,0.15);
+}
+
+.copy-btn:active {
+  transform: scale(0.95);
+}
+
+/* ============================================= */
+/* Confirm Dialog */
+/* ============================================= */
+.confirm-dialog {
+  position: fixed;
+  margin: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: 0;
+  box-shadow: var(--shadow-lg);
+  max-width: 380px;
+  width: calc(100% - 40px);
+  z-index: 200;
+  background: #fff;
+}
+
+.confirm-dialog::backdrop {
+  background: rgba(23, 33, 38, 0.4);
+  backdrop-filter: blur(3px);
+}
+
+.confirm-dialog__inner {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 24px;
+}
+
+.confirm-dialog__icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(245,158,11,0.12);
+  color: var(--amber-500);
+}
+
+.confirm-dialog__body h3 {
+  margin: 0 0 6px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.confirm-dialog__body p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--slate-500);
+  line-height: 1.6;
+}
+
+.confirm-dialog__actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.confirm-dialog__btn--cancel {
+  padding: 9px 20px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--slate-600);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.confirm-dialog__btn--cancel:hover {
+  border-color: var(--teal-700);
+  color: var(--teal-700);
+  background: var(--teal-50);
+}
+
+.confirm-dialog__btn--confirm {
+  padding: 9px 20px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--red-600);
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.confirm-dialog__btn--confirm:hover {
+  background: #b91c1c;
+}
+
+/* ============================================= */
+/* Icon Button (shared) */
+/* ============================================= */
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--slate-600);
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+  padding: 0;
+}
+
+.icon-button:hover {
+  border-color: var(--teal-700);
+  color: var(--teal-700);
+  background: var(--teal-50);
+}
+
+/* ============================================= */
+/* Status Tooltip — overflow guard */
+/* ============================================= */
+.status-indicator__tooltip {
+  z-index: 9999;
+  pointer-events: none;
+  width: 220px;
+  animation: fade-in-up 0.14s ease both;
+  position: fixed;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+}
+

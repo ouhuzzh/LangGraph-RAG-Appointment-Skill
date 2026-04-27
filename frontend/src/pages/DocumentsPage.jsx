@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { Database, FileText, RefreshCw, UploadCloud } from "lucide-react";
+import { Database, FileText, Menu, RefreshCw, UploadCloud } from "lucide-react";
 import { statusTone } from "../constants/app";
 import StatusIndicator from "../components/StatusIndicator";
 
@@ -31,6 +31,8 @@ function formatDuration(ms) {
   return `${(value / 1000).toFixed(1)}s`;
 }
 
+const ACCEPTED_EXTENSIONS = ".md,.pdf,.txt,.html,.htm,.doc,.docx,.ppt,.pptx,.xls,.xlsx";
+
 export default function DocumentsPage({
   documentsState,
   onMenuClick,
@@ -38,6 +40,7 @@ export default function DocumentsPage({
   const fileRef = useRef(null);
   const [source, setSource] = useState("nhc");
   const [limit, setLimit] = useState(5);
+  const [isDragOver, setIsDragOver] = useState(false);
   const {
     documents,
     tasks,
@@ -95,6 +98,28 @@ export default function DocumentsPage({
     event.target.value = "";
   }
 
+  function handleDragOver(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragOver(true);
+  }
+
+  function handleDragLeave(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragOver(false);
+  }
+
+  async function handleDrop(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragOver(false);
+    const files = event.dataTransfer?.files;
+    if (files && files.length > 0) {
+      await upload(files);
+    }
+  }
+
   return (
     <section className="documents-shell">
       <header className="documents-header">
@@ -104,10 +129,10 @@ export default function DocumentsPage({
           onClick={onMenuClick}
           aria-label="打开菜单"
         >
-          ☰
+          <Menu size={20} />
         </button>
         <div>
-          <span className="eyebrow">Knowledge Base</span>
+          <span className="eyebrow">心语医疗 · 知识库</span>
           <h2>知识库文档</h2>
           <p>这里先提供用户友好的状态、上传和官方同步入口；高级诊断继续放在 Gradio 后台。</p>
         </div>
@@ -150,17 +175,28 @@ export default function DocumentsPage({
             multiple
             className="visually-hidden"
             onChange={handleUpload}
-            accept=".md,.pdf,.txt,.html,.htm,.doc,.docx,.ppt,.pptx,.xls,.xlsx"
+            accept={ACCEPTED_EXTENSIONS}
           />
-          <button
-            type="button"
-            className="primary-btn"
-            onClick={() => fileRef.current?.click()}
-            disabled={isWorking}
+          <div
+            className={`drop-zone${isDragOver ? " drop-zone--active" : ""}`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
           >
-            <UploadCloud size={17} />
-            选择并上传
-          </button>
+            <UploadCloud size={28} className="drop-zone__icon" />
+            <p className="drop-zone__text">
+              {isDragOver ? "松开即可上传" : "拖拽文件到此处"}
+            </p>
+            <button
+              type="button"
+              className="primary-btn"
+              onClick={() => fileRef.current?.click()}
+              disabled={isWorking}
+            >
+              <UploadCloud size={17} />
+              选择文件
+            </button>
+          </div>
         </div>
 
         <div className="document-card">
