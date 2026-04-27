@@ -1,12 +1,15 @@
 import ChatHeader from "../components/ChatHeader";
 import MessageList from "../components/MessageList";
 import Composer from "../components/Composer";
+import SearchBar from "../components/SearchBar";
 
 export default function ChatPage({
   chat,
   isConnected,
   onMenuClick,
 }) {
+  const { search, onExport } = chat;
+
   return (
     <section className="chat-shell">
       <ChatHeader
@@ -14,12 +17,29 @@ export default function ChatPage({
         isConnected={isConnected}
         streamState={chat.streamState}
         onMenuClick={onMenuClick}
+        onOpenSearch={search.openSearch}
+        onExport={onExport}
       />
+
+      {search.isOpen && (
+        <SearchBar
+          query={search.query}
+          matchCount={search.matchCount}
+          currentIndex={search.currentIndex}
+          onQueryChange={search.setQuery}
+          onClose={search.closeSearch}
+          onNext={search.goNext}
+          onPrev={search.goPrev}
+        />
+      )}
 
       <MessageList
         messages={chat.messages}
         isStreaming={chat.isStreaming}
+        isLoadingHistory={chat.isLoadingHistory}
         onSendMessage={chat.sendMessage}
+        searchQuery={search.query}
+        currentMatchId={search.currentMatch?.messageId}
       />
 
       {chat.error && (
@@ -49,9 +69,10 @@ export default function ChatPage({
       )}
 
       <Composer
+        ref={chat.composerRef}
         input={chat.input}
         onChange={chat.setInput}
-        onSubmit={chat.sendMessage}
+        onSubmit={() => chat.sendMessage(chat.input)}
         onStop={chat.stopStreaming}
         isStreaming={chat.isStreaming}
         disabled={!chat.threadId}
