@@ -49,11 +49,12 @@ Most RAG demos answer one question from a few documents. This project is closer 
 | --- | --- |
 | LangGraph orchestration | Declarative Skill plugin framework — 3-layer intent routing (rule + semantic + LLM), add an intent with 1 class |
 | Agentic RAG | Self-correcting retrieval: evidence-reflection loop, task decomposition, answer grounding check, online self-evaluation |
+| Retrieval quality | Parent-child chunking, hybrid (pgvector + tsvector) + RRF + rerank, plus opt-in **Contextual Retrieval** and a **semantic answer cache** |
 | 3-layer memory | Redis sliding window → LLM summary compression → pgvector cross-session semantic recall with importance scoring |
 | MCP multi-hospital | Fernet-encrypted per-user credentials, namespaced tool injection, 3-state circuit breaker per hospital |
 | Appointment Skill | Discovery → Preview → Confirm; code-gated state transitions (idempotency + state machine), not LLM judgment |
 | Knowledge base | Local document upload, official source sync (NHC/WHO), content-hash update detection, soft delete |
-| Security | High-risk symptom alerts, PII column-level encryption, JWT auth + login lockout, rate limiting, audit log |
+| Security | Graded clinical safety guardrail (red-flag severity + prescription-boundary), PII column-level encryption, JWT auth + login lockout, rate limiting, audit log |
 | Frontend | Aurora glassmorphism UI — responsive, accessible, dark-mode, PWA-ready |
 
 ## Core Capabilities
@@ -221,6 +222,18 @@ flowchart TD
 - **Rollback** - disabling any toggle restores the prior stage's topology; all four are on by default.
 
 Per-stage design specs and implementation plans live in [`docs/superpowers/`](docs/superpowers/). See also the [interview architecture guide](docs/INTERVIEW_PROJECT_ARCHITECTURE_CN.md) and [architecture gallery](docs/INTERVIEW_PROJECT_ARCHITECTURE_GALLERY.html).
+
+### Retrieval & Safety Extensions (opt-in)
+
+Beyond the always-on pipeline, three production-grade extensions ship behind config toggles (default off, fail-open, unit-tested) so you can measure their lift with the bundled ablation harness before turning them on:
+
+| Extension | Toggle (default) | What it adds |
+| --- | --- | --- |
+| **Contextual Retrieval** | `ENABLE_CONTEXTUAL_RETRIEVAL=false` | Prepends an LLM-written situating sentence to each chunk before embedding (Anthropic Contextual Retrieval), so a stand-alone chunk carries its document context into the vector index |
+| **Semantic answer cache** | `ENABLE_SEMANTIC_CACHE=false` | pgvector similarity cache that short-circuits repeat questions to a stored answer; context-dependent turns are refused so multi-turn safety holds |
+| **Clinical safety guardrail** | `ENABLE_CLINICAL_SAFETY_GUARDRAIL=false` | Graded red-flag severity (critical / high / moderate) + prescription-boundary detection; strictly additive to existing risk inference (can only raise risk) |
+
+Each extension is isolated, reversible, and covered by unit tests (`tests/test_contextual_retrieval.py`, `tests/test_semantic_cache.py`, `tests/test_clinical_safety.py`).
 
 ## Typical Workflows
 
@@ -517,7 +530,16 @@ It is **not** a medical device, does **not** provide diagnosis, and does **not**
 
 - ~~Build the agentic pipeline (retrieval loop, answer reflection, task decomposition, online self-eval)~~ - **done (P1–P4)**, see [Agentic Pipeline](#agentic-pipeline-p1p4-from-rag-to-agent)
 - ~~Add stronger answer-level evaluation~~ - **done (P4 `self_eval`, LLM-as-judge on safety/accuracy/completeness/groundedness, persisted to `route_logs`)**
+- ~~Contextual Retrieval, semantic answer cache, and a graded clinical safety guardrail~~ - **done (P5-P7, opt-in toggles, unit-tested)**
 - Move more admin capabilities from Gradio to dedicated FastAPI/React pages
 - Improve appointment rescheduling and alternative-slot planning
 - Add auth and deployment profiles for real multi-user environments
 - Make `_structured_output_llm._default()` handle `Literal` fields natively (currently P3/P4 rely on node-level try/except)
+
+---
+
+<div align="center">
+
+If this project helped you or taught you something, a ⭐ makes it easier for others to find. Thanks for reading!
+
+</div>
