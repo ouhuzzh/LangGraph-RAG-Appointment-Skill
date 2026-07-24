@@ -533,6 +533,33 @@ class SchemaManager:
                 """,
             ],
         ),
+        (
+            "019_semantic_cache",
+            "Semantic answer cache — reuse answers for highly similar past questions.",
+            [
+                """
+                CREATE TABLE IF NOT EXISTS semantic_cache (
+                    id              BIGSERIAL PRIMARY KEY,
+                    query_text      TEXT NOT NULL,
+                    response_text   TEXT NOT NULL,
+                    embedding       VECTOR(1024),
+                    hit_count       INTEGER NOT NULL DEFAULT 0,
+                    created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+                    last_hit_at     TIMESTAMP
+                )
+                """,
+                f"""
+                CREATE INDEX IF NOT EXISTS idx_semantic_cache_embedding_cosine
+                ON semantic_cache
+                USING ivfflat (embedding vector_cosine_ops)
+                WITH (lists = {config.VECTOR_INDEX_LISTS})
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_semantic_cache_created_at
+                ON semantic_cache(created_at DESC)
+                """,
+            ],
+        ),
     ]
 
     def __init__(self, conninfo: str):

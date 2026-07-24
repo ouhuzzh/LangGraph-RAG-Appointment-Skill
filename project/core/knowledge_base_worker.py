@@ -21,6 +21,7 @@ class KnowledgeBaseRuntime:
     """Minimal service container required by knowledge-base maintenance jobs."""
 
     def __init__(self, collection_name: str = config.CHILD_COLLECTION):
+        from core.contextual_enricher import ContextualChunkEnricher
         from core.document_chunker import DocumentChuncker
         from core.document_manager import DocumentManager
         from core.knowledge_base_supervisor import KnowledgeBaseSupervisor
@@ -32,7 +33,7 @@ class KnowledgeBaseRuntime:
         self.vector_db = VectorDbManager()
         self.parent_store = ParentStoreManager()
         self.import_task_store = ImportTaskStore()
-        self.chunker = DocumentChuncker()
+        self.chunker = DocumentChuncker(enricher=ContextualChunkEnricher())
         self.document_manager = DocumentManager(self)
         self._startup_steps: dict[str, dict] = {}
         self.knowledge_base_supervisor = KnowledgeBaseSupervisor(self)

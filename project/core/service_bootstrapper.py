@@ -6,6 +6,7 @@ from typing import Callable
 
 from core.agent_graph_factory import AgentGraphFactory
 from core.container import ServiceContainer
+from core.contextual_enricher import ContextualChunkEnricher
 from core.document_chunker import DocumentChuncker
 from core.knowledge_base_supervisor import KnowledgeBaseSupervisor
 from core.observability import Observability
@@ -102,7 +103,7 @@ DEFAULT_FACTORIES: dict[str, Callable] = {
     "vector_db": VectorDbManager,
     "parent_store": ParentStoreManager,
     "import_task_store": ImportTaskStore,
-    "chunker": DocumentChuncker,
+    "chunker": lambda: DocumentChuncker(enricher=ContextualChunkEnricher()),
     "session_memory": RedisSessionMemory,
     "summary_store": SummaryStore,
     "user_memory_store": UserMemoryStore,

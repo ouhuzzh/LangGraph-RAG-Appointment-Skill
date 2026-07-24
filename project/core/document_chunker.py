@@ -1,12 +1,16 @@
 import os
 import glob
 import re
+import logging
 import config
 from pathlib import Path
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 
+logger = logging.getLogger(__name__)
+
 class DocumentChuncker:
-    def __init__(self):
+    def __init__(self, enricher=None):
+        self._enricher = enricher
         self.__parent_splitter = MarkdownHeaderTextSplitter(
             headers_to_split_on=config.HEADERS_TO_SPLIT_ON, 
             strip_headers=False
@@ -45,7 +49,22 @@ class DocumentChuncker:
         
         all_parent_chunks, all_child_chunks = [], []
         self.__create_child_chunks(all_parent_chunks, all_child_chunks, cleaned_parents, doc_path, metadata)
+        self.__enrich_child_chunks(all_parent_chunks, all_child_chunks)
         return all_parent_chunks, all_child_chunks
+
+    def __enrich_child_chunks(self, parent_pairs, child_chunks):
+        """Contextual Retrieval: attach an LLM situating sentence per child chunk.
+
+        No-op when no enricher is injected or the feature flag is off; failures
+        are swallowed so chunking always succeeds.
+        """
+        if self._enricher is None or not child_chunks:
+            return
+        try:
+            parent_lookup = {parent_id: parent.page_content for parent_id, parent in parent_pairs}
+            self._enricher.enrich_child_chunks(child_chunks, parent_lookup=parent_lookup)
+        except Exception:
+            logger.warning("Contextual enrichment failed; continuing without it", exc_info=True)
 
     @staticmethod
     def __extract_front_matter_metadata(raw_text):

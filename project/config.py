@@ -97,6 +97,28 @@ ENABLE_TASK_DECOMPOSITION = os.environ.get("ENABLE_TASK_DECOMPOSITION", "true").
 ENABLE_SELF_EVAL = os.environ.get("ENABLE_SELF_EVAL", "true").lower() == "true"
 SELF_EVAL_DEGRADE_THRESHOLD = float(os.environ.get("SELF_EVAL_DEGRADE_THRESHOLD", "0.6"))
 
+# P5: Contextual Retrieval — prepend an LLM-generated situating sentence to each
+# child chunk before embedding (Anthropic Contextual Retrieval). Off by default;
+# enabling it adds one light-LLM call per child chunk at ingest time.
+ENABLE_CONTEXTUAL_RETRIEVAL = os.environ.get("ENABLE_CONTEXTUAL_RETRIEVAL", "false").lower() == "true"
+CONTEXTUAL_RETRIEVAL_MAX_CHARS = int(os.environ.get("CONTEXTUAL_RETRIEVAL_MAX_CHARS", "80"))
+CONTEXTUAL_RETRIEVAL_CHUNK_CHARS = int(os.environ.get("CONTEXTUAL_RETRIEVAL_CHUNK_CHARS", "1200"))
+CONTEXTUAL_RETRIEVAL_PARENT_CHARS = int(os.environ.get("CONTEXTUAL_RETRIEVAL_PARENT_CHARS", "2000"))
+CONTEXTUAL_RETRIEVAL_MAX_TOKENS = int(os.environ.get("CONTEXTUAL_RETRIEVAL_MAX_TOKENS", "128"))
+
+# P6: Semantic answer cache — embed the incoming query and short-circuit to a
+# cached answer when a past query is highly similar. Off by default; only exact
+# knowledge-style turns should be cached (guarded at the call site).
+ENABLE_SEMANTIC_CACHE = os.environ.get("ENABLE_SEMANTIC_CACHE", "false").lower() == "true"
+SEMANTIC_CACHE_SIMILARITY_THRESHOLD = float(os.environ.get("SEMANTIC_CACHE_SIMILARITY_THRESHOLD", "0.95"))
+SEMANTIC_CACHE_TTL_SECONDS = int(os.environ.get("SEMANTIC_CACHE_TTL_SECONDS", "604800"))
+SEMANTIC_CACHE_MIN_QUERY_CHARS = int(os.environ.get("SEMANTIC_CACHE_MIN_QUERY_CHARS", "6"))
+
+# P7: Clinical safety guardrail — graded red-flag severity + prescription-boundary
+# checks. Off by default; when on it is strictly additive to existing risk
+# inference (can only raise risk, never lower it).
+ENABLE_CLINICAL_SAFETY_GUARDRAIL = os.environ.get("ENABLE_CLINICAL_SAFETY_GUARDRAIL", "false").lower() == "true"
+
 # Unified turn planner - LLM-based cross-intent compound decomposition. Produces
 # a planned_tasks list drained by dispatch_next_task within a single graph
 # invocation, with a completeness gate. Adds one light-LLM call per turn.

@@ -571,6 +571,10 @@ def _infer_risk_level(user_query: str, existing_risk: str = "normal") -> str:
     normalized = (user_query or "").strip().lower()
     if any(keyword.lower() in normalized for keyword in HIGH_RISK_KEYWORDS):
         return "high"
+    if getattr(config, "ENABLE_CLINICAL_SAFETY_GUARDRAIL", False):
+        from rag_agent.clinical_safety import classify_severity
+        if classify_severity(user_query) in ("critical", "high"):
+            return "high"
     return existing_risk or "normal"
 
 

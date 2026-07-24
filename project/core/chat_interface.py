@@ -18,6 +18,7 @@ from core.chat_turn_service import ChatTurnService
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage, SystemMessage
 from rag_agent.node_helpers import _sanitize_final_answer_text
 from rag_agent.tools import reset_retrieval_context
+from db.semantic_cache_store import SemanticCacheStore, is_cacheable_turn
 
 
 logger = logging.getLogger(__name__)
@@ -120,6 +121,7 @@ class ChatInterface:
 
     def __init__(self, rag_system):
         self.rag_system = rag_system
+        self._semantic_cache = SemanticCacheStore()
         self.input_service = ChatTurnInputService(
             rag_system,
             get_graph_config=self._get_graph_config,
@@ -575,6 +577,42 @@ class ChatInterface:
         except TypeError:
             return self.rag_system.get_config()
 
+    def _maybe_semantic_cache_hit(self, turn_input):
+        """Return a cached answer when the semantic cache is enabled and this turn
+        is safely cacheable; otherwise None. Never raises."""
+        if not config.ENABLE_SEMANTIC_CACHE or turn_input.stream_input is None:
+            return None
+        if not is_cacheable_turn(turn_input.user_message, turn_input.session_state):
+            return None
+        try:
+            return self._semantic_cache.lookup(turn_input.user_message)
+        except Exception:
+            logger.warning("Semantic cache lookup failed", exc_info=True)
+            return None
+
+    def _record_cache_hit_turn(self, turn_input, cached_answer):
+        """Append the cache-hit exchange to session memory so multi-turn context
+        stays intact even though the agent graph was skipped."""
+        try:
+            self.rag_system.session_memory.append_exchange(
+                turn_input.active_thread_id, turn_input.user_message, cached_answer,
+            )
+        except Exception:
+            logger.warning("Failed to record cache-hit turn history", exc_info=True)
+
+    def _store_semantic_cache(self, turn_input, artifacts):
+        if not config.ENABLE_SEMANTIC_CACHE or turn_input.stream_input is None:
+            return
+        if not is_cacheable_turn(turn_input.user_message, turn_input.session_state):
+            return
+        answer = getattr(artifacts, "final_assistant", "") or ""
+        if not answer:
+            return
+        try:
+            self._semantic_cache.store(turn_input.user_message, answer)
+        except Exception:
+            logger.warning("Semantic cache store failed", exc_info=True)
+
     def chat(self, message, history, reveal_diagnostics=False, thread_id=None):
         """Generator that streams Gradio chat message dicts."""
         if not self.rag_system.agent_graph:
@@ -588,6 +626,13 @@ class ChatInterface:
         turn_input = None
         try:
             turn_input = self.input_service.prepare(message=message, thread_id=thread_id)
+
+            cached_answer = self._maybe_semantic_cache_hit(turn_input)
+            if cached_answer is not None:
+                cache_messages = [make_message(cached_answer)]
+                yield self._prepare_visible_messages(cache_messages, reveal_diagnostics=reveal_diagnostics)
+                self._record_cache_hit_turn(turn_input, cached_answer)
+                return
 
             response_messages  = []
             import time as _time
@@ -648,6 +693,7 @@ class ChatInterface:
                 user_id=turn_input.user_id,
                 artifacts=artifacts,
             )
+            self._store_semantic_cache(turn_input, artifacts)
 
         except Exception as e:
             request_id = getattr(turn_input, "request_id", "")

@@ -26,6 +26,11 @@ def _vector_literal(values):
 def _build_embedding_text(doc):
     metadata = dict(doc.metadata or {})
     context_parts = []
+    # Contextual Retrieval: an LLM-generated situating sentence (when present)
+    # leads the embedding text so a stand-alone chunk carries its document context.
+    contextual_summary = str(metadata.get("contextual_summary") or "").strip()
+    if contextual_summary:
+        context_parts.append(f"context: {contextual_summary}")
     for key in ("section_title", "document_topic", "intended_audience", "source_version", "source_type", "title"):
         value = str(metadata.get(key) or "").strip()
         if value:
