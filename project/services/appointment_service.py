@@ -2,7 +2,6 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import date
-import config
 from db.connection import connect, get_conninfo
 from db.schema_manager import SchemaManager
 

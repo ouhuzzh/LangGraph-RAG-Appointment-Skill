@@ -8,7 +8,6 @@ Private helpers that are only used by these public nodes are kept local.
 import re
 import logging
 from typing import Literal, Set
-from datetime import date
 
 from langchain_core.messages import SystemMessage, HumanMessage, RemoveMessage, AIMessage, ToolMessage
 from langchain_core.documents import Document
@@ -18,45 +17,28 @@ from .graph_state import State, AgentState
 from .schemas import (
     AnswerSelfEval,
     QueryAnalysis,
-    RetrievalQueryPlan,
-    GroundedAnswerCheck,
     EvidenceSufficiency,
-    GroundingCritique,
     TaskDecomposition,
-    build_turn_plan_schema,
 )
 from .prompts import (
     get_rewrite_query_prompt,
-    get_retrieval_query_plan_prompt,
     get_orchestrator_prompt,
     get_fallback_response_prompt,
     get_context_compression_prompt,
-    get_aggregation_prompt,
     get_evidence_sufficiency_prompt,
-    get_grounding_critique_prompt,
     get_self_eval_prompt,
     get_task_decomposition_prompt,
-    get_turn_planner_prompt,
 )
 from utils import estimate_context_tokens
 import config
 from config import BASE_TOKEN_THRESHOLD, TOKEN_GROWTH_FACTOR
-from rag_agent.tools import plan_queries, ground_answer, check_sufficiency
+from rag_agent.tools import plan_queries, check_sufficiency
 
 from .node_helpers import (
     _build_history_reset_messages,
-    _build_medical_fallback_notice,
     _build_recent_context,
-    _confidence_bucket_explanation,
-    _confidence_bucket_label,
     _extract_topic_focus,
-    _format_reference_lines,
     _get_user_query,
-    _done_task_ids,
-    _next_undone_task,
-    _undone_tasks,
-    collect_skill_hints,
-    _clear_per_task_rag_state,
     _infer_risk_level,
     _looks_like_general_non_medical_query,
     _looks_like_medical_follow_up,
@@ -65,9 +47,9 @@ from .node_helpers import (
     _needs_strict_medical_safety,
     _next_clarification_attempt,
     _sanitize_final_answer_text,
-    _strip_leading_query_plan_blob,
     _structured_output_llm,
 )
+from core.observability import trace_node
 
 
 logger = logging.getLogger(__name__)
@@ -137,6 +119,7 @@ def _extract_source_citations(messages) -> list[dict]:
 # Public RAG nodes
 # ---------------------------------------------------------------------------
 
+@trace_node("rewrite_query")
 def rewrite_query(state: State, llm):
     conversation_summary = state.get("conversation_summary", "")
     recent_context = state.get("recent_context") or _build_recent_context(state.get("messages", []))
@@ -480,6 +463,7 @@ def _evidence_docs_from_tool_message(text: str) -> list[Document]:
     return docs
 
 
+@trace_node("evaluate_evidence")
 def evaluate_evidence(state: AgentState, llm):
     """P1: reflect on retrieved evidence; decide sufficiency and refine query.
 
@@ -543,6 +527,7 @@ def evaluate_evidence(state: AgentState, llm):
 
 
 # --- Agent Nodes ---
+@trace_node("orchestrator")
 def orchestrator(state: AgentState, llm_with_tools):
     context_summary = state.get("context_summary", "").strip()
     recent_context = state.get("recent_context", "").strip()

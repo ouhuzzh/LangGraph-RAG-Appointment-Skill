@@ -18,7 +18,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-import psycopg
 
 import config
 from core.medical_source_ingest import (

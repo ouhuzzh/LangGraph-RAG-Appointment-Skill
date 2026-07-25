@@ -1,7 +1,6 @@
 import uuid
 
 import config
-import psycopg
 
 
 class ChatSessionStore:

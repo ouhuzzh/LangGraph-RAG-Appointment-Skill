@@ -6,7 +6,6 @@ by these public nodes are kept local to this module; cross-cutting helpers are
 imported from ``node_helpers``.
 """
 
-import re
 import logging
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
@@ -23,7 +22,6 @@ from .node_helpers import (
     _DEPARTMENT_HINTS,
     _ORDINAL_RE,
     _build_appointment_context,
-    _build_history_reset_messages,
     _build_recent_context,
     _clear_pending_action_state,
     collect_skill_hints,
@@ -32,13 +30,10 @@ from .node_helpers import (
     _infer_risk_level,
     _is_abort_request,
     _is_explicit_confirmation,
-    _looks_like_appointment_discovery_query,
     _looks_like_department_question,
     _looks_like_explicit_appointment_intent,
     _looks_like_explicit_cancel_intent,
-    _looks_like_general_non_medical_query,
     _looks_like_greeting,
-    _looks_like_medical_follow_up,
     _looks_like_medical_knowledge_question,
     _looks_like_medical_request,
     _looks_like_medication_risk_query,
@@ -729,7 +724,7 @@ def recommend_department(state: State, llm):
         import json as _json
         answer = (
             "⚠️ **高风险提醒**\n\n"
-            f"你描述的症状包含需要紧急评估的高风险信号。\n\n"
+            "你描述的症状包含需要紧急评估的高风险信号。\n\n"
             "**建议立即前往急诊科就诊**，不要因等待科室匹配而延误。\n\n"
             "如果症状持续加重，请拨打 120 或前往最近的医院急诊。\n\n"
             "---\n"
@@ -782,7 +777,8 @@ def recommend_department(state: State, llm):
         )
         raw_text = str(raw_response.content or "").strip()
         # Parse JSON from LLM response (supports both raw JSON and markdown code blocks)
-        import re, json
+        import re
+        import json
         json_match = re.search(r"\{.*\}", raw_text, re.DOTALL)
         if not json_match:
             raise ValueError("No JSON found in response")

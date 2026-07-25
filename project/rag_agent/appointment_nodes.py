@@ -21,7 +21,6 @@ from .schemas import (
 )
 from .prompts import get_appointment_request_prompt, get_cancel_appointment_prompt, get_appointment_skill_prompt
 from db.appointment_skill_log_store import AppointmentSkillLogStore
-from services.appointment_skill import AppointmentSkill
 from services.mcp_appointment_backend import MCPAppointmentBackend
 from mcp_integration.hospital_selection import (
     MCPHospitalSelectionPolicy,
@@ -30,8 +29,6 @@ from mcp_integration.hospital_selection import (
 )
 
 from .node_helpers import (
-    _APPOINTMENT_NO_RE,
-    _ORDINAL_RE,
     _RESCHEDULE_HINTS,
     _build_appointment_context,
     _clear_pending_action_state,
@@ -48,7 +45,6 @@ from .node_helpers import (
     _pick_candidate_from_text,
     _sanitize_pending_payload,
     _should_use_last_appointment,
-    _structured_output_llm,
     _wants_any_available_doctor,
     _wants_earliest_available_slot,
 )

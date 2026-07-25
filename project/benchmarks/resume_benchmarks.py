@@ -5,7 +5,7 @@ import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable
 
 import config
 from core.chat_interface import ChatInterface

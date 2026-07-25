@@ -118,7 +118,8 @@ def _structured_output_llm(llm, schema, *, temperature: float = 0.1, max_tokens:
     which SiliconFlow/Qwen doesn't support — long retry loop).
     Instead: get raw text, extract JSON via regex.
     """
-    import json as _json, re as _re
+    import json as _json
+    import re as _re
 
     base = llm.with_config(temperature=temperature)
     base = base.bind(max_tokens=max_tokens or 256)

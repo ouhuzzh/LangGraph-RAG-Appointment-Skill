@@ -15,7 +15,7 @@ import re
 import config
 from core.chat_turn_input_service import ChatTurnInputService
 from core.chat_turn_service import ChatTurnService
-from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage, SystemMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, SystemMessage
 from rag_agent.node_helpers import _sanitize_final_answer_text
 from rag_agent.tools import reset_retrieval_context
 from db.semantic_cache_store import SemanticCacheStore, is_cacheable_turn
@@ -695,7 +695,7 @@ class ChatInterface:
             )
             self._store_semantic_cache(turn_input, artifacts)
 
-        except Exception as e:
+        except Exception:
             request_id = getattr(turn_input, "request_id", "")
             user_message = getattr(turn_input, "user_message", message.strip())
             logger.exception("Chat turn failed for request_id=%s", request_id)

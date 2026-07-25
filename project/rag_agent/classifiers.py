@@ -5,21 +5,15 @@ Extracted from node_helpers for focused reusability.
 
 import re
 import logging
-from datetime import date, timedelta
 
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, RemoveMessage
 
 from .graph_state import State
 import config
-from config import HIGH_RISK_KEYWORDS
 
 logger = logging.getLogger(__name__)
 
 # Re-export constants used by classification functions
 from .node_helpers import (
-    _APPOINTMENT_CONFIRM_WORDS,
-    _CANCEL_CONFIRM_WORDS,
-    _ABORT_WORDS,
     _MEDICAL_FOLLOW_UP_HINTS,
     _MEDICAL_TERMS,
     _MEDICAL_QUESTION_PATTERNS,

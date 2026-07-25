@@ -16,10 +16,6 @@ from fastapi import Depends, Header, HTTPException, Request, status
 import config
 from api.dependencies import get_container
 from api.runtime_guards import (
-    InMemoryRateLimiter,
-    LoginLockoutTracker,
-    RedisLoginLockoutTracker,
-    RedisRateLimiter,
     build_login_lockout_tracker,
     build_rate_limiter,
     get_runtime_guard_backends,

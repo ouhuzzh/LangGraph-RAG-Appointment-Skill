@@ -15,7 +15,6 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -23,7 +22,7 @@ from pathlib import Path
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
-from core.qa_eval import QAEvalSample, load_qa_samples
+from core.qa_eval import load_qa_samples
 from core.ablation import AblationStudy, RetrievalPipelineConfig
 
 

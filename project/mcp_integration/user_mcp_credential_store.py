@@ -10,7 +10,6 @@ import logging
 from typing import Any, Dict, List, Optional
 
 import config
-import psycopg
 
 from .token_crypto import decrypt_token, encrypt_token
 

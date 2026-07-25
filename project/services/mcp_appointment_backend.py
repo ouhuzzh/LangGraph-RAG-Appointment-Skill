@@ -261,7 +261,7 @@ class MCPAppointmentBackend:
                 return (None, f"医院服务调用失败，请稍后重试（{err_msg}）。")
 
         # Should not reach here, but safety net
-        return (None, f"医院服务调用失败，请稍后重试。")
+        return (None, "医院服务调用失败，请稍后重试。")
 
     # ------------------------------------------------------------------
     # Formatting helpers (mirror the native skill's output format)

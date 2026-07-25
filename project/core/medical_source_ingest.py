@@ -247,7 +247,7 @@ class MedlinePlusXmlImporter:
     def render_topic_markdown(self, topic: ImportedMedicalDocument) -> str:
         fetched_at = datetime.now().strftime("%Y-%m-%d")
         metadata_lines = [
-            f"Source: MedlinePlus",
+            "Source: MedlinePlus",
             "Source type: patient_education",
             "Language: en",
             "File type: md",

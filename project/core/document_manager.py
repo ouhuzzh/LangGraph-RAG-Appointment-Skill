@@ -149,7 +149,7 @@ class DocumentManager:
                 collection.add_documents(child_chunks)
                 indexed_document_nos.add(document_no)
                 added += 1
-            except Exception as e:
+            except Exception:
                 logger.exception("Failed to index markdown document %s", md_path)
                 skipped += 1
 

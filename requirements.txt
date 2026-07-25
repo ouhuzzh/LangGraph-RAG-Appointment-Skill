@@ -141,3 +141,4 @@ xxhash==3.6.0
 zstandard==0.25.0
 langfuse==4.0.0
 python-dotenv==1.2.2
+ruff>=0.11.0

@@ -1,7 +1,6 @@
 import json
 from collections import Counter
 
-import psycopg
 
 import config
 

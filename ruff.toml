@@ -1,0 +1,23 @@
+# Minimal lint configuration for catching common errors early.
+# Rules: E = pycodestyle errors, F = Pyflakes, I = isort
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "I"]
+
+# Ignore rules that conflict with the existing codebase style
+ignore = [
+    "E501",   # line too long — enforced by formatter if needed
+    "E402",   # module-import-not-at-top — many intentional late imports
+    "E702",   # multiple-statements-on-one-line — existing style
+    "I001",   # unsorted-imports — enable after initial cleanup
+    "F403",   # undefined-local-with-import-star — existing patterns
+    "F405",   # undefined-local-with-import-star-usage — existing patterns
+    "F822",   # undefined-export — dynamic __all__ entries
+]
+
+[lint.per-file-ignores]
+# Tests may use wildcard imports, unused vars, and star-import names
+"tests/*" = ["F401", "F403", "F405", "F811", "F841"]
+# __init__.py files re-export symbols
+"**/__init__.py" = ["F401", "F403"]

@@ -49,7 +49,9 @@ def _bootstrap(args):
 def _sync_local(args):
     rag = RAGSystem()
     rag.initialize()
-    result = DocumentManager(rag).sync_local_documents(
+    dm = DocumentManager(rag)
+    rag.document_manager = dm
+    result = dm.sync_local_documents(
         trigger_type="job",
         soft_delete_missing=args.soft_delete_missing,
     )
@@ -69,7 +71,9 @@ def _sync_local(args):
 def _sync_official(args):
     rag = RAGSystem()
     rag.initialize()
-    result = DocumentManager(rag).sync_official_source(
+    dm = DocumentManager(rag)
+    rag.document_manager = dm
+    result = dm.sync_official_source(
         source=args.source,
         limit=args.limit,
         trigger_type="job",

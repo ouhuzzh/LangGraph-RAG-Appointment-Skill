@@ -1,6 +1,5 @@
 import json
 
-import psycopg
 
 import config
 

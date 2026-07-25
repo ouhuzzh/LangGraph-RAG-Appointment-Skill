@@ -17,7 +17,6 @@ import threading
 from typing import Any, Dict, List, Optional
 
 import config
-import psycopg
 
 logger = logging.getLogger(__name__)
 
@@ -161,7 +160,7 @@ class UserMemoryStore:
         embedding_sql = "NULL"
         params: list[Any] = [user_id, memory_type, stored_content, importance]
         if embedding is not None:
-            embedding_sql = f"CAST(%s AS vector)"
+            embedding_sql = "CAST(%s AS vector)"
             params.append(_vector_literal(embedding))
 
         if source_thread_id:

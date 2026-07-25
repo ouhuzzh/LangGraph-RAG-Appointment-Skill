@@ -18,7 +18,7 @@ import asyncio
 import logging
 import threading
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import config
 from llm_tiered_router import CircuitBreaker

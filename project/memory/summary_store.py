@@ -1,5 +1,4 @@
 import config
-import psycopg
 
 
 class SummaryStore:

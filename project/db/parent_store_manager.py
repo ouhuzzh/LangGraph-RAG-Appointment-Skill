@@ -2,7 +2,6 @@ import json
 import config
 from pathlib import Path
 from typing import List, Dict
-import psycopg
 from db.document_ids import build_document_no
 
 

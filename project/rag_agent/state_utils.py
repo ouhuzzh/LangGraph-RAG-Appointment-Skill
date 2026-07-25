@@ -6,7 +6,7 @@ Extracted from node_helpers for focused reusability.
 import logging
 from datetime import date
 
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, RemoveMessage
+from langchain_core.messages import HumanMessage, AIMessage, RemoveMessage
 
 from .graph_state import State
 
@@ -80,7 +80,6 @@ def _build_recent_context(messages, keep_turns: int | None = None, *, exclude_la
     """Build a condensed recent context string from message history."""
     if not messages:
         return ""
-    from .node_helpers import _TOPIC_STOP_WORDS
     relevant = []
     for msg in messages:
         if isinstance(msg, (HumanMessage, AIMessage)):

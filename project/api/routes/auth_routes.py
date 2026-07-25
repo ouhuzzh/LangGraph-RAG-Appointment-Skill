@@ -1,6 +1,6 @@
 """Auth routes — user registration, login, token refresh, profile."""
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from api.auth import (
     AuthenticatedUser,
@@ -12,7 +12,7 @@ from api.auth import (
     require_current_user,
 )
 from api.dependencies import get_container
-from api.jwt_utils import create_token_pair, decode_token, create_access_token
+from api.jwt_utils import create_token_pair, decode_token
 from api.schemas import (
     ChangePasswordRequest,
     LoginRequest,

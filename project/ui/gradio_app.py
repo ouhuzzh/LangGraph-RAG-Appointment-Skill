@@ -1,6 +1,5 @@
 import html
 import os
-import time
 
 import gradio as gr
 

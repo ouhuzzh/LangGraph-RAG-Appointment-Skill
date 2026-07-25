@@ -1,5 +1,4 @@
 import config
-import psycopg
 import threading
 from pathlib import Path
 

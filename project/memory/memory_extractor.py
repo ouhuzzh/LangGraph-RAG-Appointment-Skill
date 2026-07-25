@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import List, Optional
+from typing import List
 
 import config
 from langchain_core.messages import HumanMessage, SystemMessage
