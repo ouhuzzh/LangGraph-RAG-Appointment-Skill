@@ -124,14 +124,15 @@ def _normalize_date(raw_value: str) -> str:
                 offset += 7
             return (today + timedelta(days=offset)).isoformat()
 
-    # Relative dates
+    # Relative dates — check "大后天" BEFORE "后天" (substring shadowing:
+    # "大后天" contains "后天" and would otherwise resolve to +2 days).
     if "今天" in s or "今日" in s:
         return today.isoformat()
     if "明天" in s:
         return (today + timedelta(days=1)).isoformat()
-    if "后天" in s:
-        return (today + timedelta(days=2)).isoformat()
     if "大后天" in s:
         return (today + timedelta(days=3)).isoformat()
+    if "后天" in s:
+        return (today + timedelta(days=2)).isoformat()
 
     return ""

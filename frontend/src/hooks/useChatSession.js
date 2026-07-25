@@ -24,7 +24,7 @@ const initialState = {
   isLoadingHistory: false,
 };
 
-function reducer(state, action) {
+export function reducer(state, action) {
   switch (action.type) {
     case "SET_THREAD_ID":
       return { ...state, threadId: action.payload };
