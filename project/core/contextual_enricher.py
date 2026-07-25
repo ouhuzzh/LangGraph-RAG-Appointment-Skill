@@ -86,8 +86,21 @@ class ContextualChunkEnricher:
         except Exception:
             base = llm
 
-        for doc in child_chunks:
-            self._enrich_one(base, doc, parent_lookup)
+        # Parallel enrichment: each chunk is an independent LLM call and
+        # _enrich_one is fail-open per item, so a bounded pool is safe and
+        # cuts ingest latency by ~Nx (was strictly sequential).
+        pending = [
+            doc for doc in child_chunks
+            if not str((doc.metadata or {}).get("contextual_summary") or "").strip()
+        ]
+        max_workers = int(getattr(config, "INGEST_LLM_MAX_WORKERS", 4))
+        if len(pending) <= 1 or max_workers <= 1:
+            for doc in pending:
+                self._enrich_one(base, doc, parent_lookup)
+            return child_chunks
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(pending))) as executor:
+            list(executor.map(lambda doc: self._enrich_one(base, doc, parent_lookup), pending))
         return child_chunks
 
     def _enrich_one(self, base, doc, parent_lookup):

@@ -127,6 +127,8 @@ GRAPH_RAG_MAX_TRIPLES_PER_CHUNK = int(os.environ.get("GRAPH_RAG_MAX_TRIPLES_PER_
 GRAPH_RAG_PARENT_CHARS = int(os.environ.get("GRAPH_RAG_PARENT_CHARS", "3000"))
 GRAPH_RAG_EXTRACTION_MAX_TOKENS = int(os.environ.get("GRAPH_RAG_EXTRACTION_MAX_TOKENS", "512"))
 GRAPH_RAG_MAX_HOPS = int(os.environ.get("GRAPH_RAG_MAX_HOPS", "2"))
+# Shared bounded worker pool size for per-chunk ingest LLM calls (P5/P8).
+INGEST_LLM_MAX_WORKERS = int(os.environ.get("INGEST_LLM_MAX_WORKERS", "4"))
 
 # Unified turn planner - LLM-based cross-intent compound decomposition. Produces
 # a planned_tasks list drained by dispatch_next_task within a single graph

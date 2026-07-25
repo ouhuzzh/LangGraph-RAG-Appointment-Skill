@@ -148,12 +148,34 @@ class KnowledgeGraphExtractor:
             return []
 
     def extract_from_parents(self, parent_pairs, *, document_no: str = "") -> List[Triple]:
-        """Extract triples from all parent chunks. Never raises."""
+        """Extract triples from all parent chunks. Never raises.
+
+        Runs extractions through a bounded thread pool — each parent is an
+        independent LLM call and extract_from_parent is fail-open per item.
+        """
         if not self.enabled:
             return []
-        all_triples: List[Triple] = []
-        for parent_id, parent_doc in (parent_pairs or []):
+        pairs = list(parent_pairs or [])
+        if not pairs:
+            return []
+        # Resolve the LLM once up front so worker threads share the cached
+        # instance instead of racing the lazy initializer.
+        if self._get_llm() is None:
+            return []
+
+        def _extract_one(pair) -> List[Triple]:
+            parent_id, parent_doc = pair
             content = getattr(parent_doc, "page_content", "") or str(parent_doc)
-            triples = self.extract_from_parent(parent_id, content, document_no=document_no)
-            all_triples.extend(triples)
+            return self.extract_from_parent(parent_id, content, document_no=document_no)
+
+        max_workers = int(getattr(config, "INGEST_LLM_MAX_WORKERS", 4))
+        all_triples: List[Triple] = []
+        if len(pairs) == 1 or max_workers <= 1:
+            for pair in pairs:
+                all_triples.extend(_extract_one(pair))
+            return all_triples
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(pairs))) as executor:
+            for triples in executor.map(_extract_one, pairs):
+                all_triples.extend(triples)
         return all_triples

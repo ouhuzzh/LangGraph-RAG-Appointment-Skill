@@ -8,7 +8,6 @@ import logging
 
 
 from .graph_state import State
-import config
 
 logger = logging.getLogger(__name__)
 
@@ -219,7 +218,11 @@ def _wants_earliest_available_slot(user_query: str) -> bool:
 
 
 def _infer_risk_level(user_query: str, existing_risk: str = "normal") -> str:
-    normalized = (user_query or "").strip().lower()
-    if any(keyword.lower() in normalized for keyword in config.HIGH_RISK_KEYWORDS):
-        return "high"
-    return existing_risk
+    """Delegate to the canonical implementation in node_helpers.
+
+    Keeping a second inline copy here silently diverged once already (it
+    missed the P7 clinical-safety guardrail hook), so this module now
+    re-exports the single source of truth instead of re-implementing it.
+    """
+    from .node_helpers import _infer_risk_level as _canonical_infer_risk_level
+    return _canonical_infer_risk_level(user_query, existing_risk)
