@@ -317,8 +317,9 @@ class FakeContainer:
 
 class ApiAppTests(unittest.TestCase):
     def setUp(self):
-        auth_module._rate_limiter = auth_module.InMemoryRateLimiter()
-        auth_module._login_lockout = auth_module.LoginLockoutTracker()
+        from api.runtime_guards import InMemoryRateLimiter, LoginLockoutTracker
+        auth_module._rate_limiter = InMemoryRateLimiter()
+        auth_module._login_lockout = LoginLockoutTracker()
         self.tmp = TemporaryDirectory()
         self.container = FakeContainer(self.tmp.name)
         self.container.rag_system.session_memory.messages["thread-existing"] = [

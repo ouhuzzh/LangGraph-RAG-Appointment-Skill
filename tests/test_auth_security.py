@@ -103,9 +103,10 @@ class LoginLockoutTests(unittest.TestCase):
     def setUp(self):
         # Import here so any config patches take effect, and reset module state.
         from api import auth as auth_module
+        from api.runtime_guards import LoginLockoutTracker
         self.auth = auth_module
         # Replace the singleton with a fresh one for isolation between tests
-        self.auth._login_lockout = auth_module.LoginLockoutTracker()
+        self.auth._login_lockout = LoginLockoutTracker()
 
     def test_failures_below_threshold_do_not_lock(self):
         with patch("config.LOGIN_LOCKOUT_MAX_ATTEMPTS", 5):
@@ -164,9 +165,10 @@ class LoginLockoutTests(unittest.TestCase):
 class AuthRateLimitTests(unittest.TestCase):
     def setUp(self):
         from api import auth as auth_module
+        from api.runtime_guards import InMemoryRateLimiter
         self.auth = auth_module
         # Fresh rate limiter for isolation
-        self.auth._rate_limiter = auth_module.InMemoryRateLimiter()
+        self.auth._rate_limiter = InMemoryRateLimiter()
 
     def test_under_limit_passes(self):
         with patch("config.API_RATE_LIMIT_AUTH_PER_MINUTE", 5):
@@ -211,11 +213,14 @@ class AuthRateLimitTests(unittest.TestCase):
 class RedisGuardTests(unittest.TestCase):
     def setUp(self):
         from api import auth as auth_module
+        from api.runtime_guards import RedisRateLimiter, RedisLoginLockoutTracker
         self.auth = auth_module
+        self.RedisRateLimiter = RedisRateLimiter
+        self.RedisLoginLockoutTracker = RedisLoginLockoutTracker
         self.redis = FakeRedis()
 
     def test_redis_rate_limiter_enforces_limit(self):
-        limiter = self.auth.RedisRateLimiter(self.redis)
+        limiter = self.RedisRateLimiter(self.redis)
         limiter.check(bucket="auth", key="1.1.1.1", limit=2, window_seconds=60)
         limiter.check(bucket="auth", key="1.1.1.1", limit=2, window_seconds=60)
         with self.assertRaises(HTTPException) as ctx:
@@ -223,7 +228,7 @@ class RedisGuardTests(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 429)
 
     def test_redis_login_lockout_enforces_and_expires(self):
-        tracker = self.auth.RedisLoginLockoutTracker(self.redis)
+        tracker = self.RedisLoginLockoutTracker(self.redis)
         with patch("config.LOGIN_LOCKOUT_MAX_ATTEMPTS", 2), \
              patch("config.LOGIN_LOCKOUT_SECONDS", 1), \
              patch("config.LOGIN_LOCKOUT_WINDOW_SECONDS", 600):
@@ -236,7 +241,7 @@ class RedisGuardTests(unittest.TestCase):
             tracker.assert_not_locked("alice")
 
     def test_redis_login_success_clears_lock_and_failures(self):
-        tracker = self.auth.RedisLoginLockoutTracker(self.redis)
+        tracker = self.RedisLoginLockoutTracker(self.redis)
         with patch("config.LOGIN_LOCKOUT_MAX_ATTEMPTS", 2), \
              patch("config.LOGIN_LOCKOUT_SECONDS", 60), \
              patch("config.LOGIN_LOCKOUT_WINDOW_SECONDS", 600):
