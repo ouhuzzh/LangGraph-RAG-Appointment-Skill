@@ -703,7 +703,7 @@ def create_gradio_ui(rag_system=None, start_background_tasks=True):
                     send_btn = gr.Button("发送", variant="primary")
                     clear_chat_btn = gr.Button("清空对话", variant="secondary")
 
-                submit_event = chat_input.submit(
+                chat_input.submit(
                     _append_user_message,
                     [chat_input, chatbot],
                     [chat_input, chatbot],

@@ -841,6 +841,8 @@ def _with_hospital_payload(payload: dict, appointment_context: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def handle_appointment_skill(state: State, llm, appointment_service, mcp_pool=None):
+    from services.appointment_skill import AppointmentSkill
+    skill = AppointmentSkill(appointment_service)
     user_query = _get_user_query(state)
     appointment_context = _get_appointment_context(state)
     pending_action_type = state.get("pending_action_type", "")

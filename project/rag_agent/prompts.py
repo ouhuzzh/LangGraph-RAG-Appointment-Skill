@@ -108,7 +108,6 @@ def get_intent_router_prompt(skill_hints: list[tuple[str, str]] | None = None) -
 
     # Merge skill hints
     intent_lines = []
-    skill_hint_map = dict(skill_hints) if skill_hints else {}
     seen = set()
     for label, desc in core_intents:
         intent_lines.append(f"- {label}: {desc}")

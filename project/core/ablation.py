@@ -155,10 +155,13 @@ class AblationStudy:
         t0 = time.perf_counter()
         results: list[RetrievalEvalResult] = []
         for sample in samples:
-            # no_rewrite: use original question directly
-            search_query = sample.search_query or sample.question
-            if not config.enable_rewrite:
-                search_query = sample.question
+            # no_rewrite: drop the rewritten search query so evaluate_sample falls
+            # back to the original question. (Previously this override was computed
+            # into a local variable that never reached the evaluator, so the
+            # no_rewrite variant silently kept using the rewritten query.)
+            if not config.enable_rewrite and sample.search_query:
+                from dataclasses import replace
+                sample = replace(sample, search_query="")
 
             answer_text = None
             if answer_provider:

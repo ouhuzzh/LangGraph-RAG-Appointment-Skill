@@ -297,7 +297,6 @@ class ChatInterface:
         Tries the skill registry first (single source of truth), then
         falls back to local rule-based classification.
         """
-        normalized = (user_message or "").strip().lower()
         if ChatInterface._should_continue_pending_intent(user_message, existing_state or {}):
             return "pending"
         # Try skill registry L1 keyword classification

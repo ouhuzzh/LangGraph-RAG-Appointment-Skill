@@ -223,7 +223,6 @@ class MCPAppointmentBackend:
 
         max_retries = 3
         retry_delays = [1.0, 2.0, 4.0]
-        last_err = None
 
         for attempt in range(max_retries):
             try:
@@ -242,7 +241,6 @@ class MCPAppointmentBackend:
                 return ({"raw": raw}, None)
             except (ConnectionError, TimeoutError, OSError) as e:
                 # Transient errors — retry
-                last_err = e
                 if attempt < max_retries - 1:
                     delay = retry_delays[attempt]
                     logger.warning(

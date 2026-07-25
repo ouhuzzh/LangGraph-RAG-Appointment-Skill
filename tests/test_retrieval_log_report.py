@@ -82,7 +82,6 @@ class RetrievalLogReportTests(unittest.TestCase):
                     "sufficiency_result": "limited_but_usable",
                     "retry_count": 1,
                     "final_confidence_bucket": "medium",
-                    "timestamp": "2026-04-19 10:00:00",
                 }
             ],
         }

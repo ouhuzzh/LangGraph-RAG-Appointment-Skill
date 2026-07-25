@@ -13,6 +13,7 @@ import config
 from .tools import ground_answer
 from .node_helpers import (
     _structured_output_llm,
+    _build_medical_fallback_notice,
     _format_reference_lines,
     _confidence_bucket_explanation,
     _confidence_bucket_label,
