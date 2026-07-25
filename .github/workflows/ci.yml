@@ -9,6 +9,12 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    # Minimal env vars required for test suite (mock/test values)
+    env:
+      ACTIVE_LLM_PROVIDER: "mock"
+      POSTGRES_HOST: "localhost"
+      REDIS_ENABLED: "false"
+      SKILLS_ENABLED: "false"
     steps:
       - uses: actions/checkout@v4
 
@@ -22,6 +28,9 @@ jobs:
 
       - name: Syntax check
         run: python -m compileall project tests
+
+      - name: Lint
+        run: python -m ruff check project tests
 
       - name: Unit tests
         run: python -m unittest discover -s tests -v
