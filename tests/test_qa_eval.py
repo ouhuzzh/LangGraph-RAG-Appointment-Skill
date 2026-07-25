@@ -16,6 +16,16 @@ FIXTURES_DIR = PROJECT_ROOT / "tests" / "fixtures"
 ANSWER_FIXTURE = json.loads((FIXTURES_DIR / "qa_eval_answers.json").read_text(encoding="utf-8"))
 
 
+def setUpModule():
+    """Route classification below must run against a clean skill registry.
+
+    Hermetic isolation: skills leaked into the global singleton by other test
+    modules previously flipped intents (medical_rag -> mcp_services) when this
+    module ran in a category subset."""
+    from skills.registry import reset_skill_registry
+    reset_skill_registry()
+
+
 class FakeCollection:
     def __init__(self, docs_by_source=None):
         self.docs_by_source = docs_by_source or {}

@@ -607,6 +607,11 @@ def _log_appointment_skill_event(
 
 def _invoke_appointment_skill_request(llm, state: State, user_query: str) -> dict:
     appointment_context = _get_appointment_context(state)
+    # Long-term user memories (preferences, history) inform slot filling — e.g.
+    # "常挂心内科" lets the parser default the department the user always books.
+    user_memories_section = ""
+    if state.get("user_memories"):
+        user_memories_section = f"Known user context (preferences/history):\n{state['user_memories']}\n\n"
     llm_with_tools = llm.with_config(temperature=0.1).bind_tools([AppointmentSkillRequest])
     response = llm_with_tools.invoke(
         [
@@ -614,6 +619,7 @@ def _invoke_appointment_skill_request(llm, state: State, user_query: str) -> dic
             HumanMessage(
                 content=(
                     f"Conversation summary:\n{state.get('conversation_summary', '')}\n\n"
+                    f"{user_memories_section}"
                     f"Current intent:\n{state.get('intent') or state.get('primary_intent', '')}\n\n"
                     f"Recommended department:\n{state.get('recommended_department', '')}\n\n"
                     f"Existing appointment context:\n{appointment_context}\n\n"

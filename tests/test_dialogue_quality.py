@@ -19,6 +19,13 @@ def setUpModule():
         SkillBootstrapper().bootstrap()
 
 
+def tearDownModule():
+    """Reset the global skill registry so the bootstrap above cannot leak into
+    later test modules (it once made qa_eval classify queries as mcp_services)."""
+    from skills.registry import reset_skill_registry
+    reset_skill_registry()
+
+
 class TestIntentRouting(unittest.TestCase):
     """Rule-based intent classification — 20 scenarios covering known routing edges."""
 
