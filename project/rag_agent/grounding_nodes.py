@@ -142,8 +142,19 @@ def grounded_answer_generation(state: State, llm):
 
     final_content = _sanitize_final_answer_text(synthesis_response.content)
     missing_caveat = _build_missing_subquestion_caveat(state, sorted_answers)
+
+    # Memory x safety cross-check: warn when the answer mentions a substance the
+    # user's long-term profile marks as an allergen. Guardrail-gated, fail-open.
+    allergy_note = ""
+    if getattr(config, "ENABLE_CLINICAL_SAFETY_GUARDRAIL", False):
+        try:
+            from .clinical_safety import build_allergy_conflict_note
+            allergy_note = build_allergy_conflict_note(state.get("user_memories", ""), final_content)
+        except Exception:
+            logger.debug("Allergy conflict check failed; skipping note", exc_info=True)
+
     return {
-        "messages": [AIMessage(content=f"{final_content}{confidence_note}{missing_caveat}{citation_block}")],
+        "messages": [AIMessage(content=f"{final_content}{allergy_note}{confidence_note}{missing_caveat}{citation_block}")],
         "clarification_attempts": 0,
         "grounding_evidence_score": aggregate_evidence_score,
     }

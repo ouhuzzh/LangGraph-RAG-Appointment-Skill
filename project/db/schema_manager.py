@@ -594,6 +594,30 @@ class SchemaManager:
                 """,
             ],
         ),
+        (
+            "021_appointments_idempotency",
+            "DB-level idempotency: at most one active booking per patient per schedule slot.",
+            [
+                # Cancel duplicate active bookings (keep the earliest per slot) so
+                # the partial unique index below can be created on existing data.
+                """
+                UPDATE appointments
+                SET status = 'cancelled', updated_at = NOW()
+                WHERE status = 'booked'
+                  AND schedule_id IS NOT NULL
+                  AND id NOT IN (
+                    SELECT MIN(id) FROM appointments
+                    WHERE status = 'booked' AND schedule_id IS NOT NULL
+                    GROUP BY patient_id, schedule_id
+                  )
+                """,
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_appointments_active_slot
+                ON appointments(patient_id, schedule_id)
+                WHERE status = 'booked' AND schedule_id IS NOT NULL
+                """,
+            ],
+        ),
     ]
 
     def __init__(self, conninfo: str):

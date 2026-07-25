@@ -2,6 +2,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import date
+import psycopg
 from db.connection import connect, get_conninfo
 from db.schema_manager import SchemaManager
 
@@ -394,25 +395,34 @@ class AppointmentService:
                     conn.rollback()
                     return None
 
-                cur.execute(
-                    """
-                    INSERT INTO appointments (
-                        appointment_no, patient_id, doctor_id, department_id, schedule_id,
-                        appointment_date, time_slot, status, created_by
+                try:
+                    cur.execute(
+                        """
+                        INSERT INTO appointments (
+                            appointment_no, patient_id, doctor_id, department_id, schedule_id,
+                            appointment_date, time_slot, status, created_by
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, 'booked', 'ai_agent')
+                        RETURNING id
+                        """,
+                        (
+                            appointment_no,
+                            patient_id,
+                            schedule["doctor_id"],
+                            schedule["department_id"],
+                            schedule["schedule_id"],
+                            schedule["schedule_date"],
+                            schedule["time_slot"],
+                        ),
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, 'booked', 'ai_agent')
-                    RETURNING id
-                    """,
-                    (
-                        appointment_no,
-                        patient_id,
-                        schedule["doctor_id"],
-                        schedule["department_id"],
-                        schedule["schedule_id"],
-                        schedule["schedule_date"],
-                        schedule["time_slot"],
-                    ),
-                )
+                except psycopg.errors.UniqueViolation:
+                    # Idempotent retry: this patient already holds an active
+                    # booking for this exact slot (e.g. duplicate 确认预约 after a
+                    # session-state loss). Roll back — which also reverts the
+                    # quota decrement above — and return the existing booking
+                    # instead of double-booking or surfacing an error.
+                    conn.rollback()
+                    return self._find_existing_booking(conn, patient_id, schedule)
                 appointment_id = cur.fetchone()[0]
                 response_payload = {
                     "appointment_no": appointment_no,
@@ -436,6 +446,33 @@ class AppointmentService:
                 )
             conn.commit()
         return response_payload
+
+    def _find_existing_booking(self, conn, patient_id: int, schedule: dict):
+        """Idempotent-success path: return the already-booked appointment for
+        this exact slot after the partial unique index blocked a duplicate."""
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT appointment_no, appointment_date, time_slot
+                FROM appointments
+                WHERE patient_id = %s AND schedule_id = %s AND status = 'booked'
+                ORDER BY id
+                LIMIT 1
+                """,
+                (patient_id, schedule["schedule_id"]),
+            )
+            row = cur.fetchone()
+        if not row:
+            return None
+        return {
+            "appointment_no": row[0],
+            "department": schedule["department_name"],
+            "date": row[1].isoformat(),
+            "time_slot": row[2],
+            "doctor_name": schedule["doctor_name"],
+            "status": "booked",
+            "already_booked": True,
+        }
 
     def find_candidate_appointments(self, thread_id: str, appointment_no: str | None = None, department: str | None = None, schedule_date: date | None = None, conn=None):
         owns_connection = conn is None

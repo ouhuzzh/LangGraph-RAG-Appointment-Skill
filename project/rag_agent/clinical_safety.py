@@ -98,3 +98,38 @@ def emergency_escalation_message(severity: str) -> str:
             "你描述的症状风险较高，建议**尽快线下就医**；若症状持续加重，请优先急诊评估。"
         )
     return ""
+
+
+# Allergy phrasing produced by the memory extractor: "对X过敏" (optionally
+# "对X类药物过敏"). Exact-match only — cross-reactivity (e.g. penicillin-class
+# derivatives) is deliberately out of scope to keep false positives at zero.
+_ALLERGY_RE = re.compile(r"对\s*([\u4e00-\u9fffA-Za-z0-9·]+?)\s*(?:类)?(?:药物)?过敏")
+
+
+def extract_allergens(memories_text: str) -> list:
+    """Pull allergen names out of long-term memory text ("对青霉素过敏" -> 青霉素)."""
+    text = str(memories_text or "")
+    allergens = []
+    for match in _ALLERGY_RE.finditer(text):
+        item = match.group(1).strip()
+        if item and item not in allergens:
+            allergens.append(item)
+    return allergens
+
+
+def build_allergy_conflict_note(memories_text: str, answer_text: str) -> str:
+    """Warn when the answer mentions a substance the user is known to be allergic to.
+
+    Memory x safety cross-check: returns an appendable banner, or "" when there
+    is no conflict. Pure function — never raises."""
+    answer = str(answer_text or "")
+    if not answer:
+        return ""
+    hits = [item for item in extract_allergens(memories_text) if item in answer]
+    if not hits:
+        return ""
+    joined = "、".join(hits)
+    return (
+        f"\n\n⚠️ **过敏提醒**：根据你的健康档案，你对 **{joined}** 过敏，"
+        "上文提到的相关药物请勿自行使用，务必先咨询医生或药师。"
+    )
