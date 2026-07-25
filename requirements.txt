@@ -54,8 +54,8 @@ langchain-ollama==1.0.1
 langchain-qdrant==1.1.0
 langchain-text-splitters==1.1.0
 langgraph==1.0.5
-langgraph-checkpoint==4.1.1
-langgraph-checkpoint-postgres==3.1.0
+langgraph-checkpoint==3.0.1
+langgraph-checkpoint-postgres==3.0.5
 psycopg-pool==3.3.1
 langgraph-prebuilt==1.0.5
 langgraph-sdk==0.3.2
