@@ -199,5 +199,14 @@ All config is env-driven via `project/.env` (copy from `project/.env.example`). 
 - New intent types should be implemented as skills in `project/skills/` (subclass `BaseSkill`) rather than adding hardcoded routing
 - Do not commit `project/.env`, runtime data (`markdown_docs/`, `runtime/`, `parent_store/`, `qdrant_db/`), or `frontend/dist/`
 
+### Core Path (高风险变更区域)
+
+以下文件/模块变更频率高且相互耦合，修改时需确保相关测试全部通过:
+- `project/rag_agent/rag_nodes.py`
+- `project/rag_agent/edges.py`
+- `project/rag_agent/graph.py`
+- `project/core/chat_interface.py`
+- `project/config.py`
+
 ---
 Last reviewed: 2026-07-25
