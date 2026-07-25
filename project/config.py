@@ -334,6 +334,10 @@ GRAPH_RECURSION_LIMIT = 50
 BASE_TOKEN_THRESHOLD = 4000
 TOKEN_GROWTH_FACTOR = 0.9
 ENABLE_PERSISTENT_GRAPH_CHECKPOINT = os.environ.get("ENABLE_PERSISTENT_GRAPH_CHECKPOINT", "true").lower() == "true"
+# Checkpoint backend: "pickle" (single-process file, default) or "postgres"
+# (multi-replica safe, requires langgraph-checkpoint-postgres; fail-open to pickle).
+GRAPH_CHECKPOINT_BACKEND = os.environ.get("GRAPH_CHECKPOINT_BACKEND", "pickle").strip().lower()
+CHECKPOINT_PG_POOL_MAX_SIZE = int(os.environ.get("CHECKPOINT_PG_POOL_MAX_SIZE", "4"))
 GRAPH_STREAM_MAX_SECONDS = float(os.environ.get("GRAPH_STREAM_MAX_SECONDS", "120"))
 
 # --- Text Splitter Configuration ---

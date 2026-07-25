@@ -44,7 +44,43 @@ from .routing_nodes import (
 logger = logging.getLogger(__name__)
 
 
+def _build_postgres_checkpointer():
+    """Multi-replica-safe checkpointer backed by PostgreSQL (opt-in).
+
+    Fail-open: any import/connection/setup failure returns None so the process
+    still boots with the legacy file-based checkpointer instead of crashing.
+    """
+    try:
+        from langgraph.checkpoint.postgres import PostgresSaver
+        from psycopg_pool import ConnectionPool
+
+        conninfo = (
+            f"host={config.POSTGRES_HOST} port={config.POSTGRES_PORT} "
+            f"dbname={config.POSTGRES_DB} user={config.POSTGRES_USER} "
+            f"password={config.POSTGRES_PASSWORD}"
+        )
+        pool = ConnectionPool(
+            conninfo,
+            min_size=1,
+            max_size=int(getattr(config, "CHECKPOINT_PG_POOL_MAX_SIZE", 4)),
+            kwargs={"autocommit": True, "prepare_threshold": 0},
+        )
+        checkpointer = PostgresSaver(pool)
+        checkpointer.setup()
+        logger.info("Graph checkpointer: PostgreSQL (multi-replica safe).")
+        return checkpointer
+    except Exception:
+        logger.warning("Failed to initialize Postgres checkpointer", exc_info=True)
+        return None
+
+
 def _build_checkpointer():
+    backend = str(getattr(config, "GRAPH_CHECKPOINT_BACKEND", "pickle")).strip().lower()
+    if backend == "postgres":
+        checkpointer = _build_postgres_checkpointer()
+        if checkpointer is not None:
+            return checkpointer
+        logger.warning("Postgres checkpointer unavailable; falling back to file-based checkpoint.")
     if config.ENABLE_PERSISTENT_GRAPH_CHECKPOINT:
         return PersistentInMemorySaver(config.LANGGRAPH_CHECKPOINT_PATH)
     return InMemorySaver()
