@@ -14,6 +14,8 @@ function formatTime(timestamp) {
   return `${h}:${m}`;
 }
 
+import StructuredCards from "./StructuredCards";
+
 const MessageBubble = React.memo(function MessageBubble({
   message,
   isStreaming,
@@ -58,6 +60,9 @@ const MessageBubble = React.memo(function MessageBubble({
             showTypingDots
               ? <TypingDots />
               : <MarkdownContent content={content} isStreaming={isLastAssistant && isStreaming} />
+          )}
+          {isAssistant && message.cards && message.cards.length > 0 && (
+            <StructuredCards cards={message.cards} />
           )}
         </div>
 

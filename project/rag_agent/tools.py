@@ -607,6 +607,12 @@ class ToolFactory:
                 if result is not None:
                     ranked_sets.append(result)
 
+            # GraphRAG: add graph-hop traversal results as another ranked set
+            if getattr(config, "ENABLE_GRAPH_RAG", False):
+                _graph_docs = self._graph_hop_retrieval(query)
+                if _graph_docs:
+                    ranked_sets.append(_graph_docs)
+
             results = self._sort_docs_by_source_priority(
                 self._dedupe_docs(
                     self._rrf_fuse_ranked_sets(ranked_sets, per_query_limit) if ranked_sets else []
@@ -728,6 +734,41 @@ class ToolFactory:
         except Exception as e:
             logger.exception("Parent chunk retrieval failed for parent_id=%r", parent_id)
             return f"PARENT_RETRIEVAL_ERROR: {str(e)}"
+
+    def _graph_hop_retrieval(self, query: str) -> List[Document]:
+        """GraphRAG: retrieve parent content reachable via knowledge-graph hops.
+
+        Extracts entities from the query, traverses the kg_triples graph, loads
+        parent chunk content for discovered parent_ids, and returns them as
+        Documents with a fixed relevance score for RRF fusion.  Never raises.
+        """
+        try:
+            from db.knowledge_graph_store import KnowledgeGraphStore
+            kg = KnowledgeGraphStore()
+            entities = kg.extract_query_entities(query)
+            if not entities:
+                return []
+            parent_ids = kg.graph_hop_query(entities)
+            if not parent_ids:
+                return []
+            parents = self.parent_store_manager.load_content_many(list(parent_ids)[:10])
+            docs = []
+            for p in parents:
+                docs.append(Document(
+                    page_content=str(p.get("content", ""))[:800],
+                    metadata={
+                        "parent_id": p.get("parent_id", ""),
+                        "source": p.get("metadata", {}).get("source", ""),
+                        "source_type": p.get("metadata", {}).get("source_type", ""),
+                        "title": p.get("metadata", {}).get("title", ""),
+                        "score": 0.85,
+                        "retrieval_method": "graph_hop",
+                    },
+                ))
+            return docs
+        except Exception:
+            logger.debug("GraphRAG: graph_hop_retrieval failed", exc_info=True)
+            return []
 
     def create_tools(self) -> List:
         """Create and return the list of tools."""

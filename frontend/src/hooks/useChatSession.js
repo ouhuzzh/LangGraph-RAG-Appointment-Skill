@@ -42,6 +42,15 @@ function reducer(state, action) {
       }
       return { ...state, messages: next };
     }
+    case "APPEND_CARD_TO_LAST": {
+      const next = [...state.messages];
+      const last = next[next.length - 1];
+      if (last?.role === "assistant") {
+        const cards = [...(last.cards || []), action.payload];
+        next[next.length - 1] = { ...last, cards };
+      }
+      return { ...state, messages: next };
+    }
     case "SET_INPUT":
       return { ...state, input: action.payload };
     case "SET_STREAM_STATE":
@@ -343,6 +352,12 @@ export function useChatSession({
       onMessage: (payload) => {
         dispatch({ type: "SET_STREAM_STATE", payload: "generating" });
         dispatch({ type: "UPDATE_LAST_ASSISTANT", payload: { content: payload.content } });
+      },
+      onUiCard: (payload) => {
+        try {
+          const card = JSON.parse(payload.content);
+          dispatch({ type: "APPEND_CARD_TO_LAST", payload: card });
+        } catch (e) { /* ignore malformed card */ }
       },
       onFinal: (payload) => {
         dispatch({ type: "UPDATE_LAST_ASSISTANT", payload: { content: payload.content } });

@@ -105,7 +105,7 @@ class SystemStatusResponse(BaseModel):
 
 
 class ChatSseEvent(BaseModel):
-    type: Literal["session", "status", "message", "final", "app-error"]
+    type: Literal["session", "status", "message", "final", "app-error", "ui-card"]
     thread_id: str
     content: str = ""
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))

@@ -64,6 +64,7 @@ export function openChatStream({
   onAppError,
   onConnectionError,
   onFallback,
+  onUiCard,
   doneRef,
 }) {
   const controller = new AbortController();
@@ -82,6 +83,7 @@ export function openChatStream({
         {
           status: (payload) => onStatus?.(payload),
           message: (payload) => onMessage?.(payload),
+          "ui-card": (payload) => onUiCard?.(payload),
           final: (payload) => {
             doneRef.current = true;
             onFinal?.(payload);

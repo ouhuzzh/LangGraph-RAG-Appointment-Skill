@@ -105,6 +105,18 @@ class DocumentManager:
         skipped = 0
         processed = 0
 
+        # GraphRAG: lazily init extractor + store for the batch (shared LLM)
+        _kg_extractor = None
+        _kg_store = None
+        if getattr(config, "ENABLE_GRAPH_RAG", False):
+            try:
+                from core.knowledge_graph_extractor import KnowledgeGraphExtractor
+                from db.knowledge_graph_store import KnowledgeGraphStore
+                _kg_extractor = KnowledgeGraphExtractor()
+                _kg_store = KnowledgeGraphStore()
+            except Exception:
+                logger.warning("GraphRAG init failed in index batch; skipping extraction", exc_info=True)
+
         for index, md_path in enumerate(markdown_paths):
             if progress_callback:
                 progress_callback((index + 1) / len(markdown_paths), f"Processing {md_path.name}")
@@ -122,6 +134,18 @@ class DocumentManager:
                     continue
 
                 self.parent_store.save_many(parent_chunks)
+
+                # GraphRAG: extract and persist knowledge triples
+                if _kg_extractor and _kg_store:
+                    try:
+                        triples = _kg_extractor.extract_from_parents(
+                            parent_chunks, document_no=document_no,
+                        )
+                        if triples:
+                            _kg_store.save_triples(triples)
+                    except Exception:
+                        logger.debug("GraphRAG extraction failed for %s", md_path.name, exc_info=True)
+
                 collection.add_documents(child_chunks)
                 indexed_document_nos.add(document_no)
                 added += 1

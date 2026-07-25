@@ -232,6 +232,8 @@ Beyond the always-on pipeline, three production-grade extensions ship behind con
 | **Contextual Retrieval** | `ENABLE_CONTEXTUAL_RETRIEVAL=false` | Prepends an LLM-written situating sentence to each chunk before embedding (Anthropic Contextual Retrieval), so a stand-alone chunk carries its document context into the vector index |
 | **Semantic answer cache** | `ENABLE_SEMANTIC_CACHE=false` | pgvector similarity cache that short-circuits repeat questions to a stored answer; context-dependent turns are refused so multi-turn safety holds |
 | **Clinical safety guardrail** | `ENABLE_CLINICAL_SAFETY_GUARDRAIL=false` | Graded red-flag severity (critical / high / moderate) + prescription-boundary detection; strictly additive to existing risk inference (can only raise risk) |
+| **GraphRAG** | `ENABLE_GRAPH_RAG=false` | Medical knowledge graph (disease→symptom→department→drug triples) extracted at ingest time; multi-hop graph traversal fused via RRF into the vector search pipeline |
+| **Generative UI** | always on (heuristic) | Backend emits structured `ui-card` SSE events (department cards, risk banners, appointment previews); frontend renders rich card components alongside markdown |
 
 Each extension is isolated, reversible, and covered by unit tests (`tests/test_contextual_retrieval.py`, `tests/test_semantic_cache.py`, `tests/test_clinical_safety.py`).
 
@@ -531,6 +533,8 @@ It is **not** a medical device, does **not** provide diagnosis, and does **not**
 - ~~Build the agentic pipeline (retrieval loop, answer reflection, task decomposition, online self-eval)~~ - **done (P1–P4)**, see [Agentic Pipeline](#agentic-pipeline-p1p4-from-rag-to-agent)
 - ~~Add stronger answer-level evaluation~~ - **done (P4 `self_eval`, LLM-as-judge on safety/accuracy/completeness/groundedness, persisted to `route_logs`)**
 - ~~Contextual Retrieval, semantic answer cache, and a graded clinical safety guardrail~~ - **done (P5-P7, opt-in toggles, unit-tested)**
+- ~~GraphRAG knowledge graph with multi-hop retrieval~~ - **done (P8, opt-in, unit-tested)**
+- ~~Generative UI: structured card events + React card components~~ - **done (frontend + backend)**
 - Move more admin capabilities from Gradio to dedicated FastAPI/React pages
 - Improve appointment rescheduling and alternative-slot planning
 - Add auth and deployment profiles for real multi-user environments

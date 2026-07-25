@@ -560,6 +560,41 @@ class SchemaManager:
                 """,
             ],
         ),
+        (
+            "020_knowledge_graph",
+            "Medical knowledge graph triples for GraphRAG multi-hop retrieval.",
+            [
+                """
+                CREATE TABLE IF NOT EXISTS kg_triples (
+                    id                  BIGSERIAL PRIMARY KEY,
+                    subject             VARCHAR(256) NOT NULL,
+                    subject_type        VARCHAR(64) NOT NULL,
+                    relation            VARCHAR(64) NOT NULL,
+                    object              VARCHAR(256) NOT NULL,
+                    object_type         VARCHAR(64) NOT NULL,
+                    source_parent_id    VARCHAR(128),
+                    source_document_no  VARCHAR(64),
+                    created_at          TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_kg_triples_subject
+                ON kg_triples(LOWER(subject))
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_kg_triples_object
+                ON kg_triples(LOWER(object))
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_kg_triples_parent_id
+                ON kg_triples(source_parent_id)
+                """,
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_kg_triples_sro
+                ON kg_triples(subject, relation, object, source_parent_id)
+                """,
+            ],
+        ),
     ]
 
     def __init__(self, conninfo: str):

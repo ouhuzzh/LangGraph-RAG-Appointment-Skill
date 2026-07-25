@@ -119,6 +119,15 @@ SEMANTIC_CACHE_MIN_QUERY_CHARS = int(os.environ.get("SEMANTIC_CACHE_MIN_QUERY_CH
 # inference (can only raise risk, never lower it).
 ENABLE_CLINICAL_SAFETY_GUARDRAIL = os.environ.get("ENABLE_CLINICAL_SAFETY_GUARDRAIL", "false").lower() == "true"
 
+# P8: GraphRAG — medical knowledge graph with multi-hop retrieval. Off by default;
+# enabling adds triple extraction at ingest time (one LLM call per parent chunk)
+# and graph-hop retrieval fused via RRF into the main search pipeline.
+ENABLE_GRAPH_RAG = os.environ.get("ENABLE_GRAPH_RAG", "false").lower() == "true"
+GRAPH_RAG_MAX_TRIPLES_PER_CHUNK = int(os.environ.get("GRAPH_RAG_MAX_TRIPLES_PER_CHUNK", "10"))
+GRAPH_RAG_PARENT_CHARS = int(os.environ.get("GRAPH_RAG_PARENT_CHARS", "3000"))
+GRAPH_RAG_EXTRACTION_MAX_TOKENS = int(os.environ.get("GRAPH_RAG_EXTRACTION_MAX_TOKENS", "512"))
+GRAPH_RAG_MAX_HOPS = int(os.environ.get("GRAPH_RAG_MAX_HOPS", "2"))
+
 # Unified turn planner - LLM-based cross-intent compound decomposition. Produces
 # a planned_tasks list drained by dispatch_next_task within a single graph
 # invocation, with a completeness gate. Adds one light-LLM call per turn.
