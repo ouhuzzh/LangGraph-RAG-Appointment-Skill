@@ -54,7 +54,7 @@ def _sanitize_pending_payload(payload: dict | None) -> dict:
 
 def _extract_topic_focus(user_query: str, existing_topic: str = "", appointment_context: dict | None = None, recommended_department: str = "") -> str:
     """Derive a topic focus string from the user query and existing context."""
-    from .classifiers import (
+    from .node_helpers import (
         _looks_like_explicit_appointment_intent,
         _looks_like_explicit_cancel_intent,
         _looks_like_department_question,

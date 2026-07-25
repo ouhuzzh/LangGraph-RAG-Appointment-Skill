@@ -176,7 +176,9 @@ class DocumentManager:
         prepared_markdowns = []
         conversion_details = []
         failure_details = []
-        sync_service = KnowledgeBaseSyncService(self.rag_system, self.markdown_dir)
+        sync_service = KnowledgeBaseSyncService(
+            self.rag_system, self.markdown_dir, indexer=self._index_markdown_paths,
+        )
 
         for i, doc_path in enumerate(document_paths):
             source_path = Path(doc_path)
@@ -301,7 +303,9 @@ class DocumentManager:
         self.vector_db.create_collection(self.collection_name)
 
     def sync_local_documents(self, markdown_paths=None, progress_callback=None, trigger_type: str = "manual", soft_delete_missing: bool = False):
-        sync_service = KnowledgeBaseSyncService(self.rag_system, self.markdown_dir)
+        sync_service = KnowledgeBaseSyncService(
+            self.rag_system, self.markdown_dir, indexer=self._index_markdown_paths,
+        )
         return sync_service.sync_local_documents(
             markdown_paths=markdown_paths,
             trigger_type=trigger_type,
@@ -310,7 +314,9 @@ class DocumentManager:
         )
 
     def sync_official_source(self, source: str, limit: int = 10, progress_callback=None, trigger_type: str = "manual"):
-        sync_service = KnowledgeBaseSyncService(self.rag_system, self.markdown_dir)
+        sync_service = KnowledgeBaseSyncService(
+            self.rag_system, self.markdown_dir, indexer=self._index_markdown_paths,
+        )
         return sync_service.sync_official_source(
             source=source,
             limit=int(limit) if limit is not None else None,
@@ -320,7 +326,9 @@ class DocumentManager:
         )
 
     def sync_all_sources(self, trigger_type: str = "scheduler"):
-        sync_service = KnowledgeBaseSyncService(self.rag_system, self.markdown_dir)
+        sync_service = KnowledgeBaseSyncService(
+            self.rag_system, self.markdown_dir, indexer=self._index_markdown_paths,
+        )
         return sync_service.sync_all(trigger_type=trigger_type)
 
     def import_official_source(self, source: str, limit: int = 10, overwrite: bool = False, index_after_import: bool = True):

@@ -104,10 +104,26 @@ class SyncRunResult:
 
 
 class KnowledgeBaseSyncService:
-    def __init__(self, rag_system, markdown_dir: str | Path | None = None):
+    def __init__(self, rag_system, markdown_dir: str | Path | None = None, *, indexer=None):
         self.rag_system = rag_system
         self.markdown_dir = Path(markdown_dir or config.MARKDOWN_DIR)
         self.markdown_dir.mkdir(parents=True, exist_ok=True)
+        # Explicit indexing dependency. Passing it in removes the implicit
+        # "someone must have attached document_manager to rag_system" contract
+        # that broke the kb_jobs sync path once already.
+        self._indexer = indexer
+
+    def _resolve_indexer(self):
+        """Explicit indexer wins; legacy rag_system attribute is the fallback."""
+        if self._indexer is not None:
+            return self._indexer
+        document_manager = getattr(self.rag_system, "document_manager", None)
+        if document_manager is None:
+            raise RuntimeError(
+                "KnowledgeBaseSyncService has no indexer: pass indexer= explicitly "
+                "or attach a DocumentManager to rag_system.document_manager."
+            )
+        return document_manager._index_markdown_paths
 
     def _connect(self):
         from db.connection import connect; return connect()
@@ -537,7 +553,7 @@ class KnowledgeBaseSyncService:
             else:
                 result.added += 1
 
-            index_result = self.rag_system.document_manager._index_markdown_paths(
+            index_result = self._resolve_indexer()(
                 [target_path],
                 progress_callback=None,
                 skip_existing=False,

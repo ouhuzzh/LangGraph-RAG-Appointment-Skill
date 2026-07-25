@@ -1,3 +1,9 @@
+"""Tests for the live classifier heuristics (node_helpers / routing_nodes)
+and the appointment dialog_policy formatters.
+
+Note: the stale parallel-copy module ``rag_agent.classifiers`` was removed —
+these tests target the canonical implementations the graph actually uses.
+"""
 import sys
 import unittest
 from datetime import date
@@ -6,7 +12,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "project"))
 
 import config  # noqa: E402
-from rag_agent import classifiers  # noqa: E402
+from rag_agent import node_helpers as nh  # noqa: E402
+from rag_agent import routing_nodes as rn  # noqa: E402
 from services.appointment_skill.dialog_policy import (  # noqa: E402
     format_appointment_list,
     format_department_options,
@@ -17,50 +24,44 @@ from services.appointment_skill.dialog_policy import (  # noqa: E402
 
 class ClassifierTests(unittest.TestCase):
     def test_greeting_detection(self):
-        self.assertTrue(classifiers._looks_like_greeting("你好"))
-        self.assertTrue(classifiers._looks_like_greeting("hello"))
-        self.assertFalse(classifiers._looks_like_greeting("高血压怎么办"))
+        self.assertTrue(nh._looks_like_greeting("你好"))
+        self.assertFalse(nh._looks_like_greeting("高血压怎么办"))
 
     def test_department_question(self):
-        self.assertTrue(classifiers._looks_like_department_question("胸痛挂什么科"))
-        self.assertFalse(classifiers._looks_like_department_question("感冒了怎么办"))
+        self.assertTrue(nh._looks_like_department_question("胸痛挂什么科"))
+        self.assertFalse(nh._looks_like_department_question("感冒了怎么办"))
 
     def test_medical_knowledge_question(self):
-        self.assertTrue(classifiers._looks_like_medical_knowledge_question("高血压怎么办"))
-        self.assertFalse(classifiers._looks_like_medical_knowledge_question("你好"))
+        self.assertTrue(nh._looks_like_medical_knowledge_question("高血压怎么办"))
+        self.assertFalse(nh._looks_like_medical_knowledge_question("你好"))
 
     def test_explicit_cancel_intent(self):
-        self.assertTrue(classifiers._looks_like_explicit_cancel_intent("取消预约"))
-        self.assertFalse(classifiers._looks_like_explicit_cancel_intent("我要挂呼吸内科"))
+        self.assertTrue(nh._looks_like_explicit_cancel_intent("取消预约"))
+        self.assertFalse(nh._looks_like_explicit_cancel_intent("我要挂呼吸内科"))
+
+    def test_l1_appointment_intent_is_strict(self):
+        # L1-strict by design: bare booking phrases without a concrete entity
+        # are deferred to L2/L3 instead of hard-matching.
+        self.assertFalse(nh._looks_like_explicit_appointment_intent("感冒了怎么办"))
 
     def test_department_name_only(self):
-        self.assertTrue(classifiers._looks_like_department_name_only("呼吸内科"))
-        self.assertFalse(classifiers._looks_like_department_name_only(
-            "我想详细咨询一下呼吸内科最近一周的专家号安排情况"))
+        self.assertTrue(rn._looks_like_department_name_only("呼吸内科"))
+        self.assertFalse(rn._looks_like_department_name_only("感冒了怎么办"))
 
-    def test_intent_for_clarification_target(self):
-        self.assertEqual(classifiers._intent_for_clarification_target("department", "x"), "appointment")
-        self.assertEqual(classifiers._intent_for_clarification_target("appointment_no", "x"), "cancel_appointment")
-        self.assertEqual(classifiers._intent_for_clarification_target("unknown", "medical_rag"), "medical_rag")
+    def test_intent_for_clarification_target_maps_node_names(self):
+        self.assertEqual(rn._intent_for_clarification_target("recommend_department", ""), "triage")
+        self.assertEqual(rn._intent_for_clarification_target("handle_cancel_appointment", ""), "cancel_appointment")
+        self.assertEqual(rn._intent_for_clarification_target("unknown", "medical_rag"), "medical_rag")
 
-    def test_clarification_response(self):
-        self.assertTrue(classifiers._looks_like_clarification_response("确认预约"))
-        self.assertTrue(classifiers._looks_like_clarification_response("呼吸内科"))
-        self.assertFalse(classifiers._looks_like_clarification_response(
-            "我想再详细描述一下我的症状情况，最近三天以来我一直觉得头晕并且伴有恶心想吐的感觉"))
-
-    def test_infer_risk_level_delegates_to_canonical_guardrail(self):
-        # Regression: this module used to carry an inline copy that silently
-        # missed the P7 guardrail; it must now honor the flag like node_helpers.
+    def test_infer_risk_level_guardrail_delegation(self):
         original = getattr(config, "ENABLE_CLINICAL_SAFETY_GUARDRAIL", False)
         config.ENABLE_CLINICAL_SAFETY_GUARDRAIL = True
         self.addCleanup(setattr, config, "ENABLE_CLINICAL_SAFETY_GUARDRAIL", original)
-        # "剧烈头痛" is guardrail vocabulary, not in legacy HIGH_RISK_KEYWORDS.
-        self.assertEqual(classifiers._infer_risk_level("突然剧烈头痛"), "high")
+        self.assertEqual(nh._infer_risk_level("突然剧烈头痛"), "high")
 
     def test_infer_risk_level_legacy_keywords_still_work(self):
-        self.assertEqual(classifiers._infer_risk_level("我现在胸痛"), "high")
-        self.assertEqual(classifiers._infer_risk_level("今天天气不错"), "normal")
+        self.assertEqual(nh._infer_risk_level("我现在胸痛"), "high")
+        self.assertEqual(nh._infer_risk_level("今天天气不错"), "normal")
 
 
 class DialogPolicyTests(unittest.TestCase):

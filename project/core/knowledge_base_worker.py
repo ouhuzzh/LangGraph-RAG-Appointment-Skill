@@ -62,6 +62,7 @@ class KnowledgeBaseJobRunner:
         sync_service = KnowledgeBaseSyncService(
             self.runtime,
             self.runtime.document_manager.markdown_dir,
+            indexer=self.runtime.document_manager._index_markdown_paths,
         )
         lock_conn = sync_service._try_advisory_lock("knowledge_base_sync")
         if lock_conn is None:
