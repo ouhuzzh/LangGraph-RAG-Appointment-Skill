@@ -248,6 +248,43 @@ class TestHighRiskBypass(unittest.TestCase):
         self.assertIn("高风险", str(result["messages"][0].content))
         self.assertIn("急诊", str(result["messages"][0].content))
 
+    def test_red_flag_reply_escalates_despite_stale_normal_risk(self):
+        """Clarification-resume escape hatch: route_after_clarification reaches
+        recommend_department directly (bypassing intent_router), so a red-flag
+        reply must trigger the emergency bypass even when the checkpointed
+        risk_level is a stale 'normal'."""
+        from rag_agent.routing_nodes import recommend_department
+        from langchain_core.messages import HumanMessage
+
+        class ExplodingLLM:
+            def with_config(self, **kw):
+                return self
+
+            def invoke(self, msg):
+                raise AssertionError("LLM should NOT drive a red-flag turn!")
+
+        state = {
+            "messages": [HumanMessage(content="突然胸痛喘不上气")],
+            "primary_user_query": "突然胸痛喘不上气",
+            "risk_level": "normal",  # stale value from the pre-clarification turn
+            "conversation_summary": "",
+            "topic_focus": "",
+            "appointment_context": {},
+            "pending_action_type": "",
+            "pending_action_payload": {},
+            "pending_confirmation_id": "",
+            "pending_candidates": [],
+            "pending_clarification": "",
+            "clarification_target": "",
+            "clarification_attempts": 0,
+            "user_memories": "",
+        }
+
+        result = recommend_department(state, ExplodingLLM())
+
+        self.assertEqual(result["recommended_department"], "急诊科")
+        self.assertIn("急诊", str(result["messages"][0].content))
+
     def test_normal_risk_still_calls_llm(self):
         """When risk_level='normal', LLM should still be called."""
         from rag_agent.routing_nodes import recommend_department

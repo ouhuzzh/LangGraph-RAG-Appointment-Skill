@@ -716,7 +716,12 @@ def intent_router(state: State, llm):
 def recommend_department(state: State, llm):
     user_query = _get_user_query(state)
     conversation_summary = state.get("conversation_summary", "")
-    risk_level = state.get("risk_level", "normal")
+    # Re-infer risk from the CURRENT query instead of trusting checkpointed
+    # state: clarification-resume routes reach this node directly (bypassing
+    # intent_router, the only other re-inference point), so a red-flag reply
+    # like "突然胸痛喘不上气" must still trigger the emergency bypass even when
+    # the stored risk_level is a stale "normal". Additive: can only raise risk.
+    risk_level = _infer_risk_level(user_query, state.get("risk_level", "normal"))
     topic_focus = state.get("topic_focus", "")
 
     # Bug 5 fix: high-risk symptoms → emergency department FIRST, skip LLM
