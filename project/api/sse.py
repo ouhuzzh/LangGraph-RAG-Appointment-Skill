@@ -14,12 +14,13 @@ def event_payload(event: ChatSseEvent) -> str:
     return f"event: {event.type}\ndata: {event.model_dump_json()}\n\n"
 
 
-def _detect_card_events(content: str, thread_id: str) -> List[str]:
+def _detect_card_events(content: str, thread_id: str, session_state: dict | None = None) -> List[str]:
     """Heuristic detection of structured UI cards from the final assistant text.
 
     Emits 'ui-card' SSE events for department recommendations, risk alerts,
     and appointment previews.  Returns formatted SSE event strings."""
     events = []
+    state = session_state or {}
     # Department recommendation card
     dept_match = re.search(r"\*\*([^*]*科[^*]*)\*\*", content)
     if dept_match and ("建议" in content or "科室" in content):
@@ -34,13 +35,67 @@ def _detect_card_events(content: str, thread_id: str) -> List[str]:
         events.append(event_payload(ChatSseEvent(
             type="ui-card", thread_id=thread_id, content=json.dumps(card, ensure_ascii=False),
         )))
-    # Appointment preview card
+    # Appointment preview card — when a confirmation is actually pending, ship
+    # structured actions so the client can confirm via button instead of free
+    # text (the confirmation_id equality check replaces keyword parsing).
     if "预约" in content and ("确认" in content or "预览" in content):
         card = {"card_type": "appointment_preview"}
+        confirmation_id = str(state.get("pending_confirmation_id") or "")
+        if confirmation_id and state.get("pending_action_type") == "appointment":
+            payload = state.get("pending_action_payload") or {}
+            card["details"] = {
+                "department": str(payload.get("department") or ""),
+                "date": str(payload.get("date") or ""),
+                "time_slot": str(payload.get("time_slot") or ""),
+                "doctor_name": str(payload.get("doctor_name") or ""),
+            }
+            card["actions"] = [
+                {"label": "确认预约", "action": "confirm_appointment", "confirmation_id": confirmation_id},
+                {"label": "暂不预约", "action": "abort_appointment", "confirmation_id": confirmation_id},
+            ]
         events.append(event_payload(ChatSseEvent(
             type="ui-card", thread_id=thread_id, content=json.dumps(card, ensure_ascii=False),
         )))
     return events
+
+
+# Structured actions map button clicks to canonical command texts that the
+# rule gates match deterministically. The confirmation_id equality check below
+# is the real gate — free-text keyword parsing is bypassed entirely.
+_ACTION_CANONICAL_MESSAGES = {
+    "confirm_appointment": "确认预约",
+    "abort_appointment": "算了，先不预约了",
+}
+
+
+def _session_state_for_thread(container, thread_id: str) -> dict:
+    try:
+        return container.chat_interface.rag_system.session_memory.get_state(thread_id) or {}
+    except Exception:
+        logger.warning("Failed to load session state for card enrichment", exc_info=True)
+        return {}
+
+
+def resolve_structured_action(container, thread_id: str, action: dict) -> tuple[str, str]:
+    """Validate a button action against the pending confirmation state.
+
+    Returns (canonical_message, "") on success or ("", error_text) when the
+    action is unknown or the confirmation has expired/been superseded."""
+    action_type = str((action or {}).get("type") or "")
+    canonical = _ACTION_CANONICAL_MESSAGES.get(action_type)
+    if not canonical:
+        return "", "无法识别的操作，请直接输入文字继续。"
+    supplied_id = str((action or {}).get("confirmation_id") or "")
+    pending_id = str(_session_state_for_thread(container, thread_id).get("pending_confirmation_id") or "")
+    if not pending_id or supplied_id != pending_id:
+        return "", "该确认已过期或已处理，请重新发起预约。"
+    return canonical, ""
+
+
+def stream_action_rejected(thread_id: str, reason: str) -> Iterable[str]:
+    """Short SSE stream for a rejected structured action (expired/unknown)."""
+    yield event_payload(ChatSseEvent(type="session", thread_id=thread_id, content=thread_id))
+    yield event_payload(ChatSseEvent(type="final", thread_id=thread_id, content=reason, done=True))
 
 
 def visible_assistant_text(chunk) -> str:
@@ -103,8 +158,10 @@ def stream_chat_events(thread_id: str, message: str) -> Iterable[str]:
             )
         )
     else:
-        # Generative UI: emit structured card events from the final content
-        for card_event_str in _detect_card_events(final_content, thread_id):
+        # Generative UI: emit structured card events from the final content,
+        # enriched with pending-confirmation state so cards can carry actions.
+        session_state = _session_state_for_thread(container, thread_id)
+        for card_event_str in _detect_card_events(final_content, thread_id, session_state):
             yield card_event_str
         yield event_payload(ChatSseEvent(type="final", thread_id=thread_id, content=final_content, done=True))
     finally:

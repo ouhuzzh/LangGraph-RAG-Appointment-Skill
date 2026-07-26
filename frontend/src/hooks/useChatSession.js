@@ -321,9 +321,9 @@ export function useChatSession({
     dispatch({ type: "STOP_STREAMING" });
   }, []);
 
-  const sendMessage = useCallback((text) => {
+  const sendMessage = useCallback((text, action = null) => {
     const content = (text ?? inputRef.current).trim();
-    if (!content || !state.threadId || isStreamingRef.current) return;
+    if ((!content && !action) || !state.threadId || isStreamingRef.current) return;
 
     streamRef.current?.close();
     streamDoneRef.current = false;
@@ -346,6 +346,7 @@ export function useChatSession({
       authToken,
       threadId: state.threadId,
       message: content,
+      action,
       onFallback: setApiBaseUrl,
       doneRef: streamDoneRef,
       onStatus: () => dispatch({ type: "SET_STREAM_STATE", payload: "thinking" }),

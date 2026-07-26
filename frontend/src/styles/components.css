@@ -200,3 +200,60 @@
   overflow-y: auto;
 }
 
+/* -------------------------------------------------------------
+   Structured cards — clinical annotation style.
+   A thin semantic rule on the left (like lab-report flags), a small
+   eyebrow label, quiet surface. One accent, no emoji, no tinted fills.
+   ------------------------------------------------------------- */
+.structured-cards { margin-top: 0.5rem; }
+
+.ui-card {
+  margin-top: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--border-soft, rgba(23, 33, 38, 0.08));
+  border-left: 3px solid var(--teal-600, #0d9488);
+  border-radius: 6px;
+  background: transparent;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.ui-card--critical { border-left-color: #dc2626; }
+.ui-card--warning { border-left-color: var(--amber-600, #d97706); }
+
+.ui-card__eyebrow {
+  display: block;
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  opacity: 0.6;
+  margin-bottom: 2px;
+}
+
+.ui-card__value { font-weight: 600; }
+
+.ui-card__actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.625rem;
+}
+
+.ui-card__btn {
+  padding: 0.375rem 0.9rem;
+  border: 1px solid var(--border, rgba(15, 118, 110, 0.25));
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.ui-card__btn--primary {
+  background: var(--teal-600, #0d9488);
+  border-color: var(--teal-600, #0d9488);
+  color: #fff;
+}
+
+.ui-card__btn:not(:disabled):hover { opacity: 0.85; }
+.ui-card__btn:disabled { opacity: 0.45; cursor: default; }
+

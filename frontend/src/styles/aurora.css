@@ -139,11 +139,10 @@ body::before {
   inset: -10%;
   pointer-events: none;
   z-index: 0;
+  /* De-AI pass: one static, barely-there teal wash. The drifting multi-hue
+     aurora blobs (teal + indigo + pink) read as generated decoration. */
   background:
-    radial-gradient(circle at 12% 28%, rgba(20, 184, 166, 0.16) 0%, transparent 26%),
-    radial-gradient(circle at 88% 72%, rgba(99, 102, 241, 0.14) 0%, transparent 26%),
-    radial-gradient(circle at 50% 50%, rgba(244, 114, 182, 0.04) 0%, transparent 30%) !important;
-  animation: aurora-drift 20s ease-in-out infinite alternate !important;
+    radial-gradient(circle at 15% 25%, rgba(20, 184, 166, 0.07) 0%, transparent 30%) !important;
   filter: blur(40px);
 }
 
@@ -155,7 +154,7 @@ body::after {
   z-index: 1;
   background-image: var(--noise);
   background-size: 180px 180px;
-  opacity: 0.5;
+  opacity: 0.18;
   mix-blend-mode: overlay;
 }
 
@@ -285,10 +284,13 @@ body::after {
 .brand-title,
 .document-card__title,
 .document-section__head h3 {
-  background: linear-gradient(135deg, #0f172a 0%, #0d9488 65%, #4f46e5 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+  /* De-AI pass: solid ink instead of tri-hue gradient-clipped text. */
+  color: var(--slate-800, #1e293b);
+}
+[data-theme="dark"] .brand-title,
+[data-theme="dark"] .document-card__title,
+[data-theme="dark"] .document-section__head h3 {
+  color: #e2e8f0;
 }
 
 .sidebar-nav__item { font-weight: 600 !important; position: relative; overflow: hidden; transition: all 0.22s var(--ease-out) !important; }
@@ -327,12 +329,9 @@ body::after {
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.18em;
-  background: linear-gradient(90deg, var(--aurora-teal), var(--aurora-indigo));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--aurora-teal);
 }
-.eyebrow::before { content: ""; width: 16px; height: 1px; background: linear-gradient(90deg, var(--aurora-teal), var(--aurora-indigo)); display: inline-block; margin-right: 6px; vertical-align: middle; }
+.eyebrow::before { content: ""; width: 16px; height: 1px; background: var(--aurora-teal); display: inline-block; margin-right: 6px; vertical-align: middle; }
 .chat-header__title h2 { font-size: 26px !important; letter-spacing: -0.02em !important; }
 .chat-header__trust { display: inline-flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .chat-header__trust span {

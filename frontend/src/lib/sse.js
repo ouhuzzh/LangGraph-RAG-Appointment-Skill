@@ -58,6 +58,7 @@ export function openChatStream({
   authToken,
   threadId,
   message,
+  action,
   onMessage,
   onStatus,
   onFinal,
@@ -72,7 +73,7 @@ export function openChatStream({
 
   async function start(urlBase, allowFallback) {
     try {
-      const { url, options } = buildStreamRequest(urlBase, authToken, threadId, message);
+      const { url, options } = buildStreamRequest(urlBase, authToken, threadId, message, action);
       const response = await fetch(url, { ...options, signal });
       if (!response.ok) {
         throw new Error(await readErrorMessage(response));

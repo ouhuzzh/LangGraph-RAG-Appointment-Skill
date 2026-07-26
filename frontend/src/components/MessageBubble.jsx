@@ -62,7 +62,7 @@ const MessageBubble = React.memo(function MessageBubble({
               : <MarkdownContent content={content} isStreaming={isLastAssistant && isStreaming} />
           )}
           {isAssistant && message.cards && message.cards.length > 0 && (
-            <StructuredCards cards={message.cards} />
+            <StructuredCards cards={message.cards} onCardAction={onAction} />
           )}
         </div>
 

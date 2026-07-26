@@ -1,34 +1,14 @@
-import React from "react";
+import React, { useState } from "react";
 
-const cardBase = {
-  display: "flex",
-  alignItems: "center",
-  gap: "0.75rem",
-  padding: "0.75rem 1rem",
-  borderRadius: "0.75rem",
-  marginTop: "0.5rem",
-  fontSize: "0.875rem",
-  lineHeight: 1.4,
-};
-
-const styles = {
-  department: { ...cardBase, background: "var(--color-surface-elevated, #f0fdf4)", border: "1px solid var(--color-border, #bbf7d0)" },
-  risk_critical: { ...cardBase, background: "#fef2f2", border: "1px solid #fecaca" },
-  risk_high: { ...cardBase, background: "#fffbeb", border: "1px solid #fde68a" },
-  appointment: { ...cardBase, background: "var(--color-surface-elevated, #eff6ff)", border: "1px solid var(--color-border, #bfdbfe)" },
-  icon: { fontSize: "1.5rem", flexShrink: 0 },
-  label: { fontSize: "0.75rem", opacity: 0.7, display: "block" },
-  value: { fontWeight: 600 },
-};
+/* Clinical annotation cards — quiet surfaces, a thin semantic rule on the
+   left (like lab-report flags), uppercase eyebrow labels, one accent color.
+   No emoji, no tinted fills: the message text stays the loudest element. */
 
 function DepartmentCard({ department }) {
   return (
-    <div style={styles.department}>
-      <span style={styles.icon}>🏥</span>
-      <div>
-        <span style={styles.label}>推荐科室</span>
-        <strong style={styles.value}>{department}</strong>
-      </div>
+    <div className="ui-card ui-card--department">
+      <span className="ui-card__eyebrow">推荐科室</span>
+      <strong className="ui-card__value">{department}</strong>
     </div>
   );
 }
@@ -36,31 +16,59 @@ function DepartmentCard({ department }) {
 function RiskAlertCard({ level }) {
   const isCritical = level === "critical";
   return (
-    <div style={isCritical ? styles.risk_critical : styles.risk_high}>
-      <span style={styles.icon}>{isCritical ? "🚨" : "⚠️"}</span>
-      <div>
-        <span style={styles.label}>{isCritical ? "紧急" : "注意"}</span>
-        <span style={styles.value}>
-          {isCritical ? "请立即就医或拨打 120" : "建议尽快线下就医"}
-        </span>
-      </div>
+    <div className={`ui-card ${isCritical ? "ui-card--critical" : "ui-card--warning"}`}>
+      <span className="ui-card__eyebrow">{isCritical ? "紧急" : "注意"}</span>
+      <strong className="ui-card__value">
+        {isCritical ? "请立即就医或拨打 120" : "建议尽快线下就医"}
+      </strong>
     </div>
   );
 }
 
-function AppointmentCard() {
+function AppointmentCard({ card, onCardAction }) {
+  const [chosen, setChosen] = useState("");
+  const details = card.details || {};
+  const actions = Array.isArray(card.actions) ? card.actions : [];
+  const detailText = [details.department, details.date, details.time_slot, details.doctor_name]
+    .filter(Boolean)
+    .join(" · ");
+
+  const handleClick = (item) => {
+    if (chosen || typeof onCardAction !== "function") return;
+    setChosen(item.action);
+    onCardAction(item.label, { type: item.action, confirmation_id: item.confirmation_id });
+  };
+
   return (
-    <div style={styles.appointment}>
-      <span style={styles.icon}>📅</span>
-      <div>
-        <span style={styles.label}>预约确认</span>
-        <span style={styles.value}>请回复"确认预约"以完成挂号</span>
-      </div>
+    <div className="ui-card ui-card--appointment">
+      <span className="ui-card__eyebrow">预约确认</span>
+      <strong className="ui-card__value">
+        {detailText || "请回复\u201c确认预约\u201d以完成挂号"}
+      </strong>
+      {actions.length > 0 && (
+        <div className="ui-card__actions">
+          {actions.map((item) => (
+            <button
+              key={item.action}
+              type="button"
+              className={
+                item.action === "confirm_appointment"
+                  ? "ui-card__btn ui-card__btn--primary"
+                  : "ui-card__btn"
+              }
+              disabled={Boolean(chosen)}
+              onClick={() => handleClick(item)}
+            >
+              {chosen === item.action ? "已发送" : item.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-export default function StructuredCards({ cards }) {
+export default function StructuredCards({ cards, onCardAction }) {
   if (!cards || !cards.length) return null;
   return (
     <div className="structured-cards">
@@ -71,7 +79,7 @@ export default function StructuredCards({ cards }) {
           case "risk_alert":
             return <RiskAlertCard key={i} level={card.level} />;
           case "appointment_preview":
-            return <AppointmentCard key={i} />;
+            return <AppointmentCard key={i} card={card} onCardAction={onCardAction} />;
           default:
             return null;
         }

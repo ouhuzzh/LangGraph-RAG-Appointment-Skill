@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 import StructuredCards from "../components/StructuredCards";
 import { reducer } from "../hooks/useChatSession";
 
@@ -33,6 +33,37 @@ describe("StructuredCards", () => {
   it("ignores unknown card types without crashing", () => {
     const { container } = render(<StructuredCards cards={[{ card_type: "unknown_future_type" }]} />);
     expect(container.querySelector(".structured-cards")).toBeInTheDocument();
+  });
+
+  it("renders action buttons and fires structured confirm on click", () => {
+    const onCardAction = vi.fn();
+    const card = {
+      card_type: "appointment_preview",
+      details: { department: "呼吸内科", date: "2026-08-01", time_slot: "上午" },
+      actions: [
+        { label: "确认预约", action: "confirm_appointment", confirmation_id: "cid-1" },
+        { label: "暂不预约", action: "abort_appointment", confirmation_id: "cid-1" },
+      ],
+    };
+    render(<StructuredCards cards={[card]} onCardAction={onCardAction} />);
+
+    const confirmBtn = screen.getByRole("button", { name: "确认预约" });
+    fireEvent.click(confirmBtn);
+
+    expect(onCardAction).toHaveBeenCalledWith("确认预约", {
+      type: "confirm_appointment",
+      confirmation_id: "cid-1",
+    });
+    // Both buttons lock after a choice — double-click cannot double-send.
+    expect(screen.getByRole("button", { name: "已发送" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "暂不预约" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "已发送" }));
+    expect(onCardAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders plain preview card without buttons when no actions", () => {
+    render(<StructuredCards cards={[{ card_type: "appointment_preview" }]} />);
+    expect(screen.queryByRole("button")).toBeNull();
   });
 });
 

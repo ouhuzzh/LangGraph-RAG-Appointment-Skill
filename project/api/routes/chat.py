@@ -253,16 +253,30 @@ def chat_stream_post(
 ):
     request.state.route_type = "chat_stream"
     request.state.thread_id = payload.thread_id
-    if not payload.message.strip():
+    message = payload.message.strip()
+    if not message and not payload.action:
         raise HTTPException(status_code=400, detail="message is required")
     ensure_owned_session(payload.thread_id, current_user)
     enforce_chat_rate_limit(current_user)
     container = get_container()
+    if payload.action:
+        # Button click: validate confirmation_id against pending state, then
+        # substitute the canonical command — no free-text parsing involved.
+        from api.sse import resolve_structured_action, stream_action_rejected
+
+        canonical, error_text = resolve_structured_action(container, payload.thread_id, payload.action)
+        if error_text:
+            return StreamingResponse(
+                stream_action_rejected(payload.thread_id, error_text),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
+        message = canonical
     touch_session = getattr(container.chat_sessions, "touch_session", None)
     if callable(touch_session):
         touch_session(payload.thread_id)
     return StreamingResponse(
-        stream_chat_events(payload.thread_id, payload.message.strip()),
+        stream_chat_events(payload.thread_id, message),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

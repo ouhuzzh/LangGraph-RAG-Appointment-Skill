@@ -76,7 +76,11 @@ class DeleteSessionResponse(BaseModel):
 
 class ChatStreamRequest(BaseModel):
     thread_id: str
-    message: str
+    message: str = ""
+    # Structured UI action (button click): {"type": "confirm_appointment",
+    # "confirmation_id": "..."}. When present, message may be empty — the
+    # server derives a canonical command after validating the confirmation_id.
+    action: dict | None = None
 
 
 class KnowledgeBaseStatusResponse(BaseModel):

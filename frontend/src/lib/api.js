@@ -198,14 +198,16 @@ export function syncOfficialDocuments(apiBaseUrl, onFallback, authToken, source,
   );
 }
 
-export function buildStreamRequest(apiBaseUrl, authToken, threadId, message) {
+export function buildStreamRequest(apiBaseUrl, authToken, threadId, message, action = null) {
+  const payload = { thread_id: threadId, message };
+  if (action) payload.action = action;
   return {
     url: `${apiBaseUrl}/api/chat/stream`,
     options: withAuth(
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ thread_id: threadId, message }),
+        body: JSON.stringify(payload),
       },
       authToken,
     ),
