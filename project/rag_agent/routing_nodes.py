@@ -266,6 +266,7 @@ def analyze_turn(state: State):
 
     # Pending stale exit: if user has a pending action but keeps talking about
     # unrelated topics, auto-clear after 2 consecutive irrelevant turns.
+    pending_stale_next = 0
     if state.get("pending_action_type") and not _should_continue_pending_action(state, user_query):
         stale = int(state.get("pending_stale_count", 0)) + 1
         if stale >= 2:
@@ -286,8 +287,11 @@ def analyze_turn(state: State):
                 "pending_stale_count": 0,
                 "messages": [AIMessage(content="好的，先不管之前的预约。你需要什么帮助？")],
             }
-        # Still building up — continue with normal classification
-        # (stale count is included in the return dicts below)
+        # Not stale yet — persist the incremented counter so the second
+        # consecutive irrelevant turn actually triggers the exit above.
+        # (A previous version computed `stale` but never wrote it back,
+        # leaving the auto-clear permanently unreachable.)
+        pending_stale_next = stale
 
     if state.get("pending_action_type") and _should_continue_pending_action(state, user_query):
         primary_intent = state.get("pending_action_type", "")
@@ -302,6 +306,7 @@ def analyze_turn(state: State):
             "decision_source": "resume",
             "route_reason": "continue_pending_action",
             "last_route_reason": "continue_pending_action",
+            "pending_stale_count": 0,
         }
 
     if state.get("pending_candidates") and _pick_candidate_from_text(user_query, state.get("pending_candidates") or []):
@@ -316,6 +321,7 @@ def analyze_turn(state: State):
             "decision_source": "resume",
             "route_reason": "continue_pending_candidates",
             "last_route_reason": "continue_pending_candidates",
+            "pending_stale_count": 0,
         }
 
     clarification_target = state.get("clarification_target", "")
@@ -332,6 +338,7 @@ def analyze_turn(state: State):
             "decision_source": "resume",
             "route_reason": f"continue_{clarification_target}",
             "last_route_reason": f"continue_{clarification_target}",
+            "pending_stale_count": 0,
         }
 
     if (
@@ -350,6 +357,7 @@ def analyze_turn(state: State):
             "decision_source": "resume",
             "route_reason": "continue_department_selection",
             "last_route_reason": "continue_department_selection",
+            "pending_stale_count": 0,
         }
 
     # The unified turn planner decomposes every fresh turn (arbitrary connectors,
@@ -366,6 +374,7 @@ def analyze_turn(state: State):
         "route_reason": "turn_planner",
         "last_route_reason": "turn_planner",
         "intent_source": "planner",
+        "pending_stale_count": pending_stale_next,
     }
 
 
