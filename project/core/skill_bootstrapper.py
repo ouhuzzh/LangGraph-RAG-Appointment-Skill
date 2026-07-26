@@ -16,8 +16,11 @@ class SkillBootstrapper:
         self._registry_factory = registry_factory
         self._skill_factories = list(skill_factories) if skill_factories is not None else None
 
-    def bootstrap(self) -> int:
-        if not getattr(config, "SKILLS_ENABLED", False):
+    def bootstrap(self, *, force: bool = False) -> int:
+        """Register skill plugins. ``force=True`` bypasses the SKILLS_ENABLED
+        gate — used by offline evaluators that measure the full routing stack
+        regardless of the current runtime configuration."""
+        if not force and not getattr(config, "SKILLS_ENABLED", False):
             return 0
 
         registry = self._get_registry()

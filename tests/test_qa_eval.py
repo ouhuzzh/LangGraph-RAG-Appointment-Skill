@@ -21,7 +21,14 @@ def setUpModule():
 
     Hermetic isolation: skills leaked into the global singleton by other test
     modules previously flipped intents (medical_rag -> mcp_services) when this
-    module ran in a category subset."""
+    module ran in a category subset.  The evaluator re-registers what it needs
+    via SkillBootstrapper().bootstrap(force=True)."""
+    from skills.registry import reset_skill_registry
+    reset_skill_registry()
+
+
+def tearDownModule():
+    """The evaluator force-bootstraps skills; reset so nothing leaks onward."""
     from skills.registry import reset_skill_registry
     reset_skill_registry()
 

@@ -265,11 +265,13 @@ class RetrievalQualityEvaluator:
         # live application bootstraps that registry during graph compilation,
         # but offline evaluators run independently of the application startup.
         # Without this registration every expected route is reported as an LLM
-        # fallback, producing a misleading 0% route hit rate.
+        # fallback, producing a misleading 0% route hit rate.  force=True:
+        # route quality is a property of the full stack, so skills must be
+        # registered even when the runtime flag is off (e.g. minimal CI env).
         try:
             from core.skill_bootstrapper import SkillBootstrapper
 
-            SkillBootstrapper().bootstrap()
+            SkillBootstrapper().bootstrap(force=True)
         except Exception:
             logger.warning("QA evaluator could not bootstrap skills; route metrics may be incomplete.", exc_info=True)
         self.tool_factory = ToolFactory(collection)
