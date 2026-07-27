@@ -41,6 +41,16 @@ class JudgeContinuationTests(unittest.TestCase):
     def test_llm_failure_is_fail_open(self):
         self.assertFalse(judge_continuation("appointment", {}, "行", llm=_FakeLLM(RuntimeError("down"))))
 
+    def test_recent_context_is_included_in_prompt(self):
+        # Referent resolution: "就他了" needs the assistant's prior question.
+        llm = _FakeLLM("是")
+        judge_continuation(
+            "appointment", {"department": "呼吸内科"}, "就他了", llm=llm,
+            recent_context="assistant: 你要挂张医生还是李医生？",
+        )
+        self.assertIn("最近的对话", llm.prompts[0])
+        self.assertIn("张医生还是李医生", llm.prompts[0])
+
 
 def _pending_state(user_query: str) -> dict:
     return {

@@ -306,7 +306,7 @@ def _should_continue_pending_action(state: State, user_query: str) -> bool:
 # Public routing nodes
 # ---------------------------------------------------------------------------
 
-def _llm_arbiter_says_continuation(state: State, user_query: str) -> bool:
+def _llm_arbiter_says_continuation(state: State, user_query: str, recent_context: str = "") -> bool:
     """Narrow-band LLM arbiter (opt-in): consulted only for short, signal-free
     replies while an action is pending — "行，就他了" carries no keyword any
     rule can see. Long or question-shaped input never reaches the LLM (topic
@@ -323,6 +323,7 @@ def _llm_arbiter_says_continuation(state: State, user_query: str) -> bool:
             state.get("pending_action_type", ""),
             state.get("pending_action_payload") or {},
             user_query,
+            recent_context=recent_context or state.get("recent_context", ""),
         )
     except Exception:
         logger.debug("Continuation arbiter unavailable", exc_info=True)
@@ -347,7 +348,7 @@ def analyze_turn(state: State):
     if state.get("pending_action_type"):
         if _should_continue_pending_action(state, user_query):
             continuation_reason = "continue_pending_action"
-        elif _llm_arbiter_says_continuation(state, user_query):
+        elif _llm_arbiter_says_continuation(state, user_query, recent_context):
             continuation_reason = "continue_pending_action_llm"
     if state.get("pending_action_type") and not continuation_reason:
         stale = int(state.get("pending_stale_count", 0)) + 1
