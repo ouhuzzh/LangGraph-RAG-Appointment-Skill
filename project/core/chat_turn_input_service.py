@@ -54,6 +54,23 @@ class ChatTurnInputService:
         session_state = self.rag_system.session_memory.get_state(active_thread_id)
         checkpoint_resumed = bool(current_state.next)
 
+        # A stale clarification interrupt must not swallow a fresh greeting. When the
+        # graph is paused awaiting a clarification answer (interrupt_before=
+        # [request_clarification]) and the user sends a pure greeting instead, they
+        # have abandoned that flow — blindly resuming would feed "你好" in as the
+        # answer ("请补充要预约的日期。"). Drop the stale checkpoint + leaked session
+        # state (visible message history in session_memory is preserved) so the
+        # greeting is handled as a fresh turn by analyze_turn's greeting short-circuit.
+        if checkpoint_resumed and self._is_pure_greeting(user_message):
+            try:
+                self.rag_system.agent_graph.checkpointer.delete_thread(active_thread_id)
+                self.rag_system.session_memory.set_state(active_thread_id, {})
+            except Exception:
+                logger.warning("Failed to clear stale interrupt for greeting; continuing", exc_info=True)
+            current_state = self.rag_system.agent_graph.get_state(graph_config)
+            session_state = {}
+            checkpoint_resumed = False
+
         user_id = self._resolve_user_id(active_thread_id)
         user_memories_text = self._resolve_user_memories(
             user_id=user_id,
@@ -83,6 +100,14 @@ class ChatTurnInputService:
             user_memories_text=user_memories_text,
             stream_input=stream_input,
         )
+
+    @staticmethod
+    def _is_pure_greeting(user_message: str) -> bool:
+        try:
+            from rag_agent.node_helpers import _looks_like_greeting
+            return _looks_like_greeting(user_message)
+        except Exception:
+            return False
 
     def _resolve_user_id(self, active_thread_id: str) -> str:
         if not config.USER_MEMORY_ENABLED:

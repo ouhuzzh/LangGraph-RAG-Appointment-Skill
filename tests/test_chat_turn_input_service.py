@@ -15,10 +15,22 @@ class FakeGraphState:
         self.next = next_value
 
 
+class FakeCheckpointer:
+    def __init__(self, graph):
+        self._graph = graph
+        self.deleted = []
+
+    def delete_thread(self, thread_id):
+        self.deleted.append(thread_id)
+        # Deleting the checkpoint clears the pending interrupt.
+        self._graph.next_value = False
+
+
 class FakeGraph:
     def __init__(self, *, next_value=False):
         self.next_value = next_value
         self.updates = []
+        self.checkpointer = FakeCheckpointer(self)
 
     def get_state(self, config):
         return FakeGraphState(next_value=self.next_value)
@@ -37,6 +49,9 @@ class FakeSessionMemory:
 
     def get_state(self, thread_id):
         return dict(self.state)
+
+    def set_state(self, thread_id, state):
+        self.state = dict(state or {})
 
     def get_recent_messages(self, thread_id):
         return list(self.recent_messages)
@@ -144,6 +159,32 @@ class ChatTurnInputServiceTests(unittest.TestCase):
         self.assertEqual(final_messages[-1].content, "new question")
         contents = [m.content for m in final_messages]
         self.assertNotIn("old " + long_content, contents)
+
+
+    def test_prepare_greeting_abandons_stale_interrupt(self):
+        # A stale clarification interrupt (next_value=True) must not swallow a
+        # fresh greeting: the checkpoint is dropped, leaked session state cleared,
+        # and the turn falls through to the normal fresh-turn path.
+        rag_system = FakeRagSystem(next_value=True, state={"appointment_context": {"department": "心内科"}})
+        service = self._service(rag_system)
+
+        turn_input = service.prepare(message="你好", thread_id="thread-greet")
+
+        self.assertIn("thread-greet", rag_system.agent_graph.checkpointer.deleted)
+        self.assertEqual(rag_system.session_memory.state, {})
+        self.assertFalse(turn_input.checkpoint_resumed)
+        self.assertIsNotNone(turn_input.stream_input)
+
+    def test_prepare_non_greeting_still_resumes_interrupt(self):
+        # A genuine clarification answer must still resume the interrupt.
+        rag_system = FakeRagSystem(next_value=True)
+        service = self._service(rag_system)
+
+        turn_input = service.prepare(message="呼吸内科", thread_id="thread-ans")
+
+        self.assertEqual(rag_system.agent_graph.checkpointer.deleted, [])
+        self.assertTrue(turn_input.checkpoint_resumed)
+        self.assertIsNone(turn_input.stream_input)
 
 
 if __name__ == "__main__":
