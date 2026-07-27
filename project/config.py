@@ -338,6 +338,10 @@ ENABLE_PERSISTENT_GRAPH_CHECKPOINT = os.environ.get("ENABLE_PERSISTENT_GRAPH_CHE
 # quota cannot be raced away between preview and confirmation.
 ENABLE_SLOT_HOLD = os.environ.get("ENABLE_SLOT_HOLD", "false").lower() == "true"
 SLOT_HOLD_TTL_MINUTES = int(os.environ.get("SLOT_HOLD_TTL_MINUTES", "10"))
+# Narrow-band LLM continuation arbiter: for short, signal-free replies while
+# an action is pending ("行，就他了"), ask a LLM whether the reply addresses
+# the pending action. Routing power only — execution stays code-gated.
+ENABLE_LLM_CONTINUATION_ARBITER = os.environ.get("ENABLE_LLM_CONTINUATION_ARBITER", "false").lower() == "true"
 # Checkpoint backend: "pickle" (single-process file, default) or "postgres"
 # (multi-replica safe, requires langgraph-checkpoint-postgres; fail-open to pickle).
 GRAPH_CHECKPOINT_BACKEND = os.environ.get("GRAPH_CHECKPOINT_BACKEND", "pickle").strip().lower()

@@ -306,6 +306,29 @@ def _should_continue_pending_action(state: State, user_query: str) -> bool:
 # Public routing nodes
 # ---------------------------------------------------------------------------
 
+def _llm_arbiter_says_continuation(state: State, user_query: str) -> bool:
+    """Narrow-band LLM arbiter (opt-in): consulted only for short, signal-free
+    replies while an action is pending — "行，就他了" carries no keyword any
+    rule can see. Long or question-shaped input never reaches the LLM (topic
+    switch by shape). Routing power only; execution stays code-gated."""
+    import config as _config
+    if not getattr(_config, "ENABLE_LLM_CONTINUATION_ARBITER", False):
+        return False
+    normalized = (user_query or "").strip().lower()
+    if not normalized or _is_incidental_phrasing(normalized):
+        return False
+    try:
+        from .continuation_arbiter import judge_continuation
+        return judge_continuation(
+            state.get("pending_action_type", ""),
+            state.get("pending_action_payload") or {},
+            user_query,
+        )
+    except Exception:
+        logger.debug("Continuation arbiter unavailable", exc_info=True)
+        return False
+
+
 def analyze_turn(state: State):
     last_message = state["messages"][-1]
     user_query = str(last_message.content).strip()
@@ -320,7 +343,13 @@ def analyze_turn(state: State):
     # Pending stale exit: if user has a pending action but keeps talking about
     # unrelated topics, auto-clear after 2 consecutive irrelevant turns.
     pending_stale_next = 0
-    if state.get("pending_action_type") and not _should_continue_pending_action(state, user_query):
+    continuation_reason = ""
+    if state.get("pending_action_type"):
+        if _should_continue_pending_action(state, user_query):
+            continuation_reason = "continue_pending_action"
+        elif _llm_arbiter_says_continuation(state, user_query):
+            continuation_reason = "continue_pending_action_llm"
+    if state.get("pending_action_type") and not continuation_reason:
         stale = int(state.get("pending_stale_count", 0)) + 1
         if stale >= 2:
             clear = _clear_pending_action_state()
@@ -346,7 +375,7 @@ def analyze_turn(state: State):
         # leaving the auto-clear permanently unreachable.)
         pending_stale_next = stale
 
-    if state.get("pending_action_type") and _should_continue_pending_action(state, user_query):
+    if continuation_reason:
         primary_intent = state.get("pending_action_type", "")
         return {
             "recent_context": recent_context,
@@ -357,8 +386,8 @@ def analyze_turn(state: State):
             "secondary_user_query": state.get("secondary_user_query", ""),
             "deferred_user_question": state.get("deferred_user_question", ""),
             "decision_source": "resume",
-            "route_reason": "continue_pending_action",
-            "last_route_reason": "continue_pending_action",
+            "route_reason": continuation_reason,
+            "last_route_reason": continuation_reason,
             "pending_stale_count": 0,
         }
 
