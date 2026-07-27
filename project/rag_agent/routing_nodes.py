@@ -374,6 +374,28 @@ def analyze_turn(state: State):
         state.get("recommended_department", ""),
     )
 
+    # Deterministic greeting short-circuit: a pure greeting (你好/谢谢/再见,
+    # L1-strict exact match) is never a compound turn and must never be
+    # reinterpreted through leaked conversation context. Without this, a stale
+    # pending appointment left in the checkpoint makes the LLM turn planner
+    # classify "你好" as a booking continuation ("请问您想预约哪一天的…号呢?").
+    # Route it straight to intent_router's greeting handler, which emits the
+    # greeting reply and resets any stale pending action.
+    if _looks_like_greeting(user_query):
+        return {
+            "recent_context": recent_context,
+            "topic_focus": topic_focus or state.get("topic_focus", ""),
+            "primary_intent": "greeting",
+            "secondary_intent": "",
+            "primary_user_query": user_query,
+            "secondary_user_query": "",
+            "deferred_user_question": "",
+            "decision_source": "rule",
+            "route_reason": "greeting_rule",
+            "last_route_reason": "greeting_rule",
+            "pending_stale_count": 0,
+        }
+
     # Pending stale exit: if user has a pending action but keeps talking about
     # unrelated topics, auto-clear after 2 consecutive irrelevant turns.
     pending_stale_next = 0

@@ -66,6 +66,17 @@ class PendingStaleLifecycleTests(unittest.TestCase):
         result = analyze_turn(state)
         self.assertEqual(result.get("pending_stale_count"), 0)
 
+    def test_pure_greeting_shortcircuits_even_with_pending(self):
+        # A bare greeting must never be reinterpreted as a booking continuation
+        # through leaked context (a stale pending appointment used to make the
+        # planner answer "你好" with "请问您想预约哪一天的...号呢?"). It routes
+        # straight to the greeting handler regardless of pending state.
+        for query in ("你好", "谢谢", "再见"):
+            with self.subTest(query=query):
+                result = analyze_turn(_pending_state(query, stale_count=0))
+                self.assertEqual(result.get("primary_intent"), "greeting")
+                self.assertEqual(result.get("route_reason"), "greeting_rule")
+
 
 class ContinuationCollisionTests(unittest.TestCase):
     """Regression: substring matching must not hijack long medical questions
