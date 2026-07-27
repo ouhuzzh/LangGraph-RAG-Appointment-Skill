@@ -618,6 +618,28 @@ class SchemaManager:
                 """,
             ],
         ),
+        (
+            "022_appointment_holds",
+            "Slot holds: preview-time TTL reservation closing the preview->confirm race window.",
+            [
+                """
+                CREATE TABLE IF NOT EXISTS appointment_holds (
+                    id BIGSERIAL PRIMARY KEY,
+                    hold_token TEXT NOT NULL UNIQUE,
+                    thread_id TEXT NOT NULL,
+                    schedule_id INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'held',
+                    expires_at TIMESTAMPTZ NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_appointment_holds_expiry
+                ON appointment_holds(status, expires_at)
+                """,
+            ],
+        ),
     ]
 
     def __init__(self, conninfo: str):

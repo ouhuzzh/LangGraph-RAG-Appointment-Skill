@@ -11,6 +11,8 @@ import uuid
 import logging
 from datetime import date
 
+import config
+
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 from .graph_state import State
@@ -147,13 +149,60 @@ def _parse_tool_call(response, expected_name: str) -> dict:
     return {}
 
 
-def _build_pending_confirmation(action_type: str, payload: dict) -> dict:
-    return {
+def _build_pending_confirmation(action_type: str, payload: dict, *, hold_thread_id: str = "") -> dict:
+    pending = {
         "pending_action_type": action_type,
         "pending_action_payload": _sanitize_pending_payload(payload),
         "pending_confirmation_id": uuid.uuid4().hex,
         "pending_candidates": [],
     }
+    # Slot hold (local-DB bookings only — callers opt in via hold_thread_id):
+    # reserve the quota at preview time so it cannot be raced away before the
+    # user confirms. Fail-open: a hold failure never blocks the preview, and
+    # superseded/abandoned holds are reclaimed by the TTL sweep.
+    if (
+        hold_thread_id
+        and action_type == "appointment"
+        and getattr(config, "ENABLE_SLOT_HOLD", False)
+    ):
+        try:
+            held = _get_slot_hold_service().hold_slot(
+                thread_id=hold_thread_id,
+                hold_token=pending["pending_confirmation_id"],
+                department=str(payload.get("department") or ""),
+                schedule_date=date.fromisoformat(str(payload.get("date"))),
+                time_slot=str(payload.get("time_slot") or ""),
+                doctor_name=payload.get("doctor_name") or None,
+                ttl_minutes=int(getattr(config, "SLOT_HOLD_TTL_MINUTES", 10)),
+            )
+            if held:
+                pending["pending_action_payload"]["slot_held"] = True
+        except Exception:
+            logger.warning("Slot hold failed; preview continues without a hold", exc_info=True)
+    return pending
+
+
+_slot_hold_service = None
+
+
+def _get_slot_hold_service():
+    """Lazy AppointmentService used for preview-time holds (test-injectable)."""
+    global _slot_hold_service
+    if _slot_hold_service is None:
+        from services.appointment_service import AppointmentService
+        _slot_hold_service = AppointmentService()
+    return _slot_hold_service
+
+
+def _release_slot_hold(state: State) -> None:
+    """Return held quota when the user abandons a pending booking."""
+    token = state.get("pending_confirmation_id", "")
+    if not token or not getattr(config, "ENABLE_SLOT_HOLD", False):
+        return
+    try:
+        _get_slot_hold_service().release_hold(token)
+    except Exception:
+        logger.debug("Slot hold release failed; TTL sweep will reclaim it", exc_info=True)
 
 
 def _format_booking_preview(payload: dict) -> str:
@@ -208,6 +257,7 @@ def _handle_appointment_legacy(state: State, llm, appointment_service):
 
     if pending_action_type == "appointment":
         if _is_abort_request(user_query):
+            _release_slot_hold(state)
             return {
                 "intent": "appointment",
                 "pending_clarification": "",
@@ -226,6 +276,7 @@ def _handle_appointment_legacy(state: State, llm, appointment_service):
                 schedule_date=date.fromisoformat(pending_payload["date"]),
                 time_slot=pending_payload["time_slot"],
                 doctor_name=pending_payload.get("doctor_name") or None,
+                hold_token=state.get("pending_confirmation_id") or None,
             )
             merged_context = _build_appointment_context(appointment_context, pending_payload)
             if not booking:
@@ -401,7 +452,7 @@ def _handle_appointment_legacy(state: State, llm, appointment_service):
         "clarification_attempts": 0,
         "topic_focus": preview_payload["department"],
         "appointment_context": _build_appointment_context(merged_context, {"available_doctors": doctor_options, "doctor_name": schedule["doctor_name"]}),
-        **_build_pending_confirmation("appointment", preview_payload),
+        **_build_pending_confirmation("appointment", preview_payload, hold_thread_id=state.get("thread_id", "")),
         "messages": [AIMessage(content=_format_booking_preview(preview_payload))],
     }
 

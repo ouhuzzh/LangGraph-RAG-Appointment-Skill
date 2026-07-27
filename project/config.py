@@ -334,6 +334,10 @@ GRAPH_RECURSION_LIMIT = 50
 BASE_TOKEN_THRESHOLD = 4000
 TOKEN_GROWTH_FACTOR = 0.9
 ENABLE_PERSISTENT_GRAPH_CHECKPOINT = os.environ.get("ENABLE_PERSISTENT_GRAPH_CHECKPOINT", "true").lower() == "true"
+# Slot hold: reserve the schedule slot at preview time (TTL-bounded) so the
+# quota cannot be raced away between preview and confirmation.
+ENABLE_SLOT_HOLD = os.environ.get("ENABLE_SLOT_HOLD", "false").lower() == "true"
+SLOT_HOLD_TTL_MINUTES = int(os.environ.get("SLOT_HOLD_TTL_MINUTES", "10"))
 # Checkpoint backend: "pickle" (single-process file, default) or "postgres"
 # (multi-replica safe, requires langgraph-checkpoint-postgres; fail-open to pickle).
 GRAPH_CHECKPOINT_BACKEND = os.environ.get("GRAPH_CHECKPOINT_BACKEND", "pickle").strip().lower()

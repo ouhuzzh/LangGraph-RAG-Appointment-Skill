@@ -357,7 +357,7 @@ class AppointmentService:
             for row in rows
         ]
 
-    def create_appointment(self, thread_id: str, department: str, schedule_date: date, time_slot: str, doctor_name: str | None = None):
+    def create_appointment(self, thread_id: str, department: str, schedule_date: date, time_slot: str, doctor_name: str | None = None, hold_token: str | None = None):
         appointment_no = "APT" + uuid.uuid4().hex[:10].upper()
         request_payload = {
             "department": department,
@@ -367,33 +367,42 @@ class AppointmentService:
         }
         with self._connect() as conn:
             patient_id = self.ensure_patient_for_thread(thread_id, conn=conn)
-            schedule = self.find_available_schedule(
-                department,
-                schedule_date,
-                time_slot,
-                doctor_name=doctor_name,
-                conn=conn,
-            )
+            schedule = None
+            held = False
+            if hold_token:
+                # Convert an unexpired hold: the quota was already taken at
+                # preview time, so the booking must NOT decrement it again.
+                schedule = self._convert_hold(conn, hold_token)
+                held = schedule is not None
+            if schedule is None:
+                schedule = self.find_available_schedule(
+                    department,
+                    schedule_date,
+                    time_slot,
+                    doctor_name=doctor_name,
+                    conn=conn,
+                )
             if not schedule:
                 return None
 
             with conn.cursor() as cur:
-                # PostgreSQL will take a row-level lock for this UPDATE, so only one
-                # concurrent transaction can decrement the same schedule record when
-                # quota_available is down to the last remaining slot.
-                cur.execute(
-                    """
-                    UPDATE doctor_schedules
-                    SET quota_available = quota_available - 1
-                    WHERE id = %s AND quota_available > 0
-                    RETURNING id
-                    """,
-                    (schedule["schedule_id"],),
-                )
-                locked = cur.fetchone()
-                if not locked:
-                    conn.rollback()
-                    return None
+                if not held:
+                    # PostgreSQL will take a row-level lock for this UPDATE, so only one
+                    # concurrent transaction can decrement the same schedule record when
+                    # quota_available is down to the last remaining slot.
+                    cur.execute(
+                        """
+                        UPDATE doctor_schedules
+                        SET quota_available = quota_available - 1
+                        WHERE id = %s AND quota_available > 0
+                        RETURNING id
+                        """,
+                        (schedule["schedule_id"],),
+                    )
+                    locked = cur.fetchone()
+                    if not locked:
+                        conn.rollback()
+                        return None
 
                 try:
                     cur.execute(
@@ -472,6 +481,142 @@ class AppointmentService:
             "doctor_name": schedule["doctor_name"],
             "status": "booked",
             "already_booked": True,
+        }
+
+    # ------------------------------------------------------------------
+    # Slot holds — TTL-bounded reservation created at preview time so the
+    # quota cannot be raced away between preview and confirmation.
+    # ------------------------------------------------------------------
+
+    def hold_slot(self, thread_id: str, hold_token: str, department: str, schedule_date: date, time_slot: str, doctor_name: str | None = None, ttl_minutes: int = 10):
+        """Reserve a slot now: decrement quota and record a hold that either
+        converts into a booking (confirm) or is released (abort / TTL expiry).
+        Returns schedule details, or None when no quota is available."""
+        with self._connect() as conn:
+            self.release_expired_holds(conn=conn)
+            schedule = self.find_available_schedule(
+                department, schedule_date, time_slot, doctor_name=doctor_name, conn=conn,
+            )
+            if not schedule:
+                conn.commit()
+                return None
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE doctor_schedules
+                    SET quota_available = quota_available - 1
+                    WHERE id = %s AND quota_available > 0
+                    RETURNING id
+                    """,
+                    (schedule["schedule_id"],),
+                )
+                if not cur.fetchone():
+                    conn.rollback()
+                    return None
+                cur.execute(
+                    """
+                    INSERT INTO appointment_holds (hold_token, thread_id, schedule_id, status, expires_at)
+                    VALUES (%s, %s, %s, 'held', NOW() + make_interval(mins => %s))
+                    """,
+                    (hold_token, thread_id, schedule["schedule_id"], int(ttl_minutes)),
+                )
+            conn.commit()
+        return schedule
+
+    def release_hold(self, hold_token: str) -> bool:
+        """Give the quota back for an active hold. Idempotent: only a row in
+        status 'held' is released, so double-release cannot inflate quota."""
+        if not hold_token:
+            return False
+        with self._connect() as conn:
+            row = None
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE appointment_holds
+                    SET status = 'released', updated_at = NOW()
+                    WHERE hold_token = %s AND status = 'held'
+                    RETURNING schedule_id
+                    """,
+                    (hold_token,),
+                )
+                row = cur.fetchone()
+                if row:
+                    cur.execute(
+                        "UPDATE doctor_schedules SET quota_available = quota_available + 1 WHERE id = %s",
+                        (row[0],),
+                    )
+            conn.commit()
+        return bool(row)
+
+    def release_expired_holds(self, conn=None) -> int:
+        """Lazily expire overdue holds and restore their quota."""
+        owns_connection = conn is None
+        connection = conn or self._connect()
+        rows = []
+        try:
+            with connection.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE appointment_holds
+                    SET status = 'expired', updated_at = NOW()
+                    WHERE status = 'held' AND expires_at < NOW()
+                    RETURNING schedule_id
+                    """,
+                )
+                rows = cur.fetchall() or []
+                for row in rows:
+                    cur.execute(
+                        "UPDATE doctor_schedules SET quota_available = quota_available + 1 WHERE id = %s",
+                        (row[0],),
+                    )
+            if owns_connection:
+                connection.commit()
+        finally:
+            if owns_connection:
+                connection.close()
+        return len(rows)
+
+    def _convert_hold(self, conn, hold_token: str):
+        """Flip an unexpired hold to 'converted' and return its schedule
+        details; the reserved quota transfers to the booking. None = no
+        usable hold (missing/expired/already consumed)."""
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE appointment_holds
+                SET status = 'converted', updated_at = NOW()
+                WHERE hold_token = %s AND status = 'held' AND expires_at > NOW()
+                RETURNING schedule_id
+                """,
+                (hold_token,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            cur.execute(
+                """
+                SELECT ds.id, ds.doctor_id, ds.department_id, ds.schedule_date, ds.time_slot,
+                       ds.quota_available, d.name, dept.name
+                FROM doctor_schedules ds
+                JOIN doctors d ON d.id = ds.doctor_id
+                JOIN departments dept ON dept.id = ds.department_id
+                WHERE ds.id = %s
+                """,
+                (row[0],),
+            )
+            schedule_row = cur.fetchone()
+        if not schedule_row:
+            return None
+        return {
+            "schedule_id": schedule_row[0],
+            "doctor_id": schedule_row[1],
+            "department_id": schedule_row[2],
+            "schedule_date": schedule_row[3],
+            "time_slot": schedule_row[4],
+            "quota_available": schedule_row[5],
+            "doctor_name": schedule_row[6],
+            "department_name": schedule_row[7],
         }
 
     def find_candidate_appointments(self, thread_id: str, appointment_no: str | None = None, department: str | None = None, schedule_date: date | None = None, conn=None):
