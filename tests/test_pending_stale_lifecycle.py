@@ -102,6 +102,20 @@ class ContinuationCollisionTests(unittest.TestCase):
             with self.subTest(query=query):
                 self.assertTrue(_should_continue_pending_action(dict(self.PENDING), query))
 
+    def test_compound_confirmation_defers_to_planner(self):
+        """Regression: a confirmation phrase embedded in a compound sentence
+        must NOT be captured whole — capturing it would execute the booking
+        and silently swallow the trailing question. The planner splits it."""
+        compounds = [
+            "确认预约，对了，胸闷需要做心电图吗？",
+            "确认预约，顺便问下高血压能喝咖啡吗",
+            "确认预约，另外想问一下心电图的事",
+            "算了不约了，对了感冒吃什么药好？",
+        ]
+        for query in compounds:
+            with self.subTest(query=query):
+                self.assertFalse(_should_continue_pending_action(dict(self.PENDING), query))
+
 
 if __name__ == "__main__":
     unittest.main()
