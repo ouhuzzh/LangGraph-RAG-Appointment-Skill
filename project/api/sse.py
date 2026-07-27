@@ -43,10 +43,12 @@ def _detect_card_events(content: str, thread_id: str, session_state: dict | None
         confirmation_id = str(state.get("pending_confirmation_id") or "")
         if confirmation_id and state.get("pending_action_type") == "appointment":
             payload = state.get("pending_action_payload") or {}
+            _slot = str(payload.get("time_slot") or "")
+            _slot_label = {"morning": "上午", "afternoon": "下午", "evening": "晚间", "night": "晚间"}.get(_slot.strip().lower(), _slot)
             card["details"] = {
                 "department": str(payload.get("department") or ""),
                 "date": str(payload.get("date") or ""),
-                "time_slot": str(payload.get("time_slot") or ""),
+                "time_slot": _slot_label,
                 "doctor_name": str(payload.get("doctor_name") or ""),
             }
             card["actions"] = [

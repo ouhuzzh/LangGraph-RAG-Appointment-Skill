@@ -205,6 +205,16 @@ def _release_slot_hold(state: State) -> None:
         logger.debug("Slot hold release failed; TTL sweep will reclaim it", exc_info=True)
 
 
+def _time_slot_label(slot: str) -> str:
+    """Display label for a stored time-slot enum (morning/afternoon/evening)."""
+    return {
+        "morning": "上午",
+        "afternoon": "下午",
+        "evening": "晚间",
+        "night": "晚间",
+    }.get(str(slot or "").strip().lower(), str(slot or ""))
+
+
 def _format_booking_preview(payload: dict) -> str:
     doctor_name = payload.get("doctor_name") or "不限"
     hospital_line = f"- 医院：**{payload['hospital_name']}**\n" if payload.get("hospital_name") else ""
@@ -213,7 +223,7 @@ def _format_booking_preview(payload: dict) -> str:
         f"{hospital_line}"
         f"- 科室：**{payload['department']}**\n"
         f"- 日期：**{payload['date']}**\n"
-        f"- 时段：**{payload['time_slot']}**\n"
+        f"- 时段：**{_time_slot_label(payload['time_slot'])}**\n"
         f"- 医生：**{doctor_name}**\n\n"
         "如果你想改日期、时段、科室或医生，直接告诉我新的要求即可。"
     )
@@ -299,7 +309,7 @@ def _handle_appointment_legacy(state: State, llm, appointment_service):
                 f"已为你预约成功：\n\n"
                 f"- 科室：**{booking['department']}**\n"
                 f"- 日期：**{booking['date']}**\n"
-                f"- 时段：**{booking['time_slot']}**\n"
+                f"- 时段：**{_time_slot_label(booking['time_slot'])}**\n"
                 f"- 医生：**{booking['doctor_name']}**\n"
                 f"- 预约号：**{booking['appointment_no']}**"
             )
@@ -898,6 +908,19 @@ def _with_hospital_payload(payload: dict, appointment_context: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def handle_appointment_skill(state: State, llm, appointment_service, mcp_pool=None):
+    _active_intent = state.get("intent") or state.get("primary_intent") or "appointment"
+    # Local-DB fallback (the slot-hold path). When no MCP backend is bound for
+    # this user, book/cancel against the local database instead of dead-ending
+    # on "please bind a hospital". try_create returns None when MCP is disabled
+    # or unbound. Reschedule stays on the MCP path (no local reschedule handler).
+    if _active_intent in ("appointment", "cancel_appointment"):
+        _mcp_ready = MCPAppointmentBackend.try_create(
+            state, pool=mcp_pool, user_id=(state.get("user_id") or "").strip(),
+        ) is not None
+        if not _mcp_ready:
+            if _active_intent == "cancel_appointment":
+                return _handle_cancel_appointment_legacy(state, llm, appointment_service)
+            return _handle_appointment_legacy(state, llm, appointment_service)
     from services.appointment_skill import AppointmentSkill
     skill = AppointmentSkill(appointment_service)
     user_query = _get_user_query(state)
