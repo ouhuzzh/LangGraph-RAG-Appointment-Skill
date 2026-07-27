@@ -2,7 +2,7 @@
 
 # 心语医疗助手 · Xinyu Medical Agent
 
-**A production-grade medical AI assistant built with LangGraph — not a RAG demo, but a self-correcting agent with agentic retrieval, cross-session memory, multi-hospital MCP booking, and PII encryption.**
+**A production-grade medical AI assistant built with LangGraph — not a RAG demo. A self-correcting agent with agentic retrieval, GraphRAG, cross-session memory, and a booking pipeline hardened the way real reservation systems are: slot holds, DB-level idempotency, and one-click structured confirmation.**
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 ![LangGraph](https://img.shields.io/badge/LangGraph-stateful%20agent-1f6feb)
@@ -18,9 +18,9 @@
 
 </div>
 
-![Aurora Glassmorphism UI](assets/demo.png)
+![Xinyu Medical Agent](assets/demo.png)
 
-> The React/Vite frontend features an **Aurora glassmorphism design system** — teal/indigo gradients, refined typography, and medical-grade visual clarity across Chat, Documents, and Hospital Binding pages.
+> One conversation, the whole system: **triage with a department card** → a medical question answered mid-booking (**interruption-safe pending state**) → a preview that **locks the slot for 10 minutes** → **one-click confirmation** validated by ID equality — no keyword guessing on the critical step.
 
 ## Key Metrics
 
@@ -31,17 +31,19 @@
 | Top-1 hit rate | 0.61 | **0.79** | +30% |
 | 30-turn prompt tokens | baseline | **-27.4%** | summary compression |
 | Cross-session fact recall | — | **74%** | pgvector user memory |
+| Test suite | — | **737 backend + 50 frontend** | 9-dimension scorecard, CI-gated (ruff + unittest) |
 
 ## Why This Project Exists
 
 Most RAG demos answer one question from a few documents. This project is closer to a real assistant product:
 
 - It answers medical questions with retrieval, evidence checks, citations, and safe fallback behavior.
-- It remembers user allergies, medications, and history across sessions (pgvector semantic memory + importance scoring + dedup).
-- It handles appointment/cancellation as a controlled skill: discover options, prepare a preview, then require explicit confirmation.
+- It remembers user allergies, medications, and history across sessions (pgvector semantic memory + importance scoring + dedup) — and cross-checks answers against known allergies.
+- It books appointments the way real reservation systems do: preview **locks the slot** (TTL hold), confirmation is a **button click validated by ID equality**, and a **partial unique index** makes duplicate confirms idempotent even if session state is lost.
+- It survives interruptions: ask a medical question mid-booking, come back, and say "确认预约" — a four-layer continuation stack (button → rules → narrow-band LLM arbiter → fallback) resumes the flow, while execution stays behind a deterministic code gate.
 - It connects to multiple hospitals via MCP protocol with per-user encrypted credentials and circuit-breaker isolation.
 - It encrypts sensitive medical PII at rest (Fernet column-level encryption with key rotation support).
-- It ships with regression tests, benchmark scripts, and a 30-persona stress-test framework.
+- It ships with 737 regression tests across 9 product dimensions, benchmark scripts, and a 30-persona stress-test framework.
 
 ## Feature Highlights
 
@@ -49,13 +51,15 @@ Most RAG demos answer one question from a few documents. This project is closer 
 | --- | --- |
 | LangGraph orchestration | Declarative Skill plugin framework — 3-layer intent routing (rule + semantic + LLM), add an intent with 1 class |
 | Agentic RAG | Self-correcting retrieval: evidence-reflection loop, task decomposition, answer grounding check, online self-evaluation |
-| Retrieval quality | Parent-child chunking, hybrid (pgvector + tsvector) + RRF + rerank, plus opt-in **Contextual Retrieval** and a **semantic answer cache** |
+| Retrieval quality | Parent-child chunking, hybrid (pgvector + tsvector) + RRF + rerank, plus opt-in **Contextual Retrieval**, **GraphRAG multi-hop**, and a **semantic answer cache** |
 | 3-layer memory | Redis sliding window → LLM summary compression → pgvector cross-session semantic recall with importance scoring |
 | MCP multi-hospital | Fernet-encrypted per-user credentials, namespaced tool injection, 3-state circuit breaker per hospital |
-| Appointment Skill | Discovery → Preview → Confirm; code-gated state transitions (idempotency + state machine), not LLM judgment |
-| Knowledge base | Local document upload, official source sync (NHC/WHO), content-hash update detection, soft delete |
-| Security | Graded clinical safety guardrail (red-flag severity + prescription-boundary), PII column-level encryption, JWT auth + login lockout, rate limiting, audit log |
-| Frontend | Aurora glassmorphism UI — responsive, accessible, dark-mode, PWA-ready |
+| Appointment pipeline | Discovery → Preview (**TTL slot hold**) → **Button confirmation** (ID equality) → Execute (**DB-level idempotency**, transactional reschedule); code-gated state machine, not LLM judgment |
+| Dialogue continuation | Four-layer stack: structured buttons → keyword+shape rules → narrow-band LLM arbiter → graceful fallback; wrong guesses cost one clarifying turn, never a wrong booking |
+| Knowledge base | Local document upload, official source sync (NHC/WHO/MedlinePlus), content-hash update detection, soft delete |
+| Security | Graded clinical safety guardrail (red-flag severity + allergy cross-check + prescription-boundary), PII column-level encryption, JWT auth + login lockout, rate limiting, audit log |
+| Operations | Postgres-backed LangGraph checkpointer (multi-replica safe), tiered LLM routing with circuit breaker, 9-dimension test scorecard, CI-enforced lint + tests |
+| Frontend | Clinical-grade React UI — restrained single-accent design, structured cards with action buttons, responsive, dark-mode, PWA-ready |
 
 ## Core Capabilities
 
@@ -231,11 +235,14 @@ Beyond the always-on pipeline, three production-grade extensions ship behind con
 | --- | --- | --- |
 | **Contextual Retrieval** | `ENABLE_CONTEXTUAL_RETRIEVAL=false` | Prepends an LLM-written situating sentence to each chunk before embedding (Anthropic Contextual Retrieval), so a stand-alone chunk carries its document context into the vector index |
 | **Semantic answer cache** | `ENABLE_SEMANTIC_CACHE=false` | pgvector similarity cache that short-circuits repeat questions to a stored answer; context-dependent turns are refused so multi-turn safety holds |
-| **Clinical safety guardrail** | `ENABLE_CLINICAL_SAFETY_GUARDRAIL=false` | Graded red-flag severity (critical / high / moderate) + prescription-boundary detection; strictly additive to existing risk inference (can only raise risk) |
+| **Clinical safety guardrail** | `ENABLE_CLINICAL_SAFETY_GUARDRAIL=false` | Graded red-flag severity (critical / high / moderate) + prescription-boundary detection + **allergy cross-check** (warns when an answer mentions a substance the user's profile marks as an allergen); strictly additive to existing risk inference |
 | **GraphRAG** | `ENABLE_GRAPH_RAG=false` | Medical knowledge graph (disease→symptom→department→drug triples) extracted at ingest time; multi-hop graph traversal fused via RRF into the vector search pipeline |
-| **Generative UI** | always on (heuristic) | Backend emits structured `ui-card` SSE events (department cards, risk banners, appointment previews); frontend renders rich card components alongside markdown |
+| **Slot hold** | `ENABLE_SLOT_HOLD=false` | Preview-time TTL reservation (`appointment_holds` table): the quota is locked the moment the preview renders, converts on confirm, releases on abort/expiry — closes the preview→confirm race window |
+| **LLM continuation arbiter** | `ENABLE_LLM_CONTINUATION_ARBITER=false` | Narrow-band yes/no LLM verdict for short, signal-free replies while a booking is pending ("行，就他了"); routing power only — execution stays code-gated |
+| **Postgres checkpointer** | `GRAPH_CHECKPOINT_BACKEND=pickle` | Set to `postgres` for multi-replica-safe LangGraph checkpoints via `PostgresSaver`; fails open to the file-based saver |
+| **Generative UI** | always on (heuristic) | Structured `ui-card` SSE events (department cards, risk banners, appointment previews **with confirm/abort action buttons** — clicks post a structured action validated by `confirmation_id` equality, bypassing free-text parsing entirely) |
 
-Each extension is isolated, reversible, and covered by unit tests (`tests/test_contextual_retrieval.py`, `tests/test_semantic_cache.py`, `tests/test_clinical_safety.py`).
+Each extension is isolated, reversible, and covered by unit tests (`tests/test_contextual_retrieval.py`, `tests/test_semantic_cache.py`, `tests/test_clinical_safety.py`, `tests/test_knowledge_graph.py`, `tests/test_slot_hold.py`, `tests/test_continuation_arbiter.py`, `tests/test_structured_action_channel.py`, `tests/test_checkpointer_backend.py`).
 
 ## Typical Workflows
 
@@ -253,7 +260,7 @@ User: 感冒发烧怎么办？
 Assistant: Gives general medical information, clearly labels that the answer is not sufficiently knowledge-base grounded, and reminds the user to seek care if symptoms worsen.
 ```
 
-### Controlled Booking
+### Controlled Booking (production loop)
 
 ```text
 User: 我想挂号
@@ -261,9 +268,11 @@ Assistant: Shows available departments or asks for symptoms.
 User: 呼吸内科
 Assistant: Lists available doctors and slots.
 User: 我要预约张医生 2026-04-18 下午
-Assistant: Creates a preview and asks for "确认预约".
-User: 确认预约
-Assistant: Executes the booking once, with idempotency protection.
+Assistant: Locks the slot (10-min TTL hold), renders a preview card with
+           [确认预约] [暂不预约] buttons, and waits.
+User: (clicks 确认预约)  ← structured action, validated by confirmation_id equality
+Assistant: Converts the hold into a booking — no second quota decrement,
+           duplicate confirms return the same appointment_no (DB unique index).
 ```
 
 ### Workflow Interruption
@@ -486,7 +495,7 @@ frontend/
   src/pages/                 # Chat, Documents, Hospital Binding pages
   src/hooks/                 # chat, status, and documents state hooks
   src/components/            # reusable UI components
-  src/styles/                # Aurora glassmorphism design system
+  src/styles/                # clinical design system (single accent, dark-mode)
   src/lib/                   # API and SSE helpers
   src/constants/             # frontend constants and status mapping
 scripts/                     # smoke and maintenance scripts
@@ -534,11 +543,14 @@ It is **not** a medical device, does **not** provide diagnosis, and does **not**
 - ~~Add stronger answer-level evaluation~~ - **done (P4 `self_eval`, LLM-as-judge on safety/accuracy/completeness/groundedness, persisted to `route_logs`)**
 - ~~Contextual Retrieval, semantic answer cache, and a graded clinical safety guardrail~~ - **done (P5-P7, opt-in toggles, unit-tested)**
 - ~~GraphRAG knowledge graph with multi-hop retrieval~~ - **done (P8, opt-in, unit-tested)**
-- ~~Generative UI: structured card events + React card components~~ - **done (frontend + backend)**
+- ~~Generative UI: structured card events + React card components~~ - **done, including button-based confirmation with `confirmation_id` validation**
+- ~~Production booking loop: slot holds, DB-level idempotency, transactional reschedule~~ - **done (opt-in, live-verified against PostgreSQL)**
+- ~~Multi-replica-safe graph checkpoints~~ - **done (opt-in `PostgresSaver` backend, fail-open)**
+- MCP remote-booking reconciliation: model the timeout-after-success UNKNOWN state and reconcile via `list_appointments` instead of blind retry
+- Extend slot holds to the reschedule preview path (currently transactional swap at confirm time only)
+- Waitlist / standby queue for fully-booked slots
 - Move more admin capabilities from Gradio to dedicated FastAPI/React pages
-- Improve appointment rescheduling and alternative-slot planning
 - Add auth and deployment profiles for real multi-user environments
-- Make `_structured_output_llm._default()` handle `Literal` fields natively (currently P3/P4 rely on node-level try/except)
 
 ---
 
