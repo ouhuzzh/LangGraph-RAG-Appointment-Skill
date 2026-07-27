@@ -111,6 +111,7 @@ class FakeChatInterface:
     def __init__(self, rag_system):
         self.rag_system = rag_system
         self.calls = []
+        self.cleared = []
 
     def chat(self, message, history, reveal_diagnostics=False, thread_id=None):
         self.calls.append(
@@ -125,6 +126,7 @@ class FakeChatInterface:
         yield [{"role": "assistant", "content": f"回答：{message}"}]
 
     def clear_session(self, thread_id=None):
+        self.cleared.append(thread_id)
         self.rag_system.reset_thread(thread_id)
 
 
@@ -408,6 +410,17 @@ class ApiAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["thread_id"], "thread-empty")
         self.assertEqual(self.container.chat_sessions.counter, 0)
+
+    def test_create_session_resets_reused_empty_session_state(self):
+        # Reusing an empty session must wipe its residual graph state / checkpoint,
+        # otherwise a prior incomplete appointment's context leaks into the "new"
+        # session and the planner misreads the first message (e.g. "你好") as a
+        # booking continuation.
+        response = self.client.post("/api/chat/session", json={}, headers=USER_HEADERS)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["thread_id"], "thread-empty")
+        self.assertIn("thread-empty", self.container.chat_interface.cleared)
 
     def test_list_sessions_returns_only_current_users_threads_with_titles(self):
         response = self.client.get("/api/chat/sessions", headers=USER_HEADERS)

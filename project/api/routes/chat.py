@@ -111,7 +111,16 @@ def create_session(
             thread_id = container.chat_sessions.create_session(current_user.user_id)
     else:
         thread_id = _find_reusable_empty_session(container, current_user.user_id)
-        if not thread_id:
+        if thread_id:
+            # The reused session shows no messages, but its graph checkpoint /
+            # session state may still hold residual context from a prior
+            # incomplete turn (e.g. an appointment stalled awaiting a date, leaving
+            # recommended_department / appointment_context behind). Handed back as a
+            # "new" session unchanged, the planner reads that leaked context and
+            # misreads the first message — a plain "你好" then gets answered as an
+            # appointment continuation. Reset it to a clean slate before reuse.
+            container.chat_interface.clear_session(thread_id)
+        else:
             thread_id = container.chat_sessions.create_session(current_user.user_id)
     request.state.thread_id = thread_id
     return CreateSessionResponse(thread_id=thread_id)
