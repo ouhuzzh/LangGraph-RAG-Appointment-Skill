@@ -110,11 +110,46 @@ class ContinuationCollisionTests(unittest.TestCase):
             "确认预约，对了，胸闷需要做心电图吗？",
             "确认预约，顺便问下高血压能喝咖啡吗",
             "确认预约，另外想问一下心电图的事",
+            "确认预约然后告诉我心电图的注意事项",
+            "确认预约再说说术前准备",
             "算了不约了，对了感冒吃什么药好？",
         ]
         for query in compounds:
             with self.subTest(query=query):
                 self.assertFalse(_should_continue_pending_action(dict(self.PENDING), query))
+
+
+class ConfirmationGateHardeningTests(unittest.TestCase):
+    """Adversarial suite for the execution gate (the money door).
+
+    Substring matching used to fire on negated ("不确认预约") and
+    question-shaped ("确认预约之前要付钱吗") sentences — both would have
+    EXECUTED the booking. Locked here so the gate can never regress."""
+
+    def test_negated_confirmations_do_not_execute(self):
+        from rag_agent.node_helpers import _is_explicit_confirmation
+        for query in ["不确认预约", "先别确认预约", "别确认预约了", "不要确认预约", "暂时不确认预约"]:
+            with self.subTest(query=query):
+                self.assertFalse(_is_explicit_confirmation(query, "appointment"))
+
+    def test_question_shaped_confirmations_do_not_execute(self):
+        from rag_agent.node_helpers import _is_explicit_confirmation
+        for query in ["确认预约吗？", "确认预约之前要付钱吗", "确认预约的话能退吗", "现在确认预约还来得及吗"]:
+            with self.subTest(query=query):
+                self.assertFalse(_is_explicit_confirmation(query, "appointment"))
+
+    def test_negated_cancel_confirmations_do_not_execute(self):
+        from rag_agent.node_helpers import _is_explicit_confirmation
+        for query in ["不确认取消", "先别确认取消"]:
+            with self.subTest(query=query):
+                self.assertFalse(_is_explicit_confirmation(query, "cancel_appointment"))
+
+    def test_genuine_confirmations_still_execute(self):
+        from rag_agent.node_helpers import _is_explicit_confirmation
+        for query in ["确认预约", "好的确认预约", "确认预约。", "嗯,确认预约吧"]:
+            with self.subTest(query=query):
+                self.assertTrue(_is_explicit_confirmation(query, "appointment"))
+        self.assertTrue(_is_explicit_confirmation("确认取消", "cancel_appointment"))
 
 
 if __name__ == "__main__":

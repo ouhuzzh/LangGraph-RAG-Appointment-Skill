@@ -579,21 +579,41 @@ def _infer_risk_level(user_query: str, existing_risk: str = "normal") -> str:
     return existing_risk or "normal"
 
 
+_CONFIRMATION_NEGATIONS = ("不", "别", "勿", "没", "先别", "不要", "暂不", "先不", "暂时不")
+
+
 def _is_explicit_confirmation(user_query: str, pending_action_type: str) -> bool:
-    """Only match EXPLICIT confirmation phrases — NOT vague words like '好的'/'行'.
+    """Only match EXPLICIT confirmation phrases — NOT vague words like '好的'/'嗯'.
 
     The user must type the full intent-specific phrase (e.g. '确认预约', '确认取消').
-    Generic acknowledgements ('好的', 'OK', '行', '可以') do NOT trigger execution.
+    Generic acknowledgements ('好的', 'OK', '嗯', '可以') do NOT trigger execution.
+
+    Adversarial hardening (this is the execution gate — the money door):
+      * Question-shaped input asks ABOUT confirming ("确认预约之前要付钱吗"),
+        it does not confirm. Rejected outright.
+      * A negation directly before the phrase ("不确认预约", "先别确认预约")
+        inverts it. Rejected via preceding-character scan.
     """
     normalized = (user_query or "").strip()
     if not normalized:
         return False
+    if "?" in normalized or "？" in normalized or "吗" in normalized or "呢" in normalized:
+        return False
     if pending_action_type in {"appointment", "reschedule_appointment"}:
-        return any(phrase in normalized for phrase in ("确认预约", "确认挂号"))
-    if pending_action_type == "cancel_appointment":
-        return any(phrase in normalized for phrase in ("确认取消", "确认退号", "确定取消"))
-    if pending_action_type == "mcp_confirm":
-        return any(phrase in normalized for phrase in ("确认预约", "确认", "确认提交", "好的"))
+        phrases = ("确认预约", "确认挂号")
+    elif pending_action_type == "cancel_appointment":
+        phrases = ("确认取消", "确认退号", "确定取消")
+    elif pending_action_type == "mcp_confirm":
+        phrases = ("确认预约", "确认", "确认提交", "好的")
+    else:
+        return False
+    for phrase in phrases:
+        idx = normalized.find(phrase)
+        while idx != -1:
+            preceding = normalized[max(0, idx - 3):idx]
+            if not any(preceding.endswith(neg) for neg in _CONFIRMATION_NEGATIONS):
+                return True
+            idx = normalized.find(phrase, idx + 1)
     return False
 
 

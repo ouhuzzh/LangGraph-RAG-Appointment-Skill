@@ -236,29 +236,30 @@ _STRONG_BOOKING_CUES = (
 
 _QUESTION_MARKERS = ("什么", "怎么", "怎样", "如何", "为什么", "会不会", "能不能", "是不是", "吗", "呢")
 
-_COMPOUND_TAIL_MARKERS = ("对了", "顺便", "另外", "还有", "再问", "以及")
+_COMPOUND_TAIL_MARKERS = ("对了", "顺便", "另外", "还有", "再问", "以及", "然后")
 
-_ASKING_MARKERS = ("请问", "想问", "问一下", "咨询一下", "想了解")
+_ASKING_MARKERS = ("请问", "想问", "问一下", "咨询一下", "想了解", "告诉我", "说说")
 
 
 def _looks_like_compound_with_question(normalized: str) -> bool:
-    """A continuation trigger embedded in a sentence that ALSO asks something
-    else ("确认预约，对了，胸闷需要做心电图吗？") must NOT be captured whole —
-    the turn planner decomposes it so both halves are handled. Capturing it
-    here would execute the booking and silently swallow the question."""
+    """A continuation trigger embedded in a sentence that ALSO asks/requests
+    something else ("确认预约，对了，胸闷需要做心电图吗？") must NOT be captured
+    whole — the turn planner decomposes it so both halves are handled.
+    Capturing it here would execute the booking and swallow the question."""
+    # Strong compound signals: an explicit "also do / tell me X" marker bundles
+    # a second request regardless of sentence length.
+    if any(marker in normalized for marker in _COMPOUND_TAIL_MARKERS):
+        return True
+    if any(marker in normalized for marker in _ASKING_MARKERS):
+        return True
+    # Weak signal: bare question words only count in longer sentences, so short
+    # single-clause slot questions ("能换到下午吗") stay on the fast rule path.
     has_question = (
         "?" in normalized
         or "？" in normalized
         or any(marker in normalized for marker in _QUESTION_MARKERS)
-        or any(marker in normalized for marker in _ASKING_MARKERS)
     )
-    if not has_question:
-        return False
-    if any(marker in normalized for marker in _COMPOUND_TAIL_MARKERS):
-        return True
-    # Short single-clause questions ("能换到下午吗") are genuine slot updates,
-    # not compounds — only longer question sentences defer to the planner.
-    return len(normalized) > 14
+    return has_question and len(normalized) > 14
 
 
 def _is_incidental_phrasing(normalized: str) -> bool:
