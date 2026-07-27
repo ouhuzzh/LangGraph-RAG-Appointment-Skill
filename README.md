@@ -18,7 +18,7 @@
 
 </div>
 
-![Xinyu Medical Agent](assets/demo.png)
+![Xinyu Medical Agent](assets/demo.gif)
 
 > One conversation, the whole system: **triage with a department card** → a medical question answered mid-booking (**interruption-safe pending state**) → a preview that **locks the slot for 10 minutes** → **one-click confirmation** validated by ID equality — no keyword guessing on the critical step.
 
@@ -31,7 +31,7 @@
 | Top-1 hit rate | 0.61 | **0.79** | +30% |
 | 30-turn prompt tokens | baseline | **-27.4%** | summary compression |
 | Cross-session fact recall | — | **74%** | pgvector user memory |
-| Test suite | — | **737 backend + 50 frontend** | 9-dimension scorecard, CI-gated (ruff + unittest) |
+| Test suite | — | **738 backend + 50 frontend** | 9-dimension scorecard, CI-gated (ruff + unittest) |
 
 ## Why This Project Exists
 
