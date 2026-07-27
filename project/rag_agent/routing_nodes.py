@@ -229,6 +229,31 @@ def _looks_like_cancel_update(user_query: str) -> bool:
     return bool(_APPOINTMENT_NO_RE.search(user_query or "") or _ORDINAL_RE.search(user_query or ""))
 
 
+_STRONG_BOOKING_CUES = (
+    "改到", "换到", "改成", "换成", "改约", "换个时间", "换时间",
+    "预约", "挂号", "退号", "确认", "取消预约",
+)
+
+_QUESTION_MARKERS = ("什么", "怎么", "怎样", "如何", "为什么", "会不会", "能不能", "是不是", "吗", "呢")
+
+
+def _is_incidental_phrasing(normalized: str) -> bool:
+    """Long or question-shaped sentences carry weak cues incidentally.
+
+    Genuine slot-filling replies are short imperatives ("换个医生吧",
+    "book Dr.Zhang tomorrow"); "医生说高血压要注意什么" is a topic switch
+    that merely happens to contain 医生. Length is script-aware: word count
+    for ASCII-dominant text, character count for CJK."""
+    if "?" in normalized or "？" in normalized:
+        return True
+    if any(marker in normalized for marker in _QUESTION_MARKERS):
+        return True
+    ascii_chars = sum(1 for ch in normalized if ord(ch) < 128)
+    if ascii_chars > len(normalized) * 0.7:
+        return len(normalized.split()) > 5
+    return len(normalized) > 10
+
+
 def _should_continue_pending_action(state: State, user_query: str) -> bool:
     # Bug 2 fix: "谢谢我不用了" is a polite decline, NOT an abort/cancel
     if _starts_with_polite_decline(user_query):
@@ -238,14 +263,42 @@ def _should_continue_pending_action(state: State, user_query: str) -> bool:
     pending_candidates = state.get("pending_candidates", []) or []
     if not pending_action_type and not pending_candidates:
         return False
-    if _is_explicit_confirmation(user_query, pending_action_type) or _is_abort_request(user_query):
+    if _is_explicit_confirmation(user_query, pending_action_type):
         return True
     if pending_candidates and _pick_candidate_from_text(user_query, pending_candidates):
         return True
+
+    normalized = (user_query or "").strip().lower()
+    has_strong_cue = any(cue in normalized for cue in _STRONG_BOOKING_CUES)
+
+    if _is_abort_request(user_query):
+        # Abort words are short interjections. Inside a longer sentence with
+        # no booking noun they are incidental ("那我先不吃阿司匹林了可以吗"
+        # must NOT cancel the pending booking).
+        if has_strong_cue or len(normalized) <= 8 or "约" in normalized or "号" in normalized:
+            return True
+        return False
+
     if pending_action_type == "appointment":
-        return _looks_like_appointment_update(user_query)
+        if not _looks_like_appointment_update(user_query):
+            return False
+        if has_strong_cue:
+            return True
+        # Weak cues only (医生/时间/今天...): require slot-filling shape.
+        return not _is_incidental_phrasing(normalized)
     if pending_action_type == "cancel_appointment":
-        return _looks_like_cancel_update(user_query)
+        if not _looks_like_cancel_update(user_query):
+            return False
+        strong_cancel = (
+            "取消预约" in normalized
+            or "退号" in normalized
+            or "预约号" in normalized
+            or bool(_APPOINTMENT_NO_RE.search(user_query or ""))
+            or bool(_ORDINAL_RE.search(user_query or ""))
+        )
+        if strong_cancel:
+            return True
+        return not _is_incidental_phrasing(normalized)
     return False
 
 

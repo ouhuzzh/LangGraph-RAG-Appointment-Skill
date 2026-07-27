@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "project"))
 
 from langchain_core.messages import HumanMessage  # noqa: E402
 
-from rag_agent.routing_nodes import analyze_turn  # noqa: E402
+from rag_agent.routing_nodes import analyze_turn, _should_continue_pending_action  # noqa: E402
 
 
 def _pending_state(user_query: str, stale_count: int = 0) -> dict:
@@ -65,6 +65,42 @@ class PendingStaleLifecycleTests(unittest.TestCase):
         state["pending_confirmation_id"] = ""
         result = analyze_turn(state)
         self.assertEqual(result.get("pending_stale_count"), 0)
+
+
+class ContinuationCollisionTests(unittest.TestCase):
+    """Regression: substring matching must not hijack long medical questions
+    that incidentally contain weak booking cues (医生/时间/今天/先不...).
+    A pending booking may only capture short slot-filling replies or
+    sentences with strong booking verbs."""
+
+    PENDING = {"pending_action_type": "appointment", "pending_candidates": []}
+
+    def test_incidental_signals_do_not_hijack(self):
+        collisions = [
+            "那我先不吃阿司匹林了可以吗",      # abort word "先不" is incidental
+            "医生说高血压平时要注意什么",      # weak cue 医生 in a question
+            "高血压一般什么时间吃药比较好",    # weak cue 时间 in a question
+            "今天头有点晕是怎么回事",          # date word 今天 in a question
+            "我想了解一下取消订阅的健康影响",  # 取消 unrelated to booking
+        ]
+        for query in collisions:
+            with self.subTest(query=query):
+                self.assertFalse(_should_continue_pending_action(dict(self.PENDING), query))
+
+    def test_genuine_continuations_still_match(self):
+        continuations = [
+            "确认预约",
+            "好的那确认预约吧",
+            "算了",                # short interjection = real abort
+            "算了，先不预约了",    # canonical button abort text
+            "换成下午的时段",
+            "改到明天上午",
+            "换个医生吧",          # short imperative slot reply
+            "帮我换到周五",
+        ]
+        for query in continuations:
+            with self.subTest(query=query):
+                self.assertTrue(_should_continue_pending_action(dict(self.PENDING), query))
 
 
 if __name__ == "__main__":
