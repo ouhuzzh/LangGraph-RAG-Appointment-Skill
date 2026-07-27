@@ -115,12 +115,11 @@ code,
    Global atmosphere
    ------------------------------------------------------------- */
 body {
+  /* De-AI: one restrained teal wash over a near-neutral canvas, replacing the
+     four-hue teal/indigo/teal/pink aurora wash that read as AI-generated. */
   background:
-    radial-gradient(ellipse 70% 55% at 18% 22%, rgba(94, 234, 212, 0.28) 0%, transparent 55%),
-    radial-gradient(ellipse 65% 50% at 88% 78%, rgba(99, 102, 241, 0.22) 0%, transparent 55%),
-    radial-gradient(ellipse 50% 40% at 55% 0%, rgba(13, 148, 136, 0.18) 0%, transparent 50%),
-    radial-gradient(ellipse 45% 35% at 50% 100%, rgba(244, 114, 182, 0.10) 0%, transparent 50%),
-    linear-gradient(180deg, #f3faf9 0%, #eef3fb 60%, #f5f0fa 100%) !important;
+    radial-gradient(ellipse 60% 45% at 15% 15%, rgba(13, 148, 136, 0.06) 0%, transparent 55%),
+    #f4f7f6 !important;
   color: #0f172a;
 }
 
@@ -195,8 +194,9 @@ body::after {
 .composer__btn--send,
 .login-card__submit,
 .primary-btn--sm {
-  background: linear-gradient(135deg, var(--aurora-teal) 0%, var(--aurora-indigo-deep) 100%) !important;
-  box-shadow: 0 6px 16px -4px rgba(13, 148, 136, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
+  /* De-AI: single solid teal accent, no teal->indigo gradient, no texture. */
+  background: var(--aurora-teal) !important;
+  box-shadow: 0 2px 8px -2px rgba(13, 148, 136, 0.35) !important;
   position: relative;
   overflow: hidden;
 }
@@ -301,7 +301,7 @@ body::after {
   top: 0;
   bottom: 0;
   width: 3px;
-  background: linear-gradient(180deg, var(--aurora-teal-bright), var(--aurora-indigo));
+  background: var(--aurora-teal);
   opacity: 0;
   transform: scaleY(0.3);
   transition: opacity 0.22s var(--ease-out), transform 0.22s var(--ease-out);
@@ -315,7 +315,7 @@ body::after {
 
 .status-indicator { border-radius: var(--radius-md) !important; border: 1px solid transparent; transition: all 0.2s var(--ease-out); }
 .status-indicator:hover { background: var(--glass-bg-faint) !important; border-color: var(--glass-border-light); backdrop-filter: blur(8px); }
-.sidebar-auth-card__avatar { background: linear-gradient(135deg, var(--aurora-teal-bright), var(--aurora-indigo)) !important; }
+.sidebar-auth-card__avatar { background: var(--aurora-teal) !important; }
 .role-badge { border: 1px solid rgba(20, 184, 166, 0.16); font-size: 9.5px !important; letter-spacing: 0.05em !important; }
 .sidebar-clear-btn { background: linear-gradient(135deg, rgba(244, 63, 94, 0.06), rgba(244, 63, 94, 0.02)) !important; border-color: rgba(244, 63, 94, 0.14) !important; }
 
@@ -367,14 +367,13 @@ body::after {
 
 .bubble { font-size: 15px !important; line-height: 1.72 !important; padding: 14px 18px !important; border-radius: 18px !important; transition: all 0.2s var(--ease-out) !important; }
 .bubble--user {
-  background: linear-gradient(135deg, var(--aurora-teal), var(--aurora-indigo-deep)) !important;
+  /* De-AI: solid teal, flatter shadow, no indigo gradient, no noise overlay. */
+  background: var(--aurora-teal) !important;
   color: #fff !important;
   border-radius: 18px 18px 4px 18px !important;
-  box-shadow: 0 8px 24px -8px rgba(13, 148, 136, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
+  box-shadow: 0 2px 8px -2px rgba(13, 148, 136, 0.28) !important;
   position: relative;
-  overflow: hidden;
 }
-.bubble--user::after { content: ""; position: absolute; inset: 0; background: var(--noise); opacity: 0.18; mix-blend-mode: soft-light; pointer-events: none; }
 .bubble--assistant {
   background: var(--glass-bg-strong) !important;
   backdrop-filter: blur(8px);
@@ -388,8 +387,8 @@ body::after {
 .message__avatar--user { box-shadow: 0 4px 10px -2px rgba(99, 102, 241, 0.28); }
 .message__time, .copy-btn { font-size: 10.5px !important; letter-spacing: 0.04em; }
 .markdown-body--streaming > *:last-child::after,
-.typing-cursor { background: linear-gradient(180deg, var(--aurora-teal-bright), var(--aurora-indigo)) !important; width: 3px !important; box-shadow: 0 0 8px rgba(20, 184, 166, 0.4); }
-.typing-dot { background: linear-gradient(135deg, var(--aurora-teal-bright), var(--aurora-indigo)) !important; }
+.typing-cursor { background: var(--aurora-teal) !important; width: 3px !important; }
+.typing-dot { background: var(--aurora-teal) !important; }
 
 .thread-chip { background: var(--glass-bg-light) !important; border: 1px solid var(--glass-border-light) !important; font-size: 10px !important; letter-spacing: 0.06em; padding: 4px 10px !important; }
 .stream-chip { font-size: 10px !important; letter-spacing: 0.05em; text-transform: uppercase; font-weight: 600 !important; padding: 5px 11px !important; overflow: hidden; }

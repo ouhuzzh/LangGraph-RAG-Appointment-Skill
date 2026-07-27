@@ -30,6 +30,11 @@ SILENT_NODES = {
     "decompose_tasks",
     "grounded_answer_generation",
     "answer_grounding_check",
+    "revise_answer",
+    "recommend_department",
+    "evaluate_evidence",
+    "orchestrator",
+    "compress_context",
     "reset_turn_state",
     "self_eval",
     # Appointment nodes only ever call the LLM to PARSE the request into a tool

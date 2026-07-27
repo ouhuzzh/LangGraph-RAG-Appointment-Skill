@@ -18,7 +18,11 @@ class SilentNodeCoverageTests(unittest.TestCase):
         self.assertIn("plan_tasks", SILENT_NODES)
 
     def test_known_reasoning_nodes_are_silent(self):
-        for node in ("rewrite_query", "intent_router", "plan_tasks", "decompose_tasks", "self_eval"):
+        for node in (
+            "rewrite_query", "intent_router", "plan_tasks", "decompose_tasks", "self_eval",
+            "revise_answer", "recommend_department", "evaluate_evidence", "orchestrator",
+            "grounded_answer_generation", "answer_grounding_check",
+        ):
             with self.subTest(node=node):
                 self.assertIn(node, SILENT_NODES)
 
