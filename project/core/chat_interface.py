@@ -32,6 +32,14 @@ SILENT_NODES = {
     "answer_grounding_check",
     "reset_turn_state",
     "self_eval",
+    # Appointment nodes only ever call the LLM to PARSE the request into a tool
+    # call; their user-facing replies are constructed strings returned via graph
+    # state (surfaced by prepare_turn_artifacts' get_state), not streamed tokens.
+    # Streaming their slot-parsing filler ("好的，我先查一下…") leaked a dead-end
+    # acknowledgement while hiding the real discovery/preview message.
+    "handle_appointment",
+    "handle_appointment_skill",
+    "handle_cancel_appointment",
 }
 SYSTEM_NODES = {"summarize_history", "rewrite_query"}
 # Classification hints — canonical definitions live in skill modules.

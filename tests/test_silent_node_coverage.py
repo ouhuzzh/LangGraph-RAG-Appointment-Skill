@@ -22,6 +22,15 @@ class SilentNodeCoverageTests(unittest.TestCase):
             with self.subTest(node=node):
                 self.assertIn(node, SILENT_NODES)
 
+    def test_appointment_nodes_are_silent(self):
+        # Appointment nodes only call the LLM to parse slots into a tool call;
+        # their real replies are constructed strings returned via graph state.
+        # Streaming the parsing filler leaked a dead-end acknowledgement
+        # ("好的，我先查一下…") and hid the discovery/preview message (defect #15).
+        for node in ("handle_appointment", "handle_appointment_skill", "handle_cancel_appointment"):
+            with self.subTest(node=node):
+                self.assertIn(node, SILENT_NODES)
+
 
 if __name__ == "__main__":
     unittest.main()
