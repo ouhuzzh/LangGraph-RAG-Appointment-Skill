@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 SILENT_NODES = {
     "rewrite_query",
     "intent_router",
+    "plan_tasks",
     "decompose_tasks",
     "grounded_answer_generation",
     "answer_grounding_check",
