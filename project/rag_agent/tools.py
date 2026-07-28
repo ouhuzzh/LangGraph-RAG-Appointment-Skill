@@ -12,6 +12,7 @@ Key components:
 from __future__ import annotations
 from contextvars import ContextVar
 from typing import List
+import concurrent.futures
 import logging
 import re
 
@@ -19,6 +20,7 @@ import config
 from langchain_core.tools import tool
 from langchain_core.documents import Document
 from db.parent_store_manager import ParentStoreManager
+from rag_agent.node_helpers import _sanitize_output
 
 
 _SOURCE_TYPE_PRIORITY = {
@@ -28,7 +30,7 @@ _SOURCE_TYPE_PRIORITY = {
     "research_article": 3,
 }
 _DEFAULT_LAYERED_SOURCE_TYPES = ["patient_education", "public_health", "clinical_guideline"]
-_NO_EVIDENCE_RESPONSE = "NO_EVIDENCE: 知识库中暂无相关信息或足够相关证据。若问题属于医学问题，可给出通用医学信息回答，但必须说明这次回答未充分基于知识库检索结果。"
+_NO_EVIDENCE_RESPONSE = "NO_EVIDENCE: 知识库中暂无相关信息或足够相关证据。若问题属于医学问题，可给出通用医学信息回答，并以自然的方式说明以下建议基于一般医学知识。"
 _RRF_K = 60
 _RETRIEVAL_CONTEXT = ContextVar("retrieval_context", default={})
 logger = logging.getLogger(__name__)
@@ -203,7 +205,7 @@ def check_sufficiency(query: str, docs: List[Document]) -> dict:
 
 
 def ground_answer(answer: str, docs: List[Document], *, question: str = "", medical_mode: bool = False, high_risk: bool = False) -> dict:
-    text = str(answer or "").strip()
+    text = _sanitize_output(str(answer or "").strip())
     if not docs:
         if not medical_mode:
             return {
@@ -212,11 +214,11 @@ def ground_answer(answer: str, docs: List[Document], *, question: str = "", medi
                 "note": "no_evidence_non_medical",
             }
         revised = text
-        if "回答模式：" not in revised and "通用医学信息回答" not in revised:
-            revised = f"回答模式：通用医学信息回答（本次未充分基于知识库检索结果）\n\n{revised}".strip()
+        if "回答模式：" not in revised and "通用医学信息回答" not in revised and "以下建议基于一般医学知识" not in revised:
+            revised = f"以下建议基于一般医学知识，仅供健康信息参考：\n\n{revised}".strip()
         revised = _append_once(
             revised,
-            "提醒：以上内容仅供一般医学信息参考，当前回答未充分基于知识库检索结果，不能替代专业医生面对面诊断。",
+            "以上内容仅供一般医学信息参考，不能替代专业医生面对面诊断。",
         )
         if high_risk:
             revised = _append_once(
@@ -230,7 +232,7 @@ def ground_answer(answer: str, docs: List[Document], *, question: str = "", medi
             )
         return {
             "grounded": False,
-            "revised_answer": revised,
+            "revised_answer": _sanitize_output(revised),
             "note": "medical_generic_fallback",
         }
     confidence = _confidence_bucket(docs)
@@ -238,18 +240,18 @@ def ground_answer(answer: str, docs: List[Document], *, question: str = "", medi
         if not medical_mode:
             return {"grounded": True, "revised_answer": text, "note": "low_confidence_non_medical"}
         revised = text
-        if "回答模式：" not in revised and "通用医学信息回答" not in revised and "非知识库增强" not in revised:
-            revised = f"回答模式：通用医学信息回答（知识库证据有限）\n\n{revised}".strip()
+        if "回答模式：" not in revised and "通用医学信息回答" not in revised and "非知识库增强" not in revised and "以下建议参考了部分" not in revised:
+            revised = f"以下建议参考了部分知识库资料，证据有限：\n\n{revised}".strip()
         revised = _append_once(
             revised,
-            "提醒：以上内容仅供一般医学信息参考，当前知识库证据有限，不能替代专业医生面对面诊断。",
+            "以上内容仅供一般医学信息参考，当前知识库证据有限，不能替代专业医生面对面诊断。",
         )
         if high_risk:
             revised = _append_once(
                 revised,
                 "如果症状严重、持续加重，或涉及用药、剂量、急症判断，请尽快线下就医或急诊评估。",
             )
-        return {"grounded": False, "revised_answer": revised, "note": "low_confidence_guardrail"}
+        return {"grounded": False, "revised_answer": _sanitize_output(revised), "note": "low_confidence_guardrail"}
     return {"grounded": True, "revised_answer": text, "note": "grounded"}
 
 
@@ -428,9 +430,11 @@ class ToolFactory:
             use_rerank = pipeline_config.enable_rerank
 
         per_tier_limit = max(limit, 3)
-        layered_results = []
         source_layers = self._preferred_source_layers(query)
-        for source_type in source_layers:
+
+        # --- Parallel tier search ---
+        def _search_tier(source_type: str) -> list[Document]:
+            """Run vector (+ optional keyword) search for a single tier."""
             vector_results = self._similarity_search_with_optional_filters(
                 query,
                 limit=per_tier_limit,
@@ -446,13 +450,33 @@ class ToolFactory:
                     source_types=[source_type],
                 )
                 tier_results = self._rrf_fuse(vector_results, keyword_results, per_tier_limit)
-            layered_results.extend(tier_results)
-            deduped = self._dedupe_docs(layered_results)
-            if len(deduped) >= limit:
-                layered_results = deduped
-                break
-            layered_results = deduped
+            return tier_results
 
+        max_workers = min(len(source_layers), 3)
+        if max_workers > 1:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                tier_futures = {
+                    executor.submit(_search_tier, st): st for st in source_layers
+                }
+                layered_results: list[Document] = []
+                for future in concurrent.futures.as_completed(tier_futures):
+                    try:
+                        layered_results.extend(future.result())
+                    except Exception:
+                        logger.warning("Tier search failed for %s", tier_futures[future], exc_info=True)
+            layered_results = self._dedupe_docs(layered_results)
+        else:
+            # Single tier — no need for thread pool
+            layered_results = []
+            for source_type in source_layers:
+                layered_results.extend(_search_tier(source_type))
+                deduped = self._dedupe_docs(layered_results)
+                if len(deduped) >= limit:
+                    layered_results = deduped
+                    break
+                layered_results = deduped
+
+        # Fallback: if parallel merge didn't reach limit, broaden search
         if len(layered_results) < limit:
             fallback_vector_results = self._similarity_search_with_optional_filters(
                 query,

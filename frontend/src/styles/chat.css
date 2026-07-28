@@ -225,10 +225,10 @@
   align-items: flex-end;
   gap: 10px;
   margin: 14px 0;
-  animation: msg-in 0.25s var(--ease-out) both;
+  animation: message-fade-in 0.3s ease-out both;
 }
 
-@keyframes msg-in {
+@keyframes message-fade-in {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
@@ -358,6 +358,31 @@
 /* ============================================= */
 /* Agent Thinking Animation */
 /* ============================================= */
+.typing-indicator {
+  display: flex;
+  gap: 4px;
+  padding: 12px 16px;
+  align-items: center;
+}
+
+.typing-indicator span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--teal-500, #999);
+  animation: typing-bounce 1.4s infinite ease-in-out;
+}
+
+.typing-indicator span:nth-child(1) { animation-delay: 0s; }
+.typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typing-bounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40%           { transform: scale(1);   opacity: 1; }
+}
+
+/* Legacy aliases — keep for backward compat */
 .typing-dots {
   display: inline-flex;
   align-items: center;
@@ -919,9 +944,10 @@
   border-radius: var(--radius-md);
   color: #fff;
   cursor: pointer;
-  transition: background var(--duration-fast) var(--ease-out),
-              transform var(--duration-fast) var(--ease-out),
-              box-shadow var(--duration-fast) var(--ease-out);
+  transition: background 0.3s var(--ease-out),
+              transform 0.2s var(--ease-out),
+              box-shadow 0.3s var(--ease-out),
+              opacity 0.25s var(--ease-out);
 }
 
 .composer__btn--send {
@@ -943,6 +969,7 @@
   background: var(--slate-300);
   box-shadow: none;
   cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .composer__btn--stop {
@@ -960,15 +987,18 @@
   transform: translateY(0);
 }
 
+.composer__btn--enter {
+  animation: btn-pop 0.2s ease-out both;
+}
+
+@keyframes btn-pop {
+  from { transform: scale(0.85); opacity: 0.6; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
 /* ============================================= */
 /* Typing Indicator (dots + label) */
 /* ============================================= */
-.typing-indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .typing-label {
   font-size: 13px;
   color: var(--slate-500);

@@ -96,6 +96,13 @@ export function openChatStream({
         },
         signal,
       );
+
+      // Safety net: if the stream ended without a final/app-error event,
+      // force the UI out of the "thinking" state so it doesn't get stuck.
+      if (!signal.aborted && !doneRef.current) {
+        doneRef.current = true;
+        onFinal?.({ content: "", done: true, truncated: true });
+      }
     } catch (error) {
       if (signal.aborted) {
         return;

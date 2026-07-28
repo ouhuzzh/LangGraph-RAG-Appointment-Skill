@@ -209,7 +209,7 @@ class ChatInterfaceTests(unittest.TestCase):
 
         self.assertTrue(responses)
         self.assertIn("通用医学信息", responses[-1])
-        self.assertIn("未充分基于知识库检索结果", responses[-1])
+        self.assertIn("基于一般医学知识", responses[-1])
         self.assertNotIn("❌ Error", responses[-1])
 
 

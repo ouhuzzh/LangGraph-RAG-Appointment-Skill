@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "project"))
 import config  # noqa: E402
 from db.schema_manager import SchemaManager  # noqa: E402
 from rag_agent import appointment_nodes  # noqa: E402
+from rag_agent import appointment_helpers  # noqa: E402
 from services.appointment_service import AppointmentService  # noqa: E402
 
 
@@ -173,7 +174,7 @@ class GraphHoldHookTests(unittest.TestCase):
         fake_service = MagicMock()
         fake_service.hold_slot.return_value = dict(_SCHEDULE)
         payload = {"department": "呼吸内科", "date": "2026-08-01", "time_slot": "上午", "doctor_name": "张三"}
-        with patch.object(appointment_nodes, "_slot_hold_service", fake_service):
+        with patch.object(appointment_helpers, "_slot_hold_service", fake_service):
             pending = appointment_nodes._build_pending_confirmation(
                 "appointment", payload, hold_thread_id="t1",
             )
@@ -187,7 +188,7 @@ class GraphHoldHookTests(unittest.TestCase):
         config.ENABLE_SLOT_HOLD = False
         fake_service = MagicMock()
         payload = {"department": "呼吸内科", "date": "2026-08-01", "time_slot": "上午"}
-        with patch.object(appointment_nodes, "_slot_hold_service", fake_service):
+        with patch.object(appointment_helpers, "_slot_hold_service", fake_service):
             appointment_nodes._build_pending_confirmation("appointment", payload, hold_thread_id="t1")
         fake_service.hold_slot.assert_not_called()
 
@@ -196,7 +197,7 @@ class GraphHoldHookTests(unittest.TestCase):
         fake_service = MagicMock()
         fake_service.hold_slot.side_effect = RuntimeError("db down")
         payload = {"department": "呼吸内科", "date": "2026-08-01", "time_slot": "上午"}
-        with patch.object(appointment_nodes, "_slot_hold_service", fake_service):
+        with patch.object(appointment_helpers, "_slot_hold_service", fake_service):
             pending = appointment_nodes._build_pending_confirmation(
                 "appointment", payload, hold_thread_id="t1",
             )
@@ -206,7 +207,7 @@ class GraphHoldHookTests(unittest.TestCase):
     def test_abort_releases_hold(self):
         config.ENABLE_SLOT_HOLD = True
         fake_service = MagicMock()
-        with patch.object(appointment_nodes, "_slot_hold_service", fake_service):
+        with patch.object(appointment_helpers, "_slot_hold_service", fake_service):
             appointment_nodes._release_slot_hold({"pending_confirmation_id": "tok-9"})
         fake_service.release_hold.assert_called_once_with("tok-9")
 

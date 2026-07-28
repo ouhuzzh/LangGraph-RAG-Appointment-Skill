@@ -11,6 +11,7 @@ Handles:
 import json
 import logging
 import re
+import concurrent.futures
 
 import config
 from core.chat_turn_input_service import ChatTurnInputService
@@ -22,6 +23,23 @@ from db.semantic_cache_store import SemanticCacheStore, is_cacheable_turn
 
 
 logger = logging.getLogger(__name__)
+
+
+def _invoke_with_timeout(llm, messages, timeout=None):
+    """Invoke an LLM with a per-call timeout safety net.
+
+    This is an *additional* guard on top of provider-level timeouts.
+    Raises ``concurrent.futures.TimeoutError`` if the call exceeds *timeout*
+    seconds (defaults to ``config.LLM_NODE_TIMEOUT_SECONDS``).
+    """
+    timeout = timeout or config.LLM_NODE_TIMEOUT_SECONDS
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(llm.invoke, messages)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            logger.warning("LLM call timed out after %ss", timeout)
+            raise
 
 SILENT_NODES = {
     "rewrite_query",
@@ -366,7 +384,7 @@ class ChatInterface:
                 "- 先观察症状的程度、持续时间，以及是否伴随发热、呕吐、呼吸不适、胸痛、肢体无力等危险信号。\n"
                 "- 症状轻微时，可以先休息、补水，避免熬夜、饮酒和明显诱发因素；不要自行叠加或加量用药。\n"
                 f"- {danger_note}\n\n"
-                "这次回答**未充分基于知识库检索结果**，仅供一般健康信息参考，不能替代医生面对面诊断。你也可以再发一次问题，我会继续帮你细化。"
+                "这次回答**基于一般医学知识**整理，仅供健康信息参考，不能替代医生面对面诊断。你也可以再发一次问题，我会继续帮你细化。"
             )
         return "AI 暂时没能给出有效回答，可能是模型接口超时或异常。请稍后再试一次。"
 
@@ -639,6 +657,12 @@ class ChatInterface:
         turn_input = None
         try:
             turn_input = self.input_service.prepare(message=message, thread_id=thread_id)
+
+            # Early return for emoji-only / symbol-only / prompt-injection inputs
+            if getattr(turn_input, "early_response", None):
+                early_messages = [make_message(turn_input.early_response)]
+                yield self._prepare_visible_messages(early_messages, reveal_diagnostics=reveal_diagnostics)
+                return
 
             cached_answer = self._maybe_semantic_cache_hit(turn_input)
             if cached_answer is not None:

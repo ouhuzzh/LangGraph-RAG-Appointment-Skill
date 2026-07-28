@@ -89,7 +89,7 @@ class RetrievalQualityLoopTests(unittest.TestCase):
         )
 
         self.assertFalse(grounded["grounded"])
-        self.assertIn("通用医学信息回答", grounded["revised_answer"])
+        self.assertIn("一般医学知识", grounded["revised_answer"])
         self.assertIn("不能替代专业医生", grounded["revised_answer"])
 
     def test_ground_answer_keeps_non_medical_reply_when_no_docs(self):

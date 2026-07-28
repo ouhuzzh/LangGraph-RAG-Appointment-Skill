@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AUTH_TOKEN_KEY, REFRESH_TOKEN_KEY } from "../constants/app";
 import { fetchSystemStatus, initialApiBaseUrl, initialAuthToken, refreshAccessToken } from "../lib/api";
 
-export function useSystemStatus({ onAuthExpired } = {}) {
+export function useSystemStatus({ onAuthExpired, streamState = "idle" } = {}) {
   const [status, setStatus] = useState(null);
   const [apiBaseUrl, setApiBaseUrl] = useState(initialApiBaseUrl);
   const [authToken, setAuthTokenState] = useState(initialAuthToken);
@@ -10,6 +10,8 @@ export function useSystemStatus({ onAuthExpired } = {}) {
   const [isConnected, setIsConnected] = useState(true);
   const [statusError, setStatusError] = useState("");
   const refreshingRef = useRef(false);
+  const onAuthExpiredRef = useRef(onAuthExpired);
+  onAuthExpiredRef.current = onAuthExpired;
 
   const tryRefresh = useCallback(async () => {
     if (refreshingRef.current) return null;
@@ -73,17 +75,60 @@ export function useSystemStatus({ onAuthExpired } = {}) {
             // Still failed after refresh
           }
         }
-        onAuthExpired?.();
+        onAuthExpiredRef.current?.();
       }
       setStatus(null);
       setIsConnected(false);
       setStatusError("系统状态暂时无法读取。");
       return null;
     }
-  }, [apiBaseUrl, authToken, tryRefresh, onAuthExpired]);
+  }, [apiBaseUrl, authToken, tryRefresh]);
+
+  // Smart backoff polling based on AI activity
+  const streamStateRef = useRef(streamState);
+  streamStateRef.current = streamState;
+
+  const setStreamState = useCallback((s) => {
+    streamStateRef.current = s;
+  }, []);
 
   useEffect(() => {
     refreshStatus();
+
+    let timer = null;
+    let stopped = false;
+
+    const schedule = () => {
+      if (stopped) return;
+      const active = streamStateRef.current === "thinking" || streamStateRef.current === "generating";
+      const interval = active ? 10_000 : 30_000;
+      timer = setTimeout(() => {
+        if (document.hidden) {
+          // Page hidden — skip this poll, reschedule with idle interval
+          timer = setTimeout(schedule, 30_000);
+          return;
+        }
+        refreshStatus().finally(() => schedule());
+      }, interval);
+    };
+
+    const onVisibility = () => {
+      if (document.hidden) {
+        clearTimeout(timer);
+        timer = null;
+      } else {
+        refreshStatus().finally(() => schedule());
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
+    schedule();
+
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [refreshStatus]);
 
   const setAuthToken = useCallback((value) => {
@@ -112,5 +157,6 @@ export function useSystemStatus({ onAuthExpired } = {}) {
     statusError,
     clearStatusError: () => setStatusError(""),
     refreshStatus,
+    setStreamState,
   };
 }

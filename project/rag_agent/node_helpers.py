@@ -66,6 +66,9 @@ _MEDICAL_TERMS = (
     "血压", "血糖", "检查", "药", "症状", "疾病", "炎", "癌", "病", "疫苗", "预防", "指南", "综合征",
     "hypertension", "diabetes", "fever", "cough", "dizziness", "headache", "pneumonia",
     "asthma", "symptom", "treatment", "disease", "medicine", "blood pressure",
+    "阿莫西林", "头孢", "布洛芬", "对乙酰氨基酚", "阿奇霉素",
+    "甲硝唑", "氯雷他定", "奥美拉唑", "二甲双胍", "氨氯地平",
+    "阿托伐他汀", "青霉素", "红霉素", "诺氟沙星",
 )
 _MEDICAL_QUESTION_PATTERNS = (
     "是什么", "怎么回事", "为什么", "原因", "症状", "表现", "怎么办", "如何", "怎么处理",
@@ -94,6 +97,8 @@ _MEDICATION_RISK_HINTS = (
 _DEPARTMENT_HINTS = (
     "呼吸内科", "心内科", "神经内科", "消化内科", "内分泌科", "急诊科", "全科", "儿科",
     "妇科", "骨科", "皮肤科", "耳鼻喉科", "眼科", "呼吸科", "内科", "外科", "门诊",
+    "口腔科", "泌尿外科", "心胸外科", "肿瘤科", "康复科", "精神科", "肾内科",
+    "血液科", "产科", "老年科", "普外科", "感染科", "肝病科",
 )
 _TOPIC_STOP_WORDS = ("一下", "一下子", "这个", "那个", "这种情况", "怎么", "怎么办", "需要", "是否", "一般")
 _APPOINTMENT_LIST_HINTS = (
@@ -684,16 +689,75 @@ def _sanitize_final_answer_text(text: str) -> str:
 
 
 def _build_medical_fallback_notice(*, risk_level: str = "normal", confidence_bucket: str = "no_evidence") -> str:
-    mode_label = "回答模式：通用医学信息回答（本次未充分基于知识库检索结果）" if confidence_bucket == "no_evidence" else "回答模式：通用医学信息回答（知识库证据有限）"
-    notice = (
-        f"{mode_label}\n\n"
-        "提醒：以上内容仅供一般医学信息参考，当前回答未充分基于知识库检索结果，不能替代专业医生面对面诊断。"
-    )
+    if confidence_bucket == "no_evidence":
+        notice = "以下建议基于一般医学知识，仅供健康信息参考，不能替代专业医生面对面诊断。"
+    else:
+        notice = "以下建议参考了部分知识库资料，证据有限，仅供健康信息参考，不能替代专业医生面对面诊断。"
     if risk_level == "high":
         notice += "\n如症状严重、持续加重，或出现胸痛、呼吸困难、意识异常等情况，请尽快线下就医或急诊评估。"
     else:
         notice += "\n如症状持续加重，或涉及用药、剂量、急症判断，请及时就医。"
     return notice
+
+
+# ---------------------------------------------------------------------------
+# Output sanitization — strip secrets / internal jargon from LLM output
+# ---------------------------------------------------------------------------
+
+_REDACTED = "[已过滤]"
+
+# Patterns that indicate secrets / credentials (always redacted)
+_SECRET_PATTERNS = [
+    re.compile(r'\b(sk-[A-Za-z0-9]{8,})\b'),                          # sk-xxx API keys
+    re.compile(r'\b(key-[A-Za-z0-9]{8,})\b'),                         # key-xxx API keys
+    re.compile(r'(?i)api_key\s*[=:]\s*\S+'),                           # api_key=xxx
+    re.compile(r'(?i)api[-_]?secret\s*[=:]\s*\S+'),                    # api_secret=xxx
+    re.compile(r'(?i)secret[_-]?key\s*[=:]\s*\S+'),                    # secret_key=xxx
+    re.compile(r'(?i)access[_-]?token\s*[=:]\s*\S+'),                  # access_token=xxx
+    re.compile(r'\b(Bearer\s+[A-Za-z0-9\-._~+/]+=*)\b'),              # Bearer xxx
+    re.compile(r'(?i)token\s*[=:]\s*[A-Za-z0-9\-._~+/]{8,}'),         # token=xxx (long values)
+    re.compile(r'(?i)password\s*[=:]\s*\S+'),                          # password=xxx
+]
+
+# Internal URLs that should not leak
+_INTERNAL_URL_PATTERNS = [
+    re.compile(r'\blocalhost(:\d+)?\b', re.IGNORECASE),
+    re.compile(r'\b127\.0\.0\.1(:\d+)?\b'),
+    re.compile(r'\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b'),
+    re.compile(r'\b192\.168\.\d{1,3}\.\d{1,3}\b'),
+    re.compile(r'\b172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}\b'),
+]
+
+# Internal terminology that should not appear in user-facing output
+_INTERNAL_TERMS = [
+    "服务绑定", "外部服务调用模块", "skill_data", "graph state",
+]
+
+
+def _sanitize_output(text: str) -> str:
+    """Remove or redact sensitive content from text destined for the user.
+
+    Strategy:
+    - Redact API keys, tokens, passwords, internal URLs/IPs.
+    - Remove internal jargon terms.
+    - Medical terminology is always preserved (white-list approach).
+    """
+    if not text:
+        return text
+    cleaned = text
+    # Redact secrets
+    for pattern in _SECRET_PATTERNS:
+        cleaned = pattern.sub(_REDACTED, cleaned)
+    # Redact internal URLs / IPs
+    for pattern in _INTERNAL_URL_PATTERNS:
+        cleaned = pattern.sub(_REDACTED, cleaned)
+    # Remove internal terms
+    for term in _INTERNAL_TERMS:
+        cleaned = cleaned.replace(term, "")
+    # Collapse any double spaces / blank lines left behind
+    cleaned = re.sub(r'  +', ' ', cleaned)
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+    return cleaned.strip()
 
 
 def _confidence_bucket_label(confidence_bucket: str) -> str:
@@ -930,6 +994,7 @@ __all__ = [
     "_pick_candidate_from_text",
     "_reset_pending_action_if_needed",
     "_sanitize_final_answer_text",
+    "_sanitize_output",
     "_sanitize_pending_payload",
     "_should_use_last_appointment",
     "_source_type_label",

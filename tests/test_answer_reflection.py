@@ -130,7 +130,17 @@ class TestReviseAnswer(unittest.TestCase):
 class TestRouteAfterGrounding(unittest.TestCase):
     # self_eval is ON by default, so terminal cases route to self_eval
     # (then to advance_task to drain the next planned task).
-    def test_grounded_routes_to_end(self):
+
+    def setUp(self):
+        import config
+        self._orig = config.ENABLE_SELF_EVAL
+        config.ENABLE_SELF_EVAL = True
+
+    def tearDown(self):
+        import config
+        config.ENABLE_SELF_EVAL = self._orig
+
+    def test_grounded_routes_to_self_eval(self):
         from project.rag_agent.edges import route_after_grounding
         state = _make_main_state([], grounding_passed=True)
         self.assertEqual(route_after_grounding(state), "self_eval")
@@ -140,11 +150,27 @@ class TestRouteAfterGrounding(unittest.TestCase):
         state = _make_main_state([], grounding_passed=False, grounding_rounds=0)
         self.assertEqual(route_after_grounding(state), "revise_answer")
 
-    def test_not_grounded_budget_exhausted_routes_to_end(self):
+    def test_not_grounded_budget_exhausted_routes_to_self_eval(self):
         import config
         from project.rag_agent.edges import route_after_grounding
         state = _make_main_state([], grounding_passed=False, grounding_rounds=config.MAX_GROUNDING_ROUNDS)
         self.assertEqual(route_after_grounding(state), "self_eval")
+
+    def test_grounded_routes_to_end_when_self_eval_disabled(self):
+        import config
+        import project.rag_agent.edges as edges
+        from project.rag_agent.edges import route_after_grounding
+        with patch.object(edges.config, "ENABLE_SELF_EVAL", False):
+            state = _make_main_state([], grounding_passed=True)
+            self.assertEqual(route_after_grounding(state), "__end__")
+
+    def test_budget_exhausted_routes_to_end_when_self_eval_disabled(self):
+        import config
+        import project.rag_agent.edges as edges
+        from project.rag_agent.edges import route_after_grounding
+        with patch.object(edges.config, "ENABLE_SELF_EVAL", False):
+            state = _make_main_state([], grounding_passed=False, grounding_rounds=config.MAX_GROUNDING_ROUNDS)
+            self.assertEqual(route_after_grounding(state), "__end__")
 
 
 class TestGraphWiring(unittest.TestCase):
@@ -161,6 +187,15 @@ class TestGraphWiring(unittest.TestCase):
 class TestCompiledGroundingLoop(unittest.TestCase):
     """Verify the answer_grounding_check -> route_after_grounding -> revise_answer -> answer_grounding_check
     handoff survives LangGraph's real state machinery (MessagesState append reducer + state fields)."""
+
+    def setUp(self):
+        import config
+        self._orig = config.ENABLE_SELF_EVAL
+        config.ENABLE_SELF_EVAL = True
+
+    def tearDown(self):
+        import config
+        config.ENABLE_SELF_EVAL = self._orig
 
     def _build_graph(self, llm):
         from langgraph.graph import StateGraph, START, END

@@ -57,6 +57,30 @@ logger = logging.getLogger(__name__)
 # Private helpers (only used by routing nodes)
 # ---------------------------------------------------------------------------
 
+def _build_route_result(
+    *,
+    intent: str,
+    query: str,
+    source: str,
+    reason: str,
+    recent_context,
+    topic_focus: str = "",
+    extra: dict | None = None,
+) -> dict:
+    """构建 analyze_turn 的标准返回结构。"""
+    result = {
+        "recent_context": recent_context,
+        "topic_focus": topic_focus,
+        "primary_intent": intent,
+        "primary_user_query": query,
+        "decision_source": source,
+        "route_reason": reason,
+    }
+    if extra:
+        result.update(extra)
+    return result
+
+
 def _user_has_mcp_tools() -> bool:
     """Check if MCP is enabled and at least one server is configured."""
     try:
@@ -312,6 +336,14 @@ def _should_continue_pending_action(state: State, user_query: str) -> bool:
             return True
         return False
 
+    # Medical-question guard: if the input also embeds a medical knowledge
+    # question (e.g. "帮我改成下午，顺便问一下高血压吃什么药"), let the turn
+    # planner decompose it instead of continuing the pending action here.
+    # This runs before _looks_like_appointment_update so the medical half
+    # is not swallowed by the appointment handler.
+    if _looks_like_medical_knowledge_question(user_query):
+        return False
+
     if pending_action_type == "appointment":
         if not _looks_like_appointment_update(user_query):
             return False
@@ -382,22 +414,26 @@ def analyze_turn(state: State):
     # Route it straight to intent_router's greeting handler, which emits the
     # greeting reply and resets any stale pending action.
     if _looks_like_greeting(user_query):
-        return {
-            "recent_context": recent_context,
-            "topic_focus": topic_focus or state.get("topic_focus", ""),
-            "primary_intent": "greeting",
-            "secondary_intent": "",
-            "primary_user_query": user_query,
-            "secondary_user_query": "",
-            "deferred_user_question": "",
-            "decision_source": "rule",
-            "route_reason": "greeting_rule",
-            "last_route_reason": "greeting_rule",
-            "pending_stale_count": 0,
-        }
+        return _build_route_result(
+            intent="greeting",
+            query=user_query,
+            source="rule",
+            reason="greeting_rule",
+            recent_context=recent_context,
+            topic_focus=topic_focus or state.get("topic_focus", ""),
+            extra={
+                "secondary_intent": "",
+                "secondary_user_query": "",
+                "deferred_user_question": "",
+                "last_route_reason": "greeting_rule",
+                "pending_stale_count": 0,
+            },
+        )
 
     # Pending stale exit: if user has a pending action but keeps talking about
     # unrelated topics, auto-clear after 2 consecutive irrelevant turns.
+    # (A threshold of 2 balances responsiveness with stability — a single
+    # off-topic utterance may still be contextually related.)
     pending_stale_next = 0
     continuation_reason = ""
     if state.get("pending_action_type"):
@@ -405,115 +441,162 @@ def analyze_turn(state: State):
             continuation_reason = "continue_pending_action"
         elif _llm_arbiter_says_continuation(state, user_query, recent_context):
             continuation_reason = "continue_pending_action_llm"
+    _in_active_appointment_flow = (
+        state.get("pending_action_type")
+        or state.get("appointment_skill_mode") in {"clarify", "discover_department", "discover_doctor", "discover_availability", "select_hospital", "confirm_hospital"}
+    )
+    if _in_active_appointment_flow and not continuation_reason:
+        # If there's a pending action or an active appointment sub-flow
+        # (e.g. skill_mode=clarify after asking for department) but the user
+        # is clearly asking a medical question, short-circuit to medical_rag
+        # instead of continuing the appointment flow.
+        _medical_markers = [
+            "怎么办", "是什么", "什么意思", "能不能", "可以吗",
+            "什么原因", "正常吗", "严重吗", "需要",
+            "吃什么", "用什么", "怎么治", "怎么回事",
+            "是不是", "有没有", "为什么", "症状", "治疗", "药物", "副作用",
+            "一起吃", "一起用", "能同吃", "能同服", "冲突", "禁忌",
+        ]
+        _has_qmark = "？" in user_query or "?" in user_query
+        _has_marker = any(m in user_query for m in _medical_markers)
+        # Also detect medical questions via helper: contains a medical term
+        # AND a question shape (question mark or question pattern).
+        _is_medical_q = _looks_like_medical_knowledge_question(user_query)
+        if (_has_qmark and _has_marker) or _is_medical_q:
+            return _build_route_result(
+                intent="medical_rag",
+                query=user_query,
+                source="rule",
+                reason="medical_question_overrides_pending",
+                recent_context=recent_context,
+                topic_focus=topic_focus or state.get("topic_focus", ""),
+                extra={
+                    "pending_stale_count": 0,
+                    "appointment_skill_mode": "idle",
+                    **_clear_pending_action_state(),
+                },
+            )
+
+    # Pending stale exit: only when there's an actual pending action
+    # (not just an appointment_skill_mode without pending_action_type).
     if state.get("pending_action_type") and not continuation_reason:
         stale = int(state.get("pending_stale_count", 0)) + 1
         if stale >= 2:
             clear = _clear_pending_action_state()
             clear["pending_stale_count"] = 0
-            return {
-                "recent_context": recent_context,
-                "topic_focus": topic_focus or state.get("topic_focus", ""),
-                "primary_intent": "",
-                "secondary_intent": "",
-                "primary_user_query": user_query,
-                "secondary_user_query": "",
-                "deferred_user_question": "",
-                "decision_source": "llm",
-                "route_reason": "pending_stale_exit",
-                "last_route_reason": "pending_stale_exit",
-                **_clear_pending_action_state(),
-                "pending_stale_count": 0,
-                "messages": [AIMessage(content="好的，先不管之前的预约。你需要什么帮助？")],
-            }
+            return _build_route_result(
+                intent="",
+                query=user_query,
+                source="llm",
+                reason="pending_stale_exit",
+                recent_context=recent_context,
+                topic_focus=topic_focus or state.get("topic_focus", ""),
+                extra={
+                    "secondary_intent": "",
+                    "secondary_user_query": "",
+                    "deferred_user_question": "",
+                    "last_route_reason": "pending_stale_exit",
+                    **clear,
+                    "messages": [AIMessage(content="好的，先不管之前的预约。你需要什么帮助？")],
+                },
+            )
         # Not stale yet — persist the incremented counter so the second
         # consecutive irrelevant turn actually triggers the exit above.
-        # (A previous version computed `stale` but never wrote it back,
-        # leaving the auto-clear permanently unreachable.)
         pending_stale_next = stale
 
     if continuation_reason:
         primary_intent = state.get("pending_action_type", "")
-        return {
-            "recent_context": recent_context,
-            "topic_focus": topic_focus or state.get("topic_focus", ""),
-            "primary_intent": primary_intent,
-            "secondary_intent": state.get("secondary_intent", ""),
-            "primary_user_query": user_query,
-            "secondary_user_query": state.get("secondary_user_query", ""),
-            "deferred_user_question": state.get("deferred_user_question", ""),
-            "decision_source": "resume",
-            "route_reason": continuation_reason,
-            "last_route_reason": continuation_reason,
-            "pending_stale_count": 0,
-        }
+        return _build_route_result(
+            intent=primary_intent,
+            query=user_query,
+            source="resume",
+            reason=continuation_reason,
+            recent_context=recent_context,
+            topic_focus=topic_focus or state.get("topic_focus", ""),
+            extra={
+                "secondary_intent": state.get("secondary_intent", ""),
+                "secondary_user_query": state.get("secondary_user_query", ""),
+                "deferred_user_question": state.get("deferred_user_question", ""),
+                "last_route_reason": continuation_reason,
+                "pending_stale_count": 0,
+            },
+        )
 
     if state.get("pending_candidates") and _pick_candidate_from_text(user_query, state.get("pending_candidates") or []):
-        return {
-            "recent_context": recent_context,
-            "topic_focus": topic_focus or state.get("topic_focus", ""),
-            "primary_intent": "cancel_appointment",
-            "secondary_intent": state.get("secondary_intent", ""),
-            "primary_user_query": user_query,
-            "secondary_user_query": state.get("secondary_user_query", ""),
-            "deferred_user_question": state.get("deferred_user_question", ""),
-            "decision_source": "resume",
-            "route_reason": "continue_pending_candidates",
-            "last_route_reason": "continue_pending_candidates",
-            "pending_stale_count": 0,
-        }
+        return _build_route_result(
+            intent="cancel_appointment",
+            query=user_query,
+            source="resume",
+            reason="continue_pending_candidates",
+            recent_context=recent_context,
+            topic_focus=topic_focus or state.get("topic_focus", ""),
+            extra={
+                "secondary_intent": state.get("secondary_intent", ""),
+                "secondary_user_query": state.get("secondary_user_query", ""),
+                "deferred_user_question": state.get("deferred_user_question", ""),
+                "last_route_reason": "continue_pending_candidates",
+                "pending_stale_count": 0,
+            },
+        )
 
     clarification_target = state.get("clarification_target", "")
     if state.get("pending_clarification") and clarification_target and _looks_like_clarification_response(user_query):
         primary_intent = _intent_for_clarification_target(clarification_target, state.get("intent", ""))
-        return {
-            "recent_context": recent_context,
-            "topic_focus": topic_focus or state.get("topic_focus", ""),
-            "primary_intent": primary_intent,
-            "secondary_intent": state.get("secondary_intent", ""),
-            "primary_user_query": user_query,
-            "secondary_user_query": state.get("secondary_user_query", ""),
-            "deferred_user_question": state.get("deferred_user_question", ""),
-            "decision_source": "resume",
-            "route_reason": f"continue_{clarification_target}",
-            "last_route_reason": f"continue_{clarification_target}",
-            "pending_stale_count": 0,
-        }
+        return _build_route_result(
+            intent=primary_intent,
+            query=user_query,
+            source="resume",
+            reason=f"continue_{clarification_target}",
+            recent_context=recent_context,
+            topic_focus=topic_focus or state.get("topic_focus", ""),
+            extra={
+                "secondary_intent": state.get("secondary_intent", ""),
+                "secondary_user_query": state.get("secondary_user_query", ""),
+                "deferred_user_question": state.get("deferred_user_question", ""),
+                "last_route_reason": f"continue_{clarification_target}",
+                "pending_stale_count": 0,
+            },
+        )
 
     if (
         (state.get("intent") == "appointment" or state.get("appointment_skill_mode") in {"discover_department", "clarify", "discover_doctor", "discover_availability"})
         and _looks_like_department_name_only(user_query)
         and not _looks_like_explicit_cancel_intent(user_query)
     ):
-        return {
-            "recent_context": recent_context,
-            "topic_focus": topic_focus or state.get("topic_focus", ""),
-            "primary_intent": "appointment",
-            "secondary_intent": "",
-            "primary_user_query": user_query,
-            "secondary_user_query": "",
-            "deferred_user_question": "",
-            "decision_source": "resume",
-            "route_reason": "continue_department_selection",
-            "last_route_reason": "continue_department_selection",
-            "pending_stale_count": 0,
-        }
+        return _build_route_result(
+            intent="appointment",
+            query=user_query,
+            source="resume",
+            reason="continue_department_selection",
+            recent_context=recent_context,
+            topic_focus=topic_focus or state.get("topic_focus", ""),
+            extra={
+                "secondary_intent": "",
+                "secondary_user_query": "",
+                "deferred_user_question": "",
+                "last_route_reason": "continue_department_selection",
+                "pending_stale_count": 0,
+            },
+        )
 
     # The unified turn planner decomposes every fresh turn (arbitrary connectors,
     # 3+ segments, any intent combo) into planned_tasks. Resume branches above
     # still take precedence. route_after_analyze_turn sends fresh queries
     # (primary_intent empty) to plan_tasks.
-    return {
-        "recent_context": recent_context,
-        "topic_focus": topic_focus or state.get("topic_focus", ""),
-        "primary_intent": "",
-        "primary_user_query": user_query,
-        "originalQuery": user_query,
-        "decision_source": "planner",
-        "route_reason": "turn_planner",
-        "last_route_reason": "turn_planner",
-        "intent_source": "planner",
-        "pending_stale_count": pending_stale_next,
-    }
+    return _build_route_result(
+        intent="",
+        query=user_query,
+        source="planner",
+        reason="turn_planner",
+        recent_context=recent_context,
+        topic_focus=topic_focus or state.get("topic_focus", ""),
+        extra={
+            "originalQuery": user_query,
+            "last_route_reason": "turn_planner",
+            "intent_source": "planner",
+            "pending_stale_count": pending_stale_next,
+        },
+    )
 
 
 def summarize_history(state: State, llm):
@@ -1009,12 +1092,47 @@ def recommend_department(state: State, llm):
 
 
 def request_clarification(state: State):
-    """No-op node that runs on resume after a clarification interrupt.
+    """Node that runs on resume after a clarification interrupt.
 
     Only executes on resume because the graph is compiled with
     interrupt_before=["request_clarification"], so the fresh-turn entry point
     (reset_turn_state) does not run on resume.
+
+    If the user's new message is a medical knowledge question (not an
+    appointment clarification answer), clear the clarification state and
+    redirect to the RAG pipeline.
     """
+    # Resume 时 primary_user_query 仍是旧值，必须直接从 messages 获取最新 HumanMessage
+    user_query = ""
+    for _msg in reversed(state.get("messages", [])):
+        if getattr(_msg, "type", None) == "human" or type(_msg).__name__ == "HumanMessage":
+            user_query = str(_msg.content).strip()
+            break
+    if not user_query:
+        return {}
+
+    _medical_markers = [
+        "怎么办", "是什么", "什么意思", "能不能", "可以吗",
+        "什么原因", "正常吗", "严重吗", "需要",
+        "吃什么", "用什么", "怎么治", "怎么回事",
+        "是不是", "有没有", "为什么", "症状", "治疗", "药物", "副作用",
+        "一起吃", "一起用", "能同吃", "能同服", "冲突", "禁忌",
+    ]
+    _has_qmark = "？" in user_query or "?" in user_query
+    _has_marker = any(m in user_query for m in _medical_markers)
+    _is_medical_q = _looks_like_medical_knowledge_question(user_query)
+
+    if (_has_qmark and _has_marker) or _is_medical_q:
+        return {
+            "pending_clarification": "",
+            "clarification_target": "",
+            "appointment_skill_mode": "idle",
+            "primary_intent": "medical_rag",
+            "primary_user_query": user_query,
+            "clarification_attempts": 0,
+            **_clear_pending_action_state(),
+        }
+
     return {}
 
 

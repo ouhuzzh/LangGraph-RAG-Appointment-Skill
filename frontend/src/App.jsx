@@ -33,7 +33,8 @@ function AppInner() {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const composerRef = useRef(null);
   const { theme, toggleTheme } = useTheme();
-  const system = useSystemStatus({ onAuthExpired: () => setLoggedIn(false) });
+  const handleAuthExpired = useCallback(() => setLoggedIn(false), []);
+  const system = useSystemStatus({ onAuthExpired: handleAuthExpired });
 
   const handleLogin = useCallback((accessToken, refreshToken) => {
     if (typeof window !== "undefined") {
@@ -84,6 +85,12 @@ function AppInner() {
     enabled: system.isAdmin,
   });
   const search = useSearch(chat.messages);
+
+  // Sync streamState into system status hook for smart polling backoff
+  useEffect(() => {
+    system.setStreamState(chat.streamState);
+  }, [chat.streamState, system.setStreamState]);
+
   const lastAssistantMessage = [...chat.messages]
     .reverse()
     .find((m) => m.role === "assistant" && m.content);

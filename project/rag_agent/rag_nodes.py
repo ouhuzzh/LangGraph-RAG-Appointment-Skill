@@ -47,6 +47,7 @@ from .node_helpers import (
     _needs_strict_medical_safety,
     _next_clarification_attempt,
     _sanitize_final_answer_text,
+    _sanitize_output,
     _structured_output_llm,
 )
 from core.observability import trace_node
@@ -409,6 +410,11 @@ def decompose_tasks(state: State, llm):
     if not config.ENABLE_TASK_DECOMPOSITION or not primary:
         return {"sub_questions": [primary] if primary else []}
 
+    # Rule pre-filter: skip LLM for simple, single-intent queries
+    _compound_connectors = ("和", "以及", "另外", "还有", "同时", "并且", "此外", " and ", " also ", " plus ")
+    if len(primary) < 100 and not any(conn in primary.lower() for conn in _compound_connectors):
+        return {"sub_questions": [primary]}
+
     sys_msg = SystemMessage(content=get_task_decomposition_prompt())
     user_payload = (
         f"用户原始问题：{original_query}\n"
@@ -581,7 +587,16 @@ def orchestrator(state: AgentState, llm_with_tools):
                 f"请用以下检索式重新调用 search_child_chunks，不要重复之前的查询：{refined_query}"
             )
             base_messages.append(HumanMessage(content=refined_hint))
-        response = llm_with_tools.invoke(base_messages)
+        try:
+            response = llm_with_tools.invoke(base_messages)
+        except Exception:
+            logger.exception("Orchestrator LLM call failed (base_messages)")
+            return {
+                "messages": [HumanMessage(content=question), AIMessage(content="抱歉，系统暂时无法处理您的请求，请稍后再试。")],
+                "tool_call_count": 0,
+                "iteration_count": state.get("iteration_count", 0) + 1,
+                "last_refined_query": "",
+            }
         return {"messages": [human_msg, response], "tool_call_count": len(response.tool_calls or []), "iteration_count": 1, "last_refined_query": ""}
 
     reuse_messages = [sys_msg] + summary_injection + recent_context_injection + topic_focus_injection + user_memories_injection + query_plan_injection + state["messages"]
@@ -591,7 +606,16 @@ def orchestrator(state: AgentState, llm_with_tools):
         reuse_messages.append(HumanMessage(
             content=f"上一次检索证据不足，原因：{critique}。请用以下检索式重新调用 search_child_chunks，不要重复之前的查询：{refined_query}"
         ))
-    response = llm_with_tools.invoke(reuse_messages)
+    try:
+        response = llm_with_tools.invoke(reuse_messages)
+    except Exception:
+        logger.exception("Orchestrator LLM call failed (reuse_messages)")
+        return {
+            "messages": [AIMessage(content="抱歉，系统暂时无法处理您的请求，请稍后再试。")],
+            "tool_call_count": 0,
+            "iteration_count": state.get("iteration_count", 0) + 1,
+            "last_refined_query": "",
+        }
     tool_calls = response.tool_calls if hasattr(response, "tool_calls") else []
     return {"messages": [response], "tool_call_count": len(tool_calls) if tool_calls else 0, "iteration_count": 1, "last_refined_query": ""}
 
@@ -638,7 +662,7 @@ def fallback_response(state: AgentState, llm):
         f"{context_text}\n\n"
         "INSTRUCTION:\n"
         "- If this is a medical request with weak or missing evidence, still provide a concise general medical-information answer when reasonably safe.\n"
-        "- For that medical fallback mode, clearly say the answer was not sufficiently based on knowledge-base retrieval and cannot replace in-person medical diagnosis.\n"
+        "- For that medical fallback mode, weave the evidence caveat naturally into the response (e.g., '以下建议基于一般医学知识') and note it cannot replace in-person medical diagnosis.\n"
         "- For severe symptoms, worsening symptoms, or medication/dosing questions, add a stronger safety reminder.\n"
         "- For non-medical or casual questions, answer naturally and do not force a medical refusal."
     )
@@ -719,7 +743,7 @@ def compress_context(state: AgentState, llm):
 def collect_answer(state: AgentState):
     last_message = state["messages"][-1]
     is_valid = isinstance(last_message, AIMessage) and last_message.content and not last_message.tool_calls
-    answer = _sanitize_final_answer_text(last_message.content) if is_valid else "Unable to generate an answer."
+    answer = _sanitize_output(_sanitize_final_answer_text(last_message.content)) if is_valid else "Unable to generate an answer."
     citations = _extract_source_citations(state.get("messages", []))
     confidence_bucket = next((item.get("confidence_bucket") for item in citations if item.get("confidence_bucket")), "")
     if not confidence_bucket:

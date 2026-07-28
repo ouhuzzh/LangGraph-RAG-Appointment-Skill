@@ -20,6 +20,7 @@ def keep_latest_non_empty(existing: str, new: str) -> str:
 
 class State(MessagesState):
     """State for main agent graph"""
+    # --- Conversation context ---
     questionIsClear: bool = False
     conversation_summary: str = ""
     recent_context: Annotated[str, keep_latest_non_empty] = ""
@@ -27,6 +28,8 @@ class State(MessagesState):
     topic_focus: Annotated[str, keep_latest_non_empty] = ""
     originalQuery: str = ""
     thread_id: str = ""
+
+    # --- Intent / routing ---
     intent: str = ""
     primary_intent: str = ""
     intent_confidence: float = 0.0  # 0.0-1.0, source layer determines fast-path vs LLM
@@ -36,21 +39,22 @@ class State(MessagesState):
     secondary_user_query: str = ""
     planned_queries: List[str] = []
     sub_questions: List[str] = []
-    # P4: online self-eval - LLM-as-judge score + details at turn end
-    self_eval_score: float | None = None
-    self_eval_details: dict = {}
     decision_source: str = ""
     route_reason: str = ""
     last_route_reason: str = ""
     risk_level: str = "normal"
+
+    # --- Clarification ---
     pending_clarification: str = ""
     clarification_attempts: int = 0
     clarification_target: str = ""
     deferred_user_question: str = ""
-    # Phase 2 turn planner: LLM-produced cross-intent task list + drained results.
-    # dispatch_next_task pops the next undone task; completeness_gate checks coverage.
+
+    # --- Turn planner (Phase 2) ---
     planned_tasks: List[dict] = []
     task_results: Annotated[List[dict], accumulate_or_reset] = []
+
+    # --- Appointment ---
     recommended_department: str = ""
     appointment_context: Dict[str, str] = {}
     appointment_skill_mode: str = ""
@@ -65,15 +69,23 @@ class State(MessagesState):
     pending_confirmation_id: str = ""
     pending_candidates: List[dict] = []
     pending_stale_count: int = 0  # consecutive irrelevant turns while pending — auto-clear at 2
+
+    # --- Retrieval / grounding ---
     rewrittenQuestions: List[str] = []
     grounding_evidence_score: float | None = None
     grounding_passed: bool = False
     grounding_critique: str = ""
     grounding_rounds: int = 0
+
+    # --- Answer / memory ---
     agent_answers: Annotated[List[dict], accumulate_or_reset] = []
     skill_data: Dict[str, Any] = {}
     user_memories: str = ""
     user_id: str = ""
+
+    # --- Self-eval (P4) ---
+    self_eval_score: float | None = None
+    self_eval_details: dict = {}
 
 class AgentState(MessagesState):
     """State for individual agent subgraph"""

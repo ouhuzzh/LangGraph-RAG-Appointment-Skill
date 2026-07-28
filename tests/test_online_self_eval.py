@@ -83,6 +83,15 @@ class _FakeStructuredLLM:
 
 
 class TestSelfEvalNode(unittest.TestCase):
+    def setUp(self):
+        import project.rag_agent.rag_nodes as mod
+        self._orig = mod.config.ENABLE_SELF_EVAL
+        mod.config.ENABLE_SELF_EVAL = True
+
+    def tearDown(self):
+        import project.rag_agent.rag_nodes as mod
+        mod.config.ENABLE_SELF_EVAL = self._orig
+
     def _state_with_answer(self, answer="一般可以接种，但需先咨询医生。", **extra):
         from langchain_core.messages import AIMessage
         return _make_main_state(messages=[AIMessage(content=answer)], **extra)
@@ -207,6 +216,15 @@ class TestRouteAfterSelfEval(unittest.TestCase):
 
 
 class TestRouteAfterGroundingSelfEval(unittest.TestCase):
+    def setUp(self):
+        import config
+        self._orig = config.ENABLE_SELF_EVAL
+        config.ENABLE_SELF_EVAL = True
+
+    def tearDown(self):
+        import config
+        config.ENABLE_SELF_EVAL = self._orig
+
     def test_grounded_routes_to_self_eval_when_enabled(self):
         from project.rag_agent.edges import route_after_grounding
         self.assertEqual(route_after_grounding(_make_main_state(grounding_passed=True)), "self_eval")
@@ -222,17 +240,19 @@ class TestRouteAfterGroundingSelfEval(unittest.TestCase):
         state = _make_main_state(grounding_passed=False, grounding_rounds=0)
         self.assertEqual(route_after_grounding(state), "revise_answer")
 
-    def test_grounded_drains_to_advance_task_when_self_eval_disabled(self):
+    def test_grounded_drains_to_end_when_self_eval_disabled(self):
         import project.rag_agent.edges as edges
         from project.rag_agent.edges import route_after_grounding
         with unittest.mock.patch.object(edges.config, "ENABLE_SELF_EVAL", False):
-            self.assertEqual(route_after_grounding(_make_main_state(grounding_passed=True)), "advance_task")
+            self.assertEqual(route_after_grounding(_make_main_state(grounding_passed=True)), "__end__")
 
-    def test_grounded_drains_to_advance_task_when_self_eval_disabled(self):
+    def test_budget_exhausted_drains_to_end_when_self_eval_disabled(self):
+        import config
         import project.rag_agent.edges as edges
         from project.rag_agent.edges import route_after_grounding
         with unittest.mock.patch.object(edges.config, "ENABLE_SELF_EVAL", False):
-            self.assertEqual(route_after_grounding(_make_main_state(grounding_passed=True)), "advance_task")
+            state = _make_main_state(grounding_passed=False, grounding_rounds=config.MAX_GROUNDING_ROUNDS)
+            self.assertEqual(route_after_grounding(state), "__end__")
 
 
 class TestGraphWiring(unittest.TestCase):

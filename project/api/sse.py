@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import json
 import re
@@ -116,7 +117,12 @@ def visible_assistant_text(chunk) -> str:
     return ""
 
 
-def stream_chat_events(thread_id: str, message: str) -> Iterable[str]:
+async def stream_chat_events(thread_id: str, message: str) -> Iterable[str]:
+    """Async generator for SSE streaming.
+
+    Runs the synchronous chat generator in a thread pool so the event loop
+    is never blocked by LLM / retrieval calls.
+    """
     container = get_container()
     final_content = ""
     yield event_payload(ChatSseEvent(type="session", thread_id=thread_id, content=thread_id))
@@ -137,12 +143,39 @@ def stream_chat_events(thread_id: str, message: str) -> Iterable[str]:
                 )
             )
             return
-        for chunk in container.chat_interface.chat(
-            message,
-            [],
-            reveal_diagnostics=False,
-            thread_id=thread_id,
-        ):
+
+        # Run the sync generator in a thread pool to avoid blocking the event loop.
+        def _collect_sync():
+            results = []
+            gen = container.chat_interface.chat(
+                message,
+                [],
+                reveal_diagnostics=False,
+                thread_id=thread_id,
+            )
+            try:
+                for chunk in gen:
+                    results.append(chunk)
+            except Exception:
+                logger.exception("Sync chat generator failed for thread_id=%s", thread_id)
+                raise
+            return results
+
+        try:
+            chunks = await asyncio.to_thread(_collect_sync)
+        except Exception as exc:
+            yield event_payload(
+                ChatSseEvent(
+                    type="app-error",
+                    thread_id=thread_id,
+                    content="聊天服务暂时不可用，请稍后再试。",
+                    error=str(exc),
+                    done=True,
+                )
+            )
+            return
+
+        for chunk in chunks:
             content = visible_assistant_text(chunk)
             if not content:
                 continue
@@ -162,10 +195,16 @@ def stream_chat_events(thread_id: str, message: str) -> Iterable[str]:
     else:
         # Generative UI: emit structured card events from the final content,
         # enriched with pending-confirmation state so cards can carry actions.
-        session_state = _session_state_for_thread(container, thread_id)
-        for card_event_str in _detect_card_events(final_content, thread_id, session_state):
-            yield card_event_str
-        yield event_payload(ChatSseEvent(type="final", thread_id=thread_id, content=final_content, done=True))
+        try:
+            session_state = _session_state_for_thread(container, thread_id)
+            for card_event_str in _detect_card_events(final_content, thread_id, session_state):
+                yield card_event_str
+            yield event_payload(ChatSseEvent(type="final", thread_id=thread_id, content=final_content, done=True))
+        except Exception:
+            logger.exception("Failed to emit final/card events")
+            yield event_payload(ChatSseEvent(
+                type="final", thread_id=thread_id, content=final_content, done=True,
+            ))
     finally:
         if acquired and lock is not None:
             lock.release()

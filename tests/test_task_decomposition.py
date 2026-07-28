@@ -12,6 +12,12 @@ from langgraph.types import Send  # noqa: E402
 
 
 class TestConfigFields(unittest.TestCase):
+    def setUp(self):
+        import config
+        self._orig = getattr(config, "ENABLE_TASK_DECOMPOSITION", False)
+        config.ENABLE_TASK_DECOMPOSITION = True
+        self.addCleanup(setattr, config, "ENABLE_TASK_DECOMPOSITION", self._orig)
+
     def test_decomposition_config_fields_exist(self):
         import config
         self.assertTrue(hasattr(config, "MAX_SUB_QUESTIONS"))
@@ -43,11 +49,20 @@ class TestTaskDecompositionSchema(unittest.TestCase):
 
 
 class TestDecomposeTasks(unittest.TestCase):
+    def setUp(self):
+        import config
+        self._orig = getattr(config, "ENABLE_TASK_DECOMPOSITION", False)
+        config.ENABLE_TASK_DECOMPOSITION = True
+        self.addCleanup(setattr, config, "ENABLE_TASK_DECOMPOSITION", self._orig)
+
     def test_compound_question_yields_multiple_sub_questions(self):
         """LLM says compound → write multiple sub_questions."""
         from project.rag_agent.rag_nodes import decompose_tasks
         from project.rag_agent.schemas import TaskDecomposition
-        state = _make_main_state()
+        state = _make_main_state(
+            originalQuery="高血压合并痛风吃什么药安全，另外怎么在家监测血压？",
+            rewrittenQuestions=["高血压合并痛风吃什么药安全，另外怎么在家监测血压？"],
+        )
         parser = MagicMock()
         parser.invoke.return_value = TaskDecomposition(
             needs_decomposition=True,
@@ -105,7 +120,7 @@ class TestDecomposeTasks(unittest.TestCase):
         import config
         from project.rag_agent.rag_nodes import decompose_tasks
         from project.rag_agent.schemas import TaskDecomposition
-        state = _make_main_state()
+        state = _make_main_state(rewrittenQuestions=["高血压应该注意什么，以及日常饮食有哪些禁忌"])
         parser = MagicMock()
         parser.invoke.return_value = TaskDecomposition(
             needs_decomposition=True,
@@ -224,6 +239,12 @@ class TestCompiledDecompositionFanOut(unittest.TestCase):
     state machinery: N sub-questions produce N parallel agent invocations whose
     agent_answers entries (index 0..N-1) are merged by the accumulate_or_reset reducer."""
 
+    def setUp(self):
+        import config
+        self._orig = getattr(config, "ENABLE_TASK_DECOMPOSITION", False)
+        config.ENABLE_TASK_DECOMPOSITION = True
+        self.addCleanup(setattr, config, "ENABLE_TASK_DECOMPOSITION", self._orig)
+
     def _build_graph(self, llm):
         from langgraph.graph import StateGraph, START, END
         from project.rag_agent.graph_state import State
@@ -269,7 +290,10 @@ class TestCompiledDecompositionFanOut(unittest.TestCase):
         )
         with patch("project.rag_agent.rag_nodes._structured_output_llm", return_value=parser):
             graph, dispatched = self._build_graph(MagicMock())
-            state = _make_main_state()
+            state = _make_main_state(
+                originalQuery="高血压合并痛风吃什么药安全，另外怎么在家监测血压？",
+                rewrittenQuestions=["高血压合并痛风吃什么药安全，另外怎么在家监测血压？"],
+            )
             final = graph.invoke(state, {"recursion_limit": 20})
         # Two parallel agent invocations happened.
         self.assertEqual(len(dispatched["sends"]), 2)

@@ -33,6 +33,7 @@ class AppointmentSkill(BaseSkill):
         return (
             "帮我预约心内科", "帮我预约内科", "帮我预约外科",
             "我要挂号", "帮我预约", "帮我挂号",
+            "帮我挂一个", "帮我挂个", "挂一个",
         )
 
     @property

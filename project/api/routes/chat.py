@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -71,13 +73,23 @@ def _session_is_empty(container, thread_id: str) -> bool:
     return not _session_visible_messages(container, thread_id)
 
 
+_MEANINGFUL_CHAR_RE = re.compile(r'[\w\u4e00-\u9fff\u3400-\u4dbf]')
+
+
+def _is_meaningful_title(text: str) -> bool:
+    """Return True when *text* contains at least a few word characters."""
+    return len(_MEANINGFUL_CHAR_RE.findall(text)) >= 2
+
+
 def _session_title(container, session: dict) -> str:
     explicit_title = str(session.get("title") or "").strip()
-    if explicit_title:
+    if explicit_title and _is_meaningful_title(explicit_title):
         return explicit_title
     for converted in _session_visible_messages(container, session["thread_id"]):
         if converted.role == "user":
             title = converted.content.strip()
+            if not _is_meaningful_title(title):
+                return "新对话"
             return title[:32] + ("..." if len(title) > 32 else "")
     return "新会话"
 
@@ -169,6 +181,8 @@ def rename_session(
     ensure_owned_session(payload.thread_id, current_user)
     container = get_container()
     title = payload.title.strip()
+    if not _is_meaningful_title(title):
+        title = "新对话"
     if not container.chat_sessions.update_session_title(payload.thread_id, current_user.user_id, title):
         raise HTTPException(status_code=404, detail="会话不存在或不可修改。")
     return RenameSessionResponse(thread_id=payload.thread_id, title=title)

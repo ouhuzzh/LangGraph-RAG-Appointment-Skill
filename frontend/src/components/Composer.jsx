@@ -37,12 +37,30 @@ const Composer = React.memo(
       autoResize();
     }, [input]);
 
-    function handleKeyDown(e) {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        if (!isStreaming && input.trim() && !disabled) onSubmit();
-      }
-    }
+    // Use native keydown listener for reliable Enter handling
+    const onSubmitRef = useRef(onSubmit);
+    onSubmitRef.current = onSubmit;
+    const inputRef = useRef(input);
+    inputRef.current = input;
+    const isStreamingRef = useRef(isStreaming);
+    isStreamingRef.current = isStreaming;
+    const disabledRef = useRef(disabled);
+    disabledRef.current = disabled;
+
+    useEffect(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      const handleKey = (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          if (!isStreamingRef.current && inputRef.current?.trim() && !disabledRef.current) {
+            onSubmitRef.current();
+          }
+        }
+      };
+      el.addEventListener("keydown", handleKey);
+      return () => el.removeEventListener("keydown", handleKey);
+    }, []);
 
     function handlePaste(e) {
       e.preventDefault();
@@ -85,7 +103,7 @@ const Composer = React.memo(
               onChange(e.target.value);
             }}
             onInput={autoResize}
-            onKeyDown={handleKeyDown}
+
             onPaste={handlePaste}
             placeholder={placeholder}
             rows={1}
@@ -100,7 +118,7 @@ const Composer = React.memo(
         {isStreaming ? (
           <button
             type="button"
-            className="composer__btn composer__btn--stop"
+            className="composer__btn composer__btn--stop composer__btn--enter"
             title="停止生成"
             aria-label="停止 AI 生成"
             onClick={onStop}
@@ -110,7 +128,7 @@ const Composer = React.memo(
         ) : (
           <button
             type="submit"
-            className="composer__btn composer__btn--send"
+            className="composer__btn composer__btn--send composer__btn--enter"
             disabled={!input.trim() || disabled}
             title="发送 (Enter)"
             aria-label="发送消息"

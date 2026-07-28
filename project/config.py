@@ -91,10 +91,10 @@ ENABLE_ANSWER_REFLECTION = os.environ.get("ENABLE_ANSWER_REFLECTION", "true").lo
 
 # P3: task decomposition — parallel sub-question fan-out
 MAX_SUB_QUESTIONS = int(os.environ.get("MAX_SUB_QUESTIONS", "3"))
-ENABLE_TASK_DECOMPOSITION = os.environ.get("ENABLE_TASK_DECOMPOSITION", "true").lower() == "true"
+ENABLE_TASK_DECOMPOSITION = os.environ.get("ENABLE_TASK_DECOMPOSITION", "false").lower() == "true"
 
 # P4: online self-eval - LLM-as-judge answer scoring + soft-degrade caveat
-ENABLE_SELF_EVAL = os.environ.get("ENABLE_SELF_EVAL", "true").lower() == "true"
+ENABLE_SELF_EVAL = os.environ.get("ENABLE_SELF_EVAL", "false").lower() == "true"
 SELF_EVAL_DEGRADE_THRESHOLD = float(os.environ.get("SELF_EVAL_DEGRADE_THRESHOLD", "0.6"))
 
 # P5: Contextual Retrieval — prepend an LLM-generated situating sentence to each
@@ -117,7 +117,7 @@ SEMANTIC_CACHE_MIN_QUERY_CHARS = int(os.environ.get("SEMANTIC_CACHE_MIN_QUERY_CH
 # P7: Clinical safety guardrail — graded red-flag severity + prescription-boundary
 # checks. Off by default; when on it is strictly additive to existing risk
 # inference (can only raise risk, never lower it).
-ENABLE_CLINICAL_SAFETY_GUARDRAIL = os.environ.get("ENABLE_CLINICAL_SAFETY_GUARDRAIL", "false").lower() == "true"
+ENABLE_CLINICAL_SAFETY_GUARDRAIL = os.environ.get("ENABLE_CLINICAL_SAFETY_GUARDRAIL", "true").lower() == "true"
 
 # P8: GraphRAG — medical knowledge graph with multi-hop retrieval. Off by default;
 # enabling adds triple extraction at ingest time (one LLM call per parent chunk)
@@ -344,9 +344,11 @@ SLOT_HOLD_TTL_MINUTES = int(os.environ.get("SLOT_HOLD_TTL_MINUTES", "10"))
 ENABLE_LLM_CONTINUATION_ARBITER = os.environ.get("ENABLE_LLM_CONTINUATION_ARBITER", "false").lower() == "true"
 # Checkpoint backend: "pickle" (single-process file, default) or "postgres"
 # (multi-replica safe, requires langgraph-checkpoint-postgres; fail-open to pickle).
-GRAPH_CHECKPOINT_BACKEND = os.environ.get("GRAPH_CHECKPOINT_BACKEND", "pickle").strip().lower()
+GRAPH_CHECKPOINT_BACKEND = os.environ.get("GRAPH_CHECKPOINT_BACKEND", "postgres").strip().lower()
 CHECKPOINT_PG_POOL_MAX_SIZE = int(os.environ.get("CHECKPOINT_PG_POOL_MAX_SIZE", "4"))
 GRAPH_STREAM_MAX_SECONDS = float(os.environ.get("GRAPH_STREAM_MAX_SECONDS", "120"))
+# Per-node LLM call timeout (safety net, does not replace provider-level timeout).
+LLM_NODE_TIMEOUT_SECONDS = int(os.environ.get("LLM_NODE_TIMEOUT_SECONDS", "30"))
 
 # --- Text Splitter Configuration ---
 CHILD_CHUNK_SIZE = 500

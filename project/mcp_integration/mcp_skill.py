@@ -28,6 +28,7 @@ from mcp_integration.tool_policy import (
     filter_generic_mcp_tools,
     is_appointment_mutation_name,
 )
+from rag_agent.node_helpers import _sanitize_output
 from skills.base_skill import BaseSkill
 
 logger = logging.getLogger(__name__)
@@ -292,7 +293,7 @@ class MCPSkill(BaseSkill):
                     continue
                 try:
                     result = tool.invoke(tool_args)
-                    tool_outputs.append(f"[成功] {tool_name}: {result}")
+                    tool_outputs.append(f"[成功] {tool_name}: {_sanitize_output(str(result))}")
                 except Exception as te:
                     any_failure = True
                     # Surface the real error to the summarizer LLM so it can
@@ -315,12 +316,12 @@ class MCPSkill(BaseSkill):
                 summary = llm.invoke(
                     [
                         SystemMessage(content=summary_prompt),
-                        HumanMessage(content="\n\n".join(tool_outputs)),
+                        HumanMessage(content=_sanitize_output("\n\n".join(tool_outputs))),
                     ]
                 )
-                final_text = str(summary.content)
+                final_text = _sanitize_output(str(summary.content))
             except Exception:
-                final_text = "\n".join(tool_outputs)
+                final_text = _sanitize_output("\n".join(tool_outputs))
 
             return {
                 "intent": "mcp_services",

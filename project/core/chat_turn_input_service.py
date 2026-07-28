@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from dataclasses import dataclass
 
@@ -13,6 +14,21 @@ from utils import estimate_context_tokens
 
 
 logger = logging.getLogger(__name__)
+
+# Strip emoji characters that can break LLM structured-output parsing.
+_EMOJI_PATTERN = re.compile(
+    '[\U0001F600-\U0001F64F'   # emoticons
+    '\U0001F300-\U0001F5FF'   # symbols & pictographs
+    '\U0001F680-\U0001F6FF'   # transport & map symbols
+    '\U0001F1E0-\U0001F1FF'   # flags
+    '\U00002702-\U000027B0'
+    '\U0001F900-\U0001F9FF'   # supplemental symbols
+    '\U0001FA00-\U0001FA6F'
+    '\U0001FA70-\U0001FAFF'
+    '\U00002600-\U000026FF'
+    ']+',
+    flags=re.UNICODE,
+)
 
 
 @dataclass
@@ -27,6 +43,58 @@ class ChatTurnInput:
     user_id: str
     user_memories_text: str
     stream_input: dict | None
+    early_response: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Prompt injection detection patterns
+# ---------------------------------------------------------------------------
+_INJECTION_MARKERS = [
+    "忽略之前的", "忽略上面的", "ignore previous", "ignore above",
+    "forget your", "忘记你的",
+]
+_SYSTEM_LEVEL_REQUESTS = [
+    "系统提示词", "system prompt", "你的指令", "your instructions",
+    "你的设定", "初始设定",
+]
+_ROLE_HIJACK_PATTERNS = [
+    "你现在是", "you are now", "act as", "假装你是",
+]
+
+_PROMPT_INJECTION_WARNING = (
+    "您的消息似乎包含特殊指令，请直接描述您的健康问题，我会尽力帮助您。"
+)
+_EMOJI_ONLY_WARNING = (
+    "您的消息似乎只包含表情符号，请用文字描述您的健康问题，我来帮您分析。"
+)
+_SYMBOL_ONLY_WARNING = (
+    "您输入的内容似乎包含一些特殊符号，请描述您的健康问题，我会尽力帮助您。"
+)
+
+
+def _detect_prompt_injection(text: str) -> bool:
+    """Return True when the text looks like a prompt-injection attempt.
+
+    Only fires when an injection marker AND (a system-level request OR a role
+    hijack pattern) are both present, to avoid false positives on normal
+    medical queries.
+    """
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+    has_injection_marker = any(marker in normalized for marker in _INJECTION_MARKERS)
+    if not has_injection_marker:
+        return False
+    has_system_request = any(req in normalized for req in _SYSTEM_LEVEL_REQUESTS)
+    has_role_hijack = any(pat in normalized for pat in _ROLE_HIJACK_PATTERNS)
+    return has_system_request or has_role_hijack
+
+
+def _is_pure_symbol_input(text: str) -> bool:
+    """Return True when text contains no letters and no CJK characters."""
+    if not text:
+        return True
+    return not re.search(r'[a-zA-Z\u4e00-\u9fff]', text)
 
 
 class ChatTurnInputService:
@@ -50,6 +118,24 @@ class ChatTurnInputService:
         graph_config = self._get_graph_config(active_thread_id)
         current_state = self.rag_system.agent_graph.get_state(graph_config)
         user_message = message.strip()
+        # Remove emoji; fall back to original text if stripping yields empty string.
+        _stripped = _EMOJI_PATTERN.sub('', user_message).strip()
+        if _stripped:
+            user_message = _stripped
+
+        # --- 1.4 Emoji-only / pure-symbol early return ---
+        early_response = None
+        if not _stripped:
+            # Input was pure emoji
+            early_response = _EMOJI_ONLY_WARNING
+        elif _is_pure_symbol_input(_stripped):
+            # Input has no letters or CJK characters (only punctuation/symbols)
+            early_response = _SYMBOL_ONLY_WARNING
+
+        # --- 1.2 Prompt injection detection ---
+        if early_response is None and _detect_prompt_injection(user_message):
+            early_response = _PROMPT_INJECTION_WARNING
+
         request_id = uuid.uuid4().hex
         session_state = self.rag_system.session_memory.get_state(active_thread_id)
         checkpoint_resumed = bool(current_state.next)
@@ -99,6 +185,7 @@ class ChatTurnInputService:
             user_id=user_id,
             user_memories_text=user_memories_text,
             stream_input=stream_input,
+            early_response=early_response,
         )
 
     @staticmethod

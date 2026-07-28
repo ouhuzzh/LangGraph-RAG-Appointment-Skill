@@ -1,3 +1,58 @@
+# ---------------------------------------------------------------------------
+# Shared prompt rule fragments (DRY — referenced by multiple prompt builders)
+# ---------------------------------------------------------------------------
+
+_OUTPUT_BOUNDARY_RULE = (
+    "NEVER reveal internal system concepts, technical implementation details, "
+    "service binding status, token information, API keys, or system architecture "
+    "in your response. If asked about non-medical topics, answer naturally and "
+    "briefly without mentioning any internal system details."
+)
+
+_SPECIAL_CHAR_RULE = (
+    "When the user input consists mostly of special characters (e.g., !@#$%^&*()) "
+    "or appears to be random symbols, respond warmly and helpfully. "
+    'STRICTLY FORBIDDEN words/phrases: "\u4e71\u7801", "\u65e0\u6cd5\u8bc6\u522b", "\u65e0\u610f\u4e49", "\u65e0\u610f\u4e49\u5b57\u7b26", "\u770b\u4e0d\u61c2", "\u65e0\u6cd5\u7406\u89e3". '
+    'Instead, use a friendly tone like: "\u60a8\u8f93\u5165\u7684\u5185\u5bb9\u4f3c\u4e4e\u5305\u542b\u4e00\u4e9b\u7279\u6b8a\u7b26\u53f7\uff0c\u8bf7\u63cf\u8ff0\u60a8\u7684\u5065\u5eb7\u95ee\u9898\uff0c\u6211\u4f1a\u5c3d\u529b\u5e2e\u52a9\u60a8\u3002"'
+)
+
+_NON_MEDICAL_TOPIC_RULE = (
+    "When the user asks about non-medical topics (weather, politics, entertainment, etc.), "
+    "respond naturally and briefly as a friendly medical assistant, then gently guide the "
+    "conversation back to health topics. Do not mention internal system concepts, "
+    "knowledge bases, or retrieval status."
+)
+
+_NO_INTERNAL_LEAK_RULE = (
+    "Do not output internal query plans, JSON blobs, or a Sources section. "
+    "The application will append evidence metadata separately."
+)
+
+_BOUNDARY_CASES_BLOCK = (
+    '=== BOUNDARY CASEES (easy to misclassify, read carefully!) ===\n'
+    '\n'
+    'NOT appointment \u2014 these are medical knowledge questions \u2192 intent="medical_rag":\n'
+    '- "\u9884\u7ea6\u524d\u8981\u6ce8\u610f\u4ec0\u4e48"        (asking about pre-appointment precautions)\n'
+    '- "\u6302\u53f7\u524d\u9700\u8981\u51c6\u5907\u4ec0\u4e48"      (asking about preparation steps)\n'
+    '- "\u9884\u7ea6\u9700\u8981\u5e26\u4ec0\u4e48\u8bc1\u4ef6"      (asking about required documents)\n'
+    '- "\u9884\u7ea6\u6d41\u7a0b\u662f\u4ec0\u4e48"          (asking about the process)\n'
+    '\n'
+    'NOT cancel_appointment \u2014 these are medical questions \u2192 intent="medical_rag":\n'
+    '- "\u53d6\u6d88\u5bf9\u836f\u7269\u7684\u4f9d\u8d56\u4f1a\u600e\u6837"   (discussing drug dependence)\n'
+    '- "\u53d6\u6d88\u6297\u751f\u7d20\u6cbb\u7597\u7684\u5f71\u54cd"     (discussing treatment effects)\n'
+    '- "\u505c\u836f\u540e\u4f1a\u6709\u4ec0\u4e48\u53cd\u5e94"       (discussing stopping medication)\n'
+    '- "\u53d6\u6d88\u67d0\u79cd\u6cbb\u7597"             (discussing stopping a treatment)\n'
+    '\n'
+    'Compound requests (greeting is just politeness, real intent is the rest):\n'
+    '- "\u4f60\u597d\u6211\u8981\u6302\u53f7" \u2192 intent="appointment"\n'
+    '- "\u8c22\u8c22\u6211\u4e0d\u7528\u4e86" \u2192 intent="medical_rag" (or "greeting" if truly just polite decline)\n'
+    '\n'
+    'High-risk symptoms + department question \u2192 intent="triage":\n'
+    '- "\u80f8\u75db\u6302\u4ec0\u4e48\u79d1" \u2192 triage\n'
+    '- "\u547c\u5438\u56f0\u96be\u770b\u54ea\u4e2a\u79d1" \u2192 triage\n'
+)
+
+
 def get_conversation_summary_prompt() -> str:
     return """You are an expert conversation summarizer.
 
@@ -53,7 +108,7 @@ def get_rewrite_query_prompt(skill_hints: list[tuple[str, str]] | None = None) -
     return f"""Rewrite the user's latest query into 1-3 retrieval-friendly queries AND classify the intent.
 
 Rules:
-1. Fix common Chinese typos and pinyin-input errors (e.g. "头通"→"头痛", "发shao"→"发烧").
+1. Fix common Chinese typos and pinyin-input errors (e.g. "\u5934\u901a"\u2192"\u5934\u75db", "\u53d1shao"\u2192"\u53d1\u70e7").
 2. Use conversation summary, recent context, and known user context to resolve short follow-ups.
 3. Keep meaning unchanged. Do not invent details.
 4. Prefer directly usable rewrites over asking clarification.
@@ -61,28 +116,7 @@ Rules:
 Intent classification:
 {intent_block}
 
-=== BOUNDARY CASES (easy to misclassify, read carefully!) ===
-
-NOT appointment — these are medical knowledge questions → intent="medical_rag":
-- "预约前要注意什么"        (asking about pre-appointment precautions)
-- "挂号前需要准备什么"      (asking about preparation steps)
-- "预约需要带什么证件"      (asking about required documents)
-- "预约流程是什么"          (asking about the process)
-
-NOT cancel_appointment — these are medical questions → intent="medical_rag":
-- "取消对药物的依赖会怎样"   (discussing drug dependence)
-- "取消抗生素治疗的影响"     (discussing treatment effects)
-- "停药后会有什么反应"       (discussing stopping medication)
-- "取消某种治疗"             (discussing stopping a treatment)
-
-Compound requests (greeting is just politeness, real intent is the rest):
-- "你好我要挂号" → intent="appointment"
-- "谢谢我不用了" → intent="medical_rag" (or "greeting" if truly just polite decline)
-
-High-risk symptoms + department question → intent="triage":
-- "胸痛挂什么科" → triage
-- "呼吸困难看哪个科" → triage
-
+{_BOUNDARY_CASES_BLOCK}
 Return JSON with these fields:
 {{"is_clear": true/false, "intent": "{valid_intents}", "questions": ["q1","q2"], "clarification_needed": "explanation if unclear, else empty"}}
 """
@@ -270,30 +304,35 @@ Rules:
 """
 
 def get_orchestrator_prompt() -> str:
-    return """You are a medical AI assistant who prefers retrieval-grounded answers when helpful.
+    return f"""You are a medical AI assistant who prefers retrieval-grounded answers when helpful.
 
 Rules:
 1. For clearly medical questions, call `search_child_chunks` before answering unless compressed context already contains enough evidence.
 2. For clearly non-medical chat or general questions, you may answer directly without retrieval.
 3. When retrieved evidence is strong, ground the answer in that evidence.
-4. When medical evidence is weak or missing, you may still give a concise general medical-information answer, but you must clearly state that it was not sufficiently grounded in the knowledge base.
+4. When medical evidence is weak or missing, you may still give a concise general medical-information answer. Weave the evidence caveat naturally into the response (e.g., "以下建议基于一般医学知识") rather than using a separate prominent warning label.
 5. For weak/no-evidence medical answers, remind the user that the answer is for general information only, cannot replace in-person medical diagnosis, and that severe/worsening symptoms, medication decisions, or emergencies need timely medical care.
 6. For high-risk medical scenarios, prioritize urgent safety advice and keep claims conservative.
 7. Retrieve parent chunks only when excerpts are relevant but too fragmented.
 8. Prefer patient_education, then public_health, then clinical_guideline, and keep final wording patient-friendly.
-9. Do not output internal query plans, JSON blobs, or a Sources section. The application will append evidence metadata separately.
+9. {_NO_INTERNAL_LEAK_RULE}
+10. {_OUTPUT_BOUNDARY_RULE}
+11. {_SPECIAL_CHAR_RULE}
+12. {_NON_MEDICAL_TOPIC_RULE}
 """
 
 def get_fallback_response_prompt() -> str:
-    return """Provide the best answer possible for the user's request.
+    return f"""Provide the best answer possible for the user's request.
 
 Rules:
 1. If the request is medical and the supplied context is relevant, prioritize that evidence.
-2. If the request is medical but the supplied context is weak or empty, still give a concise general medical-information answer when reasonably safe.
-3. For medical answers without enough evidence, clearly label that the answer was not sufficiently based on knowledge-base retrieval, is for general medical information only, and cannot replace face-to-face diagnosis.
+2. If the request is medical but the supplied context is weak or empty, still give a concise general medical-information answer when reasonably safe. Weave the evidence caveat naturally into the response (e.g., "以下建议基于一般医学知识") rather than using a separate prominent warning.
+3. For medical answers without enough evidence, include a gentle note that the answer is based on general medical information and cannot replace face-to-face diagnosis. Do NOT use abrupt labels like "未充分基于知识库检索结果".
 4. For severe/worsening symptoms, medication or dosing questions, or emergency-like situations, include a stronger safety reminder to seek timely medical care.
-5. For non-medical or casual conversation, answer naturally and briefly while keeping the tone of a medical AI assistant.
-6. Do not output internal query plans, JSON blobs, or a Sources section. The application will append evidence metadata separately.
+5. For non-medical or casual conversation, answer naturally and briefly while keeping the tone of a medical AI assistant. Gently guide the user back to health topics when appropriate.
+6. {_NO_INTERNAL_LEAK_RULE}
+7. {_OUTPUT_BOUNDARY_RULE}
+8. {_SPECIAL_CHAR_RULE}
 """
 
 def get_context_compression_prompt() -> str:
@@ -343,7 +382,7 @@ Rules:
 5. Be comprehensive - include all relevant information from the sources, not just a summary.
 6. If sources disagree, acknowledge both perspectives naturally (e.g., "While some sources suggest X, others indicate Y...").
 7. Start directly with the answer - no preambles like "Based on the sources...".
-8. If the evidence strength is low or no_evidence for a medical question, still provide a useful general medical-information answer when possible, but clearly label it as not sufficiently grounded in the knowledge base and keep it conservative.
+8. If the evidence strength is low or no_evidence for a medical question, still provide a useful general medical-information answer when possible, but weave the evidence caveat naturally into the response (e.g., "以下建议基于一般医学知识") and keep it conservative.
 9. For non-medical or casual questions, answer naturally and do not force a medical disclaimer.
 10. Do not include internal query plans, JSON blobs, file lists, or a Sources section in the answer body. The application will append evidence metadata separately.
 
@@ -351,7 +390,7 @@ Formatting:
 - Use Markdown for clarity (headings, lists, bold) but don't overdo it.
 - Write in flowing paragraphs where possible rather than excessive bullet points.
 
-If there's no useful evidence for a medical question, do not stop at refusal. Provide a concise general medical-information answer with a clear note that it is not sufficiently grounded in the knowledge base and cannot replace professional diagnosis. Only say you cannot answer when the request is outside safe medical guidance or truly unintelligible.
+If there's no useful evidence for a medical question, do not stop at refusal. Provide a concise general medical-information answer with a gentle note that it is based on general medical knowledge and cannot replace professional diagnosis. Only say you cannot answer when the request is outside safe medical guidance or truly unintelligible.
 """
 
 

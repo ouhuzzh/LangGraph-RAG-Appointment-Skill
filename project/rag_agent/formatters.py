@@ -41,7 +41,7 @@ def _build_medical_fallback_notice(*, risk_level: str = "normal", confidence_buc
     if risk_level == "high":
         parts.append("⚠️ **高危提示**：您描述的症状可能需要紧急医疗处理，建议尽快前往急诊或拨打急救电话。")
     if confidence_bucket in ("no_evidence", "low"):
-        parts.append("ℹ️ 以上回答**未基于知识库检索结果**，仅供一般健康信息参考，不能替代医生面对面诊断。")
+        parts.append("ℹ️ 以上回答**基于一般医学知识**整理，仅供健康信息参考，不能替代医生面对面诊断。")
     return "\n".join(parts)
 
 

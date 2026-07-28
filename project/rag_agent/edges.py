@@ -130,6 +130,12 @@ def route_after_query_plan(state: State):
 
 
 def route_after_clarification(state: State) -> Literal["intent_router", "rewrite_query", "recommend_department", "handle_appointment_skill", "handle_appointment", "handle_cancel_appointment"]:
+    # If request_clarification detected a medical question, it clears
+    # clarification_target and sets primary_intent="medical_rag".
+    # Route to the RAG pipeline instead of the (now-stale) clarification_target.
+    if state.get("primary_intent") == "medical_rag":
+        return "rewrite_query"
+
     target = state.get("clarification_target", "") or "intent_router"
     if target == "rewrite_query":
         return "rewrite_query"
@@ -248,13 +254,13 @@ def route_after_evidence(state: AgentState) -> Literal["should_compress_context"
     return "should_compress_context"
 
 
-def route_after_grounding(state: State) -> Literal["revise_answer", "self_eval", "advance_task"]:
+def route_after_grounding(state: State) -> Literal["revise_answer", "self_eval", "__end__"]:
     """P2/P4: route after the answer grounding check.
 
-    - grounded -> self_eval (P4) when on, else advance_task (drain next planned task)
+    - grounded -> self_eval (P4) when on, else __end__
     - not grounded + budget + reflection on -> revise_answer
-    - not grounded + budget + reflection off -> self_eval / advance_task
-    - budget exhausted -> self_eval / advance_task
+    - not grounded + budget + reflection off -> self_eval / __end__
+    - budget exhausted -> self_eval / __end__
     """
     if bool(state.get("grounding_passed", False)):
         return _next_after_grounding()
@@ -270,7 +276,7 @@ def _next_after_grounding() -> str:
     The planner owns the per-task drain: after grounding (and optional
     self_eval) we drain the next planned task via advance_task.
     """
-    return "self_eval" if config.ENABLE_SELF_EVAL else "advance_task"
+    return "self_eval" if config.ENABLE_SELF_EVAL else "__end__"
 
 
 def route_after_self_eval(state: State) -> str:
