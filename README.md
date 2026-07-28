@@ -11,6 +11,7 @@
 ![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/Frontend-React%20%2B%20Vite-61DAFB?logo=react&logoColor=111827)
 [![License: MIT](https://img.shields.io/badge/License-MIT-2ea043.svg)](LICENSE)
+![CI](https://github.com/nageoffer/xinyu-medical-agent/actions/workflows/ci.yml/badge.svg)
 
 **Medical QA · Hybrid Retrieval · Cross-session Memory · Multi-hospital MCP Booking · PII Encryption**
 
@@ -18,11 +19,23 @@
 
 </div>
 
-![Xinyu Medical Agent](assets/demo.gif)
+<div align="center">
+![Xinyu Medical Agent](assets/demo.png)
+
+<details>
+<summary>🎬 动态演示 / Live Demo (GIF)</summary>
+
+![Demo GIF](assets/demo.gif)
+
+</details>
+
+</div>
 
 > One conversation, the whole system: **triage with a department card** → a medical question answered mid-booking (**interruption-safe pending state**) → a preview that **locks the slot for 10 minutes** → **one-click confirmation** validated by ID equality — no keyword guessing on the critical step.
 
-## Key Metrics
+---
+
+## 📊 Key Metrics
 
 | Metric | Before | After | Improvement |
 |--------|--------|-------|-------------|
@@ -33,7 +46,9 @@
 | Cross-session fact recall | — | **74%** | pgvector user memory |
 | Test suite | — | **738 backend + 50 frontend** | 9-dimension scorecard, CI-gated (ruff + unittest) |
 
-## Why This Project Exists
+---
+
+## 💡 Why This Project Exists
 
 Most RAG demos answer one question from a few documents. This project is closer to a real assistant product:
 
@@ -45,7 +60,9 @@ Most RAG demos answer one question from a few documents. This project is closer 
 - It encrypts sensitive medical PII at rest (Fernet column-level encryption with key rotation support).
 - It ships with 737 regression tests across 9 product dimensions, benchmark scripts, and a 30-persona stress-test framework.
 
-## Feature Highlights
+---
+
+## ✨ Feature Highlights
 
 | Area | Capability |
 | --- | --- |
@@ -61,11 +78,18 @@ Most RAG demos answer one question from a few documents. This project is closer 
 | Operations | Postgres-backed LangGraph checkpointer (multi-replica safe), tiered LLM routing with circuit breaker, 9-dimension test scorecard, CI-enforced lint + tests |
 | Frontend | Clinical-grade React UI — restrained single-accent design, structured cards with action buttons, responsive, dark-mode, PWA-ready |
 
-## Core Capabilities
+---
+
+## 🔬 Core Capabilities
 
 ### Agentic RAG: From Retrieve to Reason
 
 The medical-QA path is not a single retrieve-then-generate chain. It is a self-correcting agent loop built in five composable stages, each gated by a runtime toggle and covered by compiled-graph integration tests.
+
+![Agentic RAG Loop](assets/agentic-rag-loop.svg)
+
+<details>
+<summary>📐 查看 Mermaid 流程图 / View Mermaid diagram</summary>
 
 ```mermaid
 flowchart TD
@@ -87,6 +111,8 @@ flowchart TD
     N --> Z([turn end])
 ```
 
+</details>
+
 - **Evidence-reflection retrieval loop** — rewrites and re-searches when evidence is thin.
 - **Answer grounding check + rewrite** — detects hallucination and rewrites strictly within retrieved evidence.
 - **Task decomposition** — splits compound questions into parallel sub-questions, then merges answers by index.
@@ -94,7 +120,7 @@ flowchart TD
 
 See the [Agentic Pipeline (P1–P4)](#agentic-pipeline-p1p4-from-rag-to-agent) section below for the staged implementation, config toggles, and integration tests.
 
-### Three-Tier Memory: Redis + Summary + Semantic
+### 🧠 Three-Tier Memory: Redis + Summary + Semantic
 
 Conversations are remembered at three time scales so the assistant can both stay grounded in the current thread and recall long-term facts.
 
@@ -125,7 +151,7 @@ flowchart LR
 
 Result: **-27.4% prompt tokens** at 30 turns and **74% cross-session fact recall**.
 
-### Three-Layer Intent Routing: Rule + Semantic + LLM
+### 🎯 Three-Layer Intent Routing: Rule + Semantic + LLM
 
 Skills replace hardcoded if-else intent chains. Each Skill declares how it wants to be matched and where it routes.
 
@@ -145,7 +171,14 @@ flowchart LR
 
 Adding a new intent means adding one `BaseSkill` subclass; the core router and graph wiring stay untouched.
 
-## Architecture
+---
+
+## 🏗️ Architecture
+
+![System Architecture](assets/architecture.svg)
+
+<details>
+<summary>📐 查看 Mermaid 架构图 / View Mermaid diagram</summary>
 
 ```mermaid
 flowchart LR
@@ -174,6 +207,8 @@ flowchart LR
     Sync --> Store["documents / parent_chunks / child_chunks"]
 ```
 
+</details>
+
 ### Runtime Roles
 
 - **React frontend** is the user-facing product surface for chat and lightweight knowledge-base management.
@@ -182,9 +217,20 @@ flowchart LR
 - **PostgreSQL + pgvector** is the source of truth for documents, chunks, appointments, logs, and summaries.
 - **Redis** stores short-term conversational memory and recoverable session state.
 
-## Agentic Pipeline (P1–P4): From RAG to Agent
+![Request Sequence](assets/request-sequence.svg)
+
+![MCP Safety Boundary](assets/mcp-safety-boundary.svg)
+
+---
+
+## 🔄 Agentic Pipeline (P1–P4): From RAG to Agent
 
 The medical-QA path is not a single retrieve-then-generate chain - it is a self-correcting agent with four layered behaviors. Each was built as an isolated stage (spec → plan → TDD → review) and ships with a config toggle that rolls back to the previous stage's behavior, plus compiled-graph integration tests proving the loops actually run through LangGraph's state machinery.
+
+![Agentic Pipeline Detail](assets/agentic-rag-loop.svg)
+
+<details>
+<summary>📐 查看 Mermaid 流程图 / View Mermaid diagram</summary>
 
 ```mermaid
 flowchart TD
@@ -210,6 +256,8 @@ flowchart TD
     N --> Z
 ```
 
+</details>
+
 | Stage | Agent behavior | Key node(s) | Toggle (default) | What it adds |
 | --- | --- | --- | --- | --- |
 | **P1** | Retrieval loop | `evaluate_evidence` | `ENABLE_AGENTIC_RETRIEVAL=true` (`MAX_EVIDENCE_ROUNDS=2`) | Evidence-sufficiency reflection — re-searches with a refined query when retrieval is thin |
@@ -227,7 +275,7 @@ flowchart TD
 
 Per-stage design specs and implementation plans live in [`docs/superpowers/`](docs/superpowers/). See also the [interview architecture guide](docs/INTERVIEW_PROJECT_ARCHITECTURE_CN.md) and [architecture gallery](docs/INTERVIEW_PROJECT_ARCHITECTURE_GALLERY.html).
 
-### Retrieval & Safety Extensions (opt-in)
+### 🔌 Retrieval & Safety Extensions (opt-in)
 
 Beyond the always-on pipeline, three production-grade extensions ship behind config toggles (default off, fail-open, unit-tested) so you can measure their lift with the bundled ablation harness before turning them on:
 
@@ -244,7 +292,9 @@ Beyond the always-on pipeline, three production-grade extensions ship behind con
 
 Each extension is isolated, reversible, and covered by unit tests (`tests/test_contextual_retrieval.py`, `tests/test_semantic_cache.py`, `tests/test_clinical_safety.py`, `tests/test_knowledge_graph.py`, `tests/test_slot_hold.py`, `tests/test_continuation_arbiter.py`, `tests/test_structured_action_channel.py`, `tests/test_checkpointer_backend.py`).
 
-## Typical Workflows
+---
+
+## 📋 Typical Workflows
 
 ### Medical QA With Evidence
 
@@ -286,9 +336,11 @@ User: 确认预约
 Assistant: Resumes and confirms the previous booking.
 ```
 
-## Quick Start
+---
 
-### 1. Install Dependencies
+## 🚀 Quick Start
+
+### 📦 1. Install Dependencies
 
 ```powershell
 python -m venv venv
@@ -306,7 +358,7 @@ Optional multi-format document parsing:
 pip install -r requirements-unstructured.txt
 ```
 
-### 2. Configure Environment
+### ⚙️ 2. Configure Environment
 
 ```powershell
 Copy-Item project\.env.example project\.env
@@ -319,7 +371,7 @@ Fill in at least:
 - Redis connection settings
 - API Bearer token mapping (`API_AUTH_TOKENS_JSON`)
 
-### 3. Start Required Services
+### 🚀 3. Start Required Services
 
 You need:
 
@@ -338,7 +390,7 @@ Production note:
 
 - if `REDIS_ENABLED=true` and `APP_ENV!=development`, Redis is required at startup and the API will fail fast instead of silently falling back to in-process memory
 
-### 4. Start the Split Frontend App
+### 🌐 4. Start the Split Frontend App
 
 ```powershell
 .\start_frontend_app.ps1 -Restart -SkipInstall
@@ -360,7 +412,7 @@ cd frontend
 npm run dev
 ```
 
-### 5. Start the Gradio Admin Console
+### 🔧 5. Start the Gradio Admin Console
 
 ```powershell
 .\venv\Scripts\python.exe project\app.py
@@ -372,7 +424,9 @@ Open:
 
 Gradio is the admin/debug console. Use it for diagnostics, full knowledge-base management, and development checks. For normal user-facing demos, prefer the React frontend above.
 
-## API Surface
+---
+
+## 📡 API Surface
 
 The React app uses these main endpoints:
 
@@ -393,7 +447,9 @@ The React app uses these main endpoints:
 
 All `/api/*` routes require `Authorization: Bearer <token>`. Document routes are admin-only.
 
-## Knowledge Base Updates
+---
+
+## 📚 Knowledge Base Updates
 
 The knowledge base is updateable, not just one-time import:
 
@@ -433,7 +489,9 @@ The API container forces its in-process knowledge-base scheduler off, so adding
 API replicas does not duplicate scheduled maintenance. The worker reuses the
 PostgreSQL advisory lock used by manual jobs.
 
-## Benchmarks
+---
+
+## 📈 Benchmarks
 
 Bundled benchmark snapshots:
 
@@ -449,7 +507,9 @@ Benchmark entrypoints:
 .\venv\Scripts\python.exe project\benchmarks\evaluate_acceptance_report.py --json
 ```
 
-## Testing
+---
+
+## 🧪 Testing
 
 Fast checks:
 
@@ -478,7 +538,9 @@ Live chat smoke, if your model provider is configured:
 .\scripts\smoke_split_app.ps1
 ```
 
-## Project Structure
+---
+
+## 📁 Project Structure
 
 ```text
 project/
@@ -504,7 +566,9 @@ docs/                        # project guide, setup, QA notes
 assets/                      # README demo media
 ```
 
-## Documentation
+---
+
+## 📖 Documentation
 
 Start from the [documentation index](docs/README.md) if you are not sure which document to read.
 
@@ -517,7 +581,9 @@ Start from the [documentation index](docs/README.md) if you are not sure which d
 | Safety | [Security policy](SECURITY.md), [Medical import guide](docs/MEDICAL_IMPORT.md), [Medical sources guide](docs/MEDICAL_SOURCES.md) |
 | Interview | [Interview architecture guide](docs/INTERVIEW_PROJECT_ARCHITECTURE_CN.md), [Architecture gallery](docs/INTERVIEW_PROJECT_ARCHITECTURE_GALLERY.html) |
 
-## Data and Repository Hygiene
+---
+
+## 🛡️ Data and Repository Hygiene
 
 The repository intentionally does **not** commit runtime data:
 
@@ -531,13 +597,17 @@ The repository intentionally does **not** commit runtime data:
 
 Use `project/.env.example` as the template for local configuration.
 
-## Safety Scope
+---
+
+## ⚕️ Safety Scope
 
 This is an engineering demo for medical information assistance and workflow orchestration.
 
 It is **not** a medical device, does **not** provide diagnosis, and does **not** replace licensed clinicians. High-risk symptoms, medication-dose questions, and low-evidence answers are handled with more conservative wording and visible safety reminders.
 
-## Roadmap
+---
+
+## 🗺️ Roadmap
 
 - ~~Build the agentic pipeline (retrieval loop, answer reflection, task decomposition, online self-eval)~~ - **done (P1–P4)**, see [Agentic Pipeline](#agentic-pipeline-p1p4-from-rag-to-agent)
 - ~~Add stronger answer-level evaluation~~ - **done (P4 `self_eval`, LLM-as-judge on safety/accuracy/completeness/groundedness, persisted to `route_logs`)**
