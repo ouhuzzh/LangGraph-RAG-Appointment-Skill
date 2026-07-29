@@ -22,13 +22,6 @@
 <div align="center">
 ![Xinyu Medical Agent](assets/demo.png)
 
-<details>
-<summary>🎬 动态演示 / Live Demo (GIF)</summary>
-
-![Demo GIF](assets/demo.gif)
-
-</details>
-
 </div>
 
 > One conversation, the whole system: **triage with a department card** → a medical question answered mid-booking (**interruption-safe pending state**) → a preview that **locks the slot for 10 minutes** → **one-click confirmation** validated by ID equality — no keyword guessing on the critical step.
