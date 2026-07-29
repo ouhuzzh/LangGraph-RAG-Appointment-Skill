@@ -11,7 +11,7 @@
 ![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/Frontend-React%20%2B%20Vite-61DAFB?logo=react&logoColor=111827)
 [![License: MIT](https://img.shields.io/badge/License-MIT-2ea043.svg)](LICENSE)
-![CI](https://github.com/nageoffer/xinyu-medical-agent/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/ouhuzzh/xinyu-medical-agent/actions/workflows/ci.yml/badge.svg)
 
 **Medical QA · Hybrid Retrieval · Cross-session Memory · Multi-hospital MCP Booking · PII Encryption**
 
@@ -20,6 +20,7 @@
 </div>
 
 <div align="center">
+
 ![Xinyu Medical Agent](assets/demo.png)
 
 </div>
